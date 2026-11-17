@@ -329,6 +329,9 @@ export function calculateRewards(score: number, level: number, targetsHit: numbe
   if (score >= 1000) items.add('bcoin');
   if (level >= 5) items.add('stone');
   if (level >= 10) items.add('bcoin');
+  if (level >= 3) items.add('hay');                       // food for Bóbr
+  if (targetsHit >= 15) items.add('stick');
+  if (mode === 'TIMETRIAL' && level >= 4) items.add('berry');   // the fast game pays in the treat
   return { xp, body: Math.floor(points * 0.4), mind: Math.floor(points * 0.3), soul: Math.floor(points * 0.3), items: [...items] };
 }
 

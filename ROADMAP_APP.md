@@ -94,7 +94,7 @@ Why: these are the screens used every day, and several Android features are stil
 Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 
 - Mood as a state machine: the EXCITED and MISCHIEVOUS moods and the mixed sad-and-hungry animation are missing.
-- Items from play: minigames drop coins, stone, hay and sticks; today only spawns give items.
+- ~~Items from play~~ (built 2026-11-17): the rock game drops coin (score 1000, level 10), stone (level 5), hay (level 3), a stick (15 hits) and, in Time Trial, a berry (level 4). Drop levels are untuned; the other minigames have no scored result to hang drops on.
 - The extra items (acorn, feather, honey and others): sprites are in the atlas but have no slots or use.
 - Stone cost on Home (long-press shows the price, "not enough stone").
 - Home: XP particles, ambient particles, rotating motivational messages.

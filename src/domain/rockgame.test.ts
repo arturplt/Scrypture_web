@@ -39,8 +39,12 @@ describe('rewards', () => {
   });
   it('item drops: bcoin at 1000, stone at level 5, more at 10', () => {
     expect(calculateRewards(999, 1, 0, 'ARCADE').items).toEqual([]);
-    expect(calculateRewards(1000, 5, 0, 'ARCADE').items).toEqual(['bcoin', 'stone']);
-    expect(calculateRewards(2500, 10, 0, 'ARCADE').items).toEqual(['bcoin', 'stone']);
+    expect(calculateRewards(1000, 5, 0, 'ARCADE').items).toEqual(['bcoin', 'stone', 'hay']);
+    expect(calculateRewards(2500, 10, 0, 'ARCADE').items).toEqual(['bcoin', 'stone', 'hay']);
+    expect(calculateRewards(0, 3, 0, 'ARCADE').items).toEqual(['hay']);
+    expect(calculateRewards(0, 1, 15, 'ARCADE').items).toEqual(['stick']);
+    expect(calculateRewards(0, 4, 0, 'TIMETRIAL').items).toEqual(['hay', 'berry']);
+    expect(calculateRewards(0, 4, 0, 'ARCADE').items).toEqual(['hay']);
   });
 });
 
