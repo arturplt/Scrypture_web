@@ -402,6 +402,7 @@ export const en = {
   "estimatedMinutes": "Estimated minutes",
   "optional": "optional",
   "tagsPlaceholder": "comma, separated",
+  "mmTidy": "Tidy",
   "nudgeNow": "\"{title}\" is on now.",
   "nudgeSoon": "\"{title}\" starts in {n} min.",
   "nudgeLate": "{n} late tasks. Shall we?",

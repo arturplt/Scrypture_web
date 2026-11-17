@@ -403,6 +403,7 @@ export const la: Record<Key, string> = {
   "estimatedMinutes": "Minutae aestimatae",
   "optional": "optionale",
   "tagsPlaceholder": "commatibus separata",
+  "mmTidy": "Ordina",
   "nudgeNow": "\"{title}\" nunc agitur.",
   "nudgeSoon": "\"{title}\" in {n} min. incipit.",
   "nudgeLate": "{n} munera sera. Agamus?",

@@ -403,6 +403,7 @@ export const pl: Record<Key, string> = {
   "estimatedMinutes": "Szacowane minuty",
   "optional": "opcjonalnie",
   "tagsPlaceholder": "oddzielone przecinkami",
+  "mmTidy": "Porządkuj",
   "nudgeNow": "\"{title}\" trwa teraz.",
   "nudgeSoon": "\"{title}\" zaczyna się za {n} min.",
   "nudgeLate": "Zaległe zadania: {n}. Bierzemy się?",

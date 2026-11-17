@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_MAP_NODES, MAX_MIND_MAPS, MM_FIT_MAX_ZOOM, MM_MAX_ZOOM, MM_MIN_W, MM_MIN_ZOOM, addLink, addNode, anchor, canLink, childSpot, colsForRight, curveDistance, curvePath,
   curvePoint, fitView, freeSpot, linkAt, linkCurve, mapBounds, moveNode, newMindMap, nodeAt, nodeSize, raiseNode, removeLink, removeNode, sanitizeMindMap,
-  sanitizeMindMaps, branchOf, cleanDesc, linkCurves, moveBranch, setNodeDesc, setNodeCols, setNodeLabel, setNodeTheme, snap, wrapLabel, zoomAt, type MindMap,
+  sanitizeMindMaps, branchOf, cleanDesc, linkCurves, moveBranch, setNodeDesc, setNodeCols, setNodeLabel, setNodeTheme, snap, tidyMap, wrapLabel, zoomAt, type MindMap,
 } from './mindmap';
 
 const empty = () => newMindMap('m', 'Test', 0);
@@ -224,5 +224,25 @@ describe('saving', () => {
     const many = { list: Array.from({ length: MAX_MIND_MAPS + 10 }, (_, i) => ({ id: `m${i % (MAX_MIND_MAPS + 5)}`, name: 'x' })) };
     expect(sanitizeMindMaps(many).list).toHaveLength(MAX_MIND_MAPS);
     expect(sanitizeMindMaps({ list: [{ id: 'a' }, { id: 'a' }, 3] }).list).toHaveLength(1);
+  });
+});
+
+describe('tidy', () => {
+  it('lays a tree out left to right, children right of their parent, nothing overlapping', () => {
+    let m = three();
+    m = addLink(m, 'l1', 'a', 'b'); m = addLink(m, 'l2', 'a', 'c');
+    m = moveNode(m, 'b', 500, 300);
+    const t = tidyMap(m), n = (id: string) => t.nodes.find(x => x.id === id)!;
+    expect(n('b').x).toBeGreaterThan(n('a').x + n('a').w);
+    expect(n('c').x).toBe(n('b').x);
+    const [b, c] = [n('b'), n('c')].sort((p, q) => p.y - q.y);
+    expect(c.y).toBeGreaterThanOrEqual(b.y + b.h);
+  });
+  it('stacks separate trees, survives loops and changes nothing the second time', () => {
+    let m = addLink(addLink(three(), 'l1', 'a', 'b'), 'l2', 'b', 'a');   // a and b link both ways
+    const t = tidyMap(m);
+    expect(t.nodes).toHaveLength(3);
+    expect(tidyMap(t)).toBe(t);
+    expect(tidyMap(empty())).toEqual(empty());
   });
 });

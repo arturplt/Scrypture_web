@@ -69,7 +69,7 @@ Why: the planner is new and is the part meant to tie the app together; the first
 
 - Repeating activities ("every Tuesday") and reminders through notifications.
 - Week view, and a day shown as a timeline with hours.
-- Bóbr speaks first: a line on Home when something is late or about to start, not only when the chat is opened.
+- ~~Bóbr speaks first on Home~~ (built 2026-11-17).
 - Shortlist: reorder by dragging; decide whether 5 stays fixed.
 - Turn a mind-map box into a task or an activity, and show a ticked task on its box.
 - The completion sparkle when ticking from the Planner or from "What now?".
@@ -103,7 +103,7 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 
 ## Phase 6: mind map, second round
 
-- Tidy button (lay the map out as a tree) and collapsing a branch.
+- ~~Tidy button~~ (built 2026-11-17); collapsing a branch is open.
 - Show and flip a link's direction, since it decides what a branch is.
 - Export a map as a picture; duplicate a map.
 - Keep undo steps after the map is closed; offer the user's own frames and colour variants for boxes.

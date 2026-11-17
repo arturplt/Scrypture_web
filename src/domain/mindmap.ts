@@ -335,3 +335,47 @@ export function sanitizeMindMaps(raw: unknown): MindMapsSave {
   }
   return { list };
 }
+
+/**
+ * Tidy: lay the map out as a tree running left to right. Roots are boxes nothing links to; a link points from parent to child and
+ * a box with several parents sits under the first one reached. Separate trees are stacked, and the whole map keeps its top-left corner.
+ */
+export function tidyMap(m: MindMap): MindMap {
+  if (m.nodes.length < 2) return m;
+  const GAP_X = 40, GAP_Y = 16, byId = new Map(m.nodes.map(n => [n.id, n]));
+  const kids = new Map<string, string[]>(), hasParent = new Set<string>();
+  for (const l of m.links) if (byId.has(l.from) && byId.has(l.to)) { (kids.get(l.from) ?? kids.set(l.from, []).get(l.from)!).push(l.to); hasParent.add(l.to); }
+  const order = [...m.nodes].sort((a, b) => a.y - b.y || a.x - b.x).map(n => n.id);   // keeps the current up-down order
+  const seen = new Set<string>(), depth = new Map<string, number>(), tree = new Map<string, string[]>(), roots: string[] = [];
+  const walk = (root: string) => {
+    roots.push(root); seen.add(root); depth.set(root, 0);
+    const q = [root];
+    while (q.length) {
+      const id = q.shift()!;
+      const mine = (kids.get(id) ?? []).filter(k => !seen.has(k)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      for (const k of mine) { seen.add(k); depth.set(k, depth.get(id)! + 1); q.push(k); }
+      tree.set(id, mine);
+    }
+  };
+  for (const id of order) if (!hasParent.has(id) && !seen.has(id)) walk(id);
+  for (const id of order) if (!seen.has(id)) walk(id);   // what is left sits in a loop: start from its topmost box
+  // x: one column per depth, as wide as its widest box
+  const colW: number[] = [];
+  for (const [id, d] of depth) colW[d] = Math.max(colW[d] ?? 0, byId.get(id)!.w);
+  const colX: number[] = []; let x = 0;
+  colW.forEach((w, d) => { colX[d] = x; x += w + GAP_X; });
+  // y: leaves stack, a parent centres on its children
+  const pos = new Map<string, number>(); let cursor = 0;
+  const place = (id: string): number => {
+    const n = byId.get(id)!, ch = tree.get(id) ?? [], start = cursor;
+    if (!ch.length) { const y = cursor; cursor += n.h + GAP_Y; pos.set(id, y); return y + n.h / 2; }
+    const mids = ch.map(place), mid = (mids[0] + mids[mids.length - 1]) / 2;
+    const y = Math.max(start, mid - n.h / 2);   // never up into the box before it
+    pos.set(id, y); cursor = Math.max(cursor, y + n.h + GAP_Y);
+    return y + n.h / 2;
+  };
+  for (const r of roots) { place(r); cursor += GAP_Y * 2; }
+  const left = Math.min(...m.nodes.map(n => n.x)), top = Math.min(...m.nodes.map(n => n.y));
+  const nodes = m.nodes.map(n => ({ ...n, x: clamp(snap(left + colX[depth.get(n.id)!]), -MM_LIMIT, MM_LIMIT), y: clamp(snap(top + pos.get(n.id)!), -MM_LIMIT, MM_LIMIT) }));
+  return nodes.every((n, i) => n.x === m.nodes[i].x && n.y === m.nodes[i].y) ? m : { ...m, nodes };
+}

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type C
 import {
   DEFAULT_NODE_THEME, MAX_MAP_NODES, MM_CHAR, MM_DESC_MAX, MM_GRID, MM_LABEL_MAX, MM_PAD_X, NODE_THEMES, addLink, addNode, childSpot, cleanLabel, colsForRight, curvePath,
   findNode, fitView, freeSpot, linkAt, linkCurves, mapBounds, moveBranch, moveNode, nodeAt, nodeSize, raiseNode, removeLink, removeNode, setNodeCols, setNodeDesc,
-  setNodeLabel, setNodeTheme, zoomAt, type MapNode, type MapView, type MindMap,
+  setNodeLabel, setNodeTheme, tidyMap, zoomAt, type MapNode, type MapView, type MindMap,
 } from '../domain';
 import { actions, store, useAppState } from '../data/hooks';
 import { newId } from '../data/id';
@@ -440,9 +440,10 @@ function Editor({ id }: { id: string }) {
           <PixelButton scale={1} size="compact" variant="red" onClick={deleteSelected}>{t('delete')}</PixelButton>
         </> : sel ? (
           <PixelButton scale={1} size="compact" variant="red" onClick={deleteSelected}>{t('mmDeleteLink')}</PixelButton>
-        ) : (
+        ) : (<>
           <PixelButton scale={1} size="compact" onClick={() => addBox()}>{t('mmAdd')}</PixelButton>
-        )}
+          <PixelButton scale={1} size="compact" disabled={map.nodes.length < 2} onClick={() => { if (commit(tidyMap(live.current.map))) requestAnimationFrame(fit); }}>{t('mmTidy')}</PixelButton>
+        </>)}
       </div>
 
       <NodeDialog open={!!detailed} label={detailed?.label ?? ''} desc={detailed?.desc ?? ''} theme={detailed?.theme ?? DEFAULT_NODE_THEME} onSubmit={submitDetails} onClose={() => setDetails(null)} />
