@@ -1,0 +1,14 @@
+{
+  "bevelled_stone_and_gold_pixel_frame": {
+    "accent": "#83693f",
+    "light": false
+  },
+  "mossy_stone_pixel_frame": {
+    "accent": "#575b61",
+    "light": false
+  },
+  "red_gold": {
+    "accent": "#ae4621",
+    "light": false
+  }
+}

@@ -1,0 +1,66 @@
+/* ---- hardware case (see DeviceShell.tsx). Everything is measured in --u, hard-edged, no blur: it stays pixel art. ---- */
+:root[data-device], :root[data-device] body { height: 100%; overflow: hidden; }
+:root[data-device] { --nav-clear: calc(12 * var(--u)) !important; }                 /* the nav is part of the case, not floating over the page */
+:root[data-device] .app { height: 100dvh; min-height: 0; padding: calc(6 * var(--u)); box-sizing: border-box; display: block; }
+:root[data-device][data-layout='wide'] .app { max-width: calc(1000 * var(--u)); }
+:root[data-device] .content { padding: calc(14 * var(--u)) calc(14 * var(--u)) calc(14 * var(--u)); }
+
+.device-case { height: 100%; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: calc(6 * var(--u)); padding: calc(2 * var(--u)) calc(4 * var(--u)); background-color: #2a2c30; position: relative; }
+
+/* top strip: label plates (amber "lit" text on a dark inset) and status LEDs */
+.device-top { display: flex; align-items: center; gap: calc(6 * var(--u)); font-size: var(--fs-xs); min-width: 0; }
+.plate { text-transform: uppercase; background: #0c0b08; color: #ffb000; padding: calc(3 * var(--u)) calc(6 * var(--u)); border: calc(2 * var(--u)) solid #000; box-shadow: inset 0 0 0 calc(1 * var(--u)) #3a3220; text-shadow: 0 0 calc(3 * var(--u)) #ff9a00aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.plate.dim { color: #d09000; }
+.plate.lv { color: #7dff9a; text-shadow: 0 0 calc(3 * var(--u)) #3cff6a99; margin-left: auto; }
+.leds { display: flex; gap: calc(5 * var(--u)); padding-right: calc(2 * var(--u)); }
+.led { display: block; width: calc(6 * var(--u)); height: calc(6 * var(--u)); background: #26272a; border: calc(1 * var(--u)) solid #000; box-shadow: inset calc(1 * var(--u)) calc(1 * var(--u)) 0 #0006; }
+.led.on { background: #4cff6a; box-shadow: 0 0 calc(4 * var(--u)) #4cff6a88, inset calc(1 * var(--u)) calc(1 * var(--u)) 0 #fff6; }
+.led.amber { background: #ffb000; box-shadow: 0 0 calc(4 * var(--u)) #ffb00088; }
+.led.blink { animation: led-blink 1.6s steps(2) infinite; }
+@keyframes led-blink { 0% { opacity: 1; } 50% { opacity: .25; } }
+
+/* the screen: a dark recessed bezel, then the page area (it scrolls inside the case) */
+.device-screen { position: relative; min-height: 0; background: var(--bg-1); border: calc(3 * var(--u)) solid #050505; box-shadow: inset 0 0 0 calc(2 * var(--u)) #1d1e1c, 0 0 0 calc(1 * var(--u)) #565a60; overflow: hidden; overflow: clip; }   /* clip, not hidden: hidden boxes can still be scrolled by focus or scrollIntoView, which pushed the whole page up and left a gap */
+.device-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #5a5640 #14130e; }
+
+/* CRT / low-res LCD: scanlines, RGB sub-pixel stripes, vignette and a faint glass glint, all above the page, never catching clicks */
+.crt-fx { position: absolute; inset: 0; pointer-events: none; z-index: 8;
+  background:
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .4) 100%),
+    linear-gradient(165deg, rgba(255, 255, 255, .06), transparent 20%),
+    repeating-linear-gradient(0deg, transparent 0 calc(1 * var(--u)), rgba(0, 0, 0, .18) calc(1 * var(--u)) calc(2 * var(--u))),
+    repeating-linear-gradient(90deg, rgba(255, 40, 40, .05) 0 calc(1 * var(--u)), rgba(40, 255, 40, .045) calc(1 * var(--u)) calc(2 * var(--u)), rgba(40, 40, 255, .05) calc(2 * var(--u)) calc(3 * var(--u))); }
+.device-case[data-crt='low'] .crt-fx { opacity: .6; }
+.device-case[data-crt='high'] .crt-fx { opacity: 1; }
+
+/* bottom row: the navigation as the case's keys */
+.device-bottom { min-width: 0; }
+:root[data-device] .nav { position: static; padding: 0; pointer-events: auto; }
+:root[data-device] .nav-frame { max-width: none; width: 100%; }
+:root[data-device] .undo-bar { bottom: calc(var(--nav-h, 64px) + 28 * var(--u)); }
+
+/* a smaller key row: plain stretched frame (see FrameDensity), icons at their native 1x size, slimmer tab outlines */
+:root[data-device] .nav-frame { padding: calc(2 * var(--u)); gap: calc(2 * var(--u)); }
+:root[data-device] .nav-frame:not([data-active='plate']) .nav-btn { border-width: calc(3 * var(--u)); min-height: calc(26 * var(--u)); }
+:root[data-device] .nav-frame[data-active='plate'][data-labels='icons'] .nav-btn { width: calc(34 * var(--u)); height: calc(34 * var(--u)); }
+
+/* phone: the case runs to the very edge of the screen (only the notch / home-bar safe areas are kept) and its frame is minimal */
+:root[data-device][data-layout='compact'] .app { max-width: none; padding: 0; }
+/* the case itself reaches every edge; only what is drawn inside it keeps clear of a notch / status bar / home bar */
+:root[data-device][data-layout='compact'] .device-case { padding-left: max(calc(2 * var(--u)), env(safe-area-inset-left)); padding-right: max(calc(2 * var(--u)), env(safe-area-inset-right)); }
+:root[data-device][data-layout='compact'] .device-top { padding-top: max(0px, calc(env(safe-area-inset-top) - 10px)); margin-top: calc(-2 * var(--u)); }   /* hug the top: the frame's own thickness already clears a bit of the status bar */
+:root[data-device][data-layout='compact'] .device-bottom { padding-bottom: env(safe-area-inset-bottom); }
+:root[data-device][data-layout='compact'] .device-case { --bw: 8; gap: calc(4 * var(--u)); }   /* half-size border on a phone, unless a corner size is chosen */
+:root[data-device][data-layout='compact'] .device-top { padding-inline: calc(2 * var(--u)); }
+
+/* phone: frames of the busy screens (Home, nav) default to half-size corners; a corner size chosen in Theme manager sets data-bw-set and wins */
+:root[data-layout='compact'] .pf-slim:not([data-bw-set]) { --bw: 8; }
+
+/* phone: slimmer plates so the strip takes less height */
+:root[data-device][data-layout='compact'] .plate { padding: calc(2 * var(--u)) calc(5 * var(--u)); }
+/* phone: the nav bar's frame corners are a little bigger than the case's */
+:root[data-device][data-layout='compact'] .nav-frame:not([data-bw-set]) { --bw: 12 !important; }
+
+/* phone: less room wasted around the screens (the case itself already hugs the edges) */
+:root[data-device][data-layout='compact'] .content { padding: calc(6 * var(--u)); }
+:root:not([data-device])[data-layout='compact'] .content { padding-left: calc(8 * var(--u)); padding-right: calc(8 * var(--u)); padding-top: calc(8 * var(--u)); }

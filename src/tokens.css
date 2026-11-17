@@ -1,0 +1,27 @@
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('/assets/fonts/press_start_2p.ttf') format('truetype');
+  font-display: block;
+}
+:root {
+  /* Scaling model (set on :root by App):
+     --ui          whole-number interface scale (automatic from the screen size, or chosen in Settings)
+     --u           one CSS "pixel" of this interface: every sprite/frame/spacing length is N * var(--u)
+     --font-scale  the user's text-size setting; text is in rem so the device/browser font size is respected */
+  --ui: 1; --u: calc(1px * var(--ui)); --font-scale: 1;
+
+  --bg-1: #23211a; --bg-2: #2d2b22; --bg-3: #1a1812;
+  --border-1: #39362a; --border-2: #44412f; --border-dark: #18170f;
+  --text: #e8e5d2; --text-2: rgba(232,229,210,.8); --text-muted: rgba(232,229,210,.6);
+  --gold: #b6a432; --beaver: #8b4513;
+  --body: #cf565c; --mind: #3c898f; --soul: #f5c387;
+  --success: #2d6b3b; --warning: #b6a432; --error: #7b3b3b; --info: #3b4a6b;
+
+  --space: calc(4 * var(--u)); --radius: calc(3 * var(--u));
+  --fs-xs: calc(0.5rem * var(--ui) * var(--font-scale));
+  --fs-sm: calc(0.875rem * var(--ui) * var(--font-scale));
+  --fs-md: calc(1rem * var(--ui) * var(--font-scale));
+  --fs-lg: calc(1.25rem * var(--ui) * var(--font-scale));
+  --fs-xl: calc(1.5rem * var(--ui) * var(--font-scale));
+  --font: 'Press Start 2P', monospace;
+}

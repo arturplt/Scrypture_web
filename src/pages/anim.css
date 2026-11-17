@@ -1,0 +1,96 @@
+.al { max-width: calc(520 * var(--u)); margin: 0 auto; padding: calc(16 * var(--u)); display: grid; gap: calc(16 * var(--u)); --u: 2px; }
+.al-demo { display: grid; gap: calc(8 * var(--u)); }
+.stage { position: relative; display: grid; gap: calc(12 * var(--u)); padding: calc(24 * var(--u)) calc(8 * var(--u)); min-height: calc(200 * var(--u)); align-content: center; background: #0004; overflow: hidden; }
+.a-slot { overflow: visible; }
+.a-card { position: relative; }
+.a-tick, .xp { position: relative; }
+.a-tick { display: inline-block; line-height: 0; }
+.a-title { position: relative; }
+.a-title > span { position: relative; display: inline-block; }
+.a-title > span::after { content: ''; position: absolute; left: 0; top: 50%; height: calc(2 * var(--u)); width: 0; background: var(--text); }
+.play .a-title > span::after { animation: strike .3s steps(6) .12s forwards; }
+@keyframes strike { to { width: 100%; } }
+.play .a-title { opacity: 1; animation: dim .3s steps(3) .4s forwards; }
+@keyframes dim { to { opacity: .55; } }
+.fx-float, .fx-conf, .fx-coin-x, .fx-spark, .fx-orb { position: absolute; pointer-events: none; z-index: 5; }
+
+/* D */
+
+/* exit + next cards glide into place (all options): the finished card winds up, flings off to the right, its slot
+   closes at the same moment and the cards below travel up by exactly one card (--h) and settle with a small overshoot */
+.a-list { display: grid; }
+.a-first { margin-bottom: calc(12 * var(--u)); }
+.a-next + .a-next { margin-top: calc(12 * var(--u)); }
+.play .a-first > .a-card { animation-name: var(--own, none), exit; animation-duration: var(--own-d, 0s), .55s; animation-delay: 0s, var(--ex); animation-timing-function: linear, cubic-bezier(.5,-0.4,.8,.5); animation-fill-mode: none, forwards; }
+.stage { --own: glow; --own-d: .9s; }
+@keyframes exit { 0% { transform: translateX(0); opacity: 1; } 22% { transform: translateX(-5%); } 100% { transform: translateX(125%); opacity: 1; } }
+.play .a-first { animation: vanish 0s linear calc(var(--ex) + .5s) forwards; }
+@keyframes vanish { to { height: 0; margin-bottom: 0; visibility: hidden; } }
+.play .a-next { animation: slideup .6s cubic-bezier(.34,1.56,.64,1) calc(var(--ex) + .5s + var(--i) * 70ms); }
+@keyframes slideup { from { transform: translateY(var(--h)); } to { transform: translateY(0); } }
+
+
+.al-ctl { display: grid; gap: calc(4 * var(--u)); }
+.fx-spark { position: absolute; pointer-events: none; z-index: 5; }
+.a-title { transition: opacity .2s; }
+
+/* difficulty: the card's frame image itself is tinted (see tint.ts), so there is no overlay to line up */
+
+/* urgency: an open card breathes; soon = slow orange, overdue = fast red */
+.a-card.urg-soon { animation: pulse-soon 1.9s ease-in-out infinite; }
+.a-card.urg-overdue { animation: pulse-late .8s ease-in-out infinite; }
+@keyframes pulse-soon { 0%, 100% { filter: drop-shadow(0 0 calc(1 * var(--u)) #ff980066); } 50% { filter: drop-shadow(0 0 calc(7 * var(--u)) #ff9800); } }
+@keyframes pulse-late { 0%, 100% { filter: drop-shadow(0 0 calc(1 * var(--u)) #ff3b3066); } 50% { filter: drop-shadow(0 0 calc(9 * var(--u)) #ff3b30); } }
+
+/* completion: glow in the type colour (size grows with XP) + four-point stars */
+@keyframes glow { 0%, 100% { filter: none; } 35% { filter: drop-shadow(0 0 var(--gl) var(--fx-main)) brightness(1.25); } }
+.fx-spark { left: 50%; top: 50%; width: calc(4 * var(--u)); height: calc(4 * var(--u)); margin: calc(-2 * var(--u)); background: var(--fx-light); opacity: 0; animation: twinkle .85s steps(8) var(--d) forwards;
+  box-shadow: calc(4 * var(--u)) 0 var(--fx-main), calc(-4 * var(--u)) 0 var(--fx-main), 0 calc(4 * var(--u)) var(--fx-main), 0 calc(-4 * var(--u)) var(--fx-main), calc(8 * var(--u)) 0 #fff8, calc(-8 * var(--u)) 0 #fff8, 0 calc(8 * var(--u)) #fff8, 0 calc(-8 * var(--u)) #fff8; }
+@keyframes twinkle { 0% { transform: translate(var(--x), var(--y)) scale(0); opacity: 1; } 50% { transform: translate(var(--x), var(--y)) scale(var(--z)); opacity: 1; } 100% { transform: translate(var(--x), calc(var(--y) - 10px)) scale(0); opacity: 0; } }
+
+/* card content (tick, title, difficulty/due chips, xp) always sits above the tinted frame */
+.a-card > * { position: relative; z-index: 1; }
+
+/* ---- /urgency mockups ---- */
+.ux-page { max-width: calc(640 * var(--u)); }
+.ux-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(10 * var(--u)); align-items: start; }
+.ux-row .task { min-width: 0; }
+.ux-row .task-title { font-size: var(--fs-xs); overflow-wrap: normal; }
+.ux-row .task-head { gap: calc(4 * var(--u)); }
+.ux-labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(10 * var(--u)); text-align: center; }
+.ux { position: relative; --ux: #ff9800; }
+.ux.ux-overdue { --ux: #ff3b30; }
+.ux .chips .chip { transform: scale(.9); transform-origin: left; }
+
+/* A: blinking gem */
+.ux-gem { position: absolute; top: calc(-6 * var(--u)); right: calc(-6 * var(--u)); z-index: 4; animation: ux-blink 1.2s steps(2) infinite; }
+.ux-overdue .ux-gem { animation-duration: .6s; }
+@keyframes ux-blink { 0% { opacity: 1; } 50% { opacity: .25; } }
+
+/* B: marching dashes along the inner edge (each side moves along its own axis only) */
+.ux-b::after { content: ''; position: absolute; z-index: 3; pointer-events: none; inset: calc(1 * var(--u));
+  --d: calc(6 * var(--u)); --t: calc(2 * var(--u));
+  background:
+    repeating-linear-gradient(90deg, var(--ux) 0 var(--d), transparent var(--d) calc(var(--d) * 2)) top left / 100% var(--t) repeat-x,
+    repeating-linear-gradient(180deg, var(--ux) 0 var(--d), transparent var(--d) calc(var(--d) * 2)) top right / var(--t) 100% repeat-y,
+    repeating-linear-gradient(270deg, var(--ux) 0 var(--d), transparent var(--d) calc(var(--d) * 2)) bottom right / 100% var(--t) repeat-x,
+    repeating-linear-gradient(0deg, var(--ux) 0 var(--d), transparent var(--d) calc(var(--d) * 2)) bottom left / var(--t) 100% repeat-y;
+  background-repeat: repeat-x, repeat-y, repeat-x, repeat-y; background-position: 0 0, 100% 0, 100% 100%, 0 100%; opacity: .75;
+  animation: ux-march 1.6s steps(6) infinite; }
+.ux-overdue.ux-b::after { animation-duration: .9s; }
+@keyframes ux-march { to { background-position: calc(var(--d) * 2) 0, 100% calc(var(--d) * 2), calc(100% - var(--d) * 2) 100%, 0 calc(100% - var(--d) * 2); } }
+
+/* C: inner edge blink */
+.ux-c::after { content: ''; position: absolute; z-index: 3; pointer-events: none; inset: 0; box-shadow: inset 0 0 0 calc(2 * var(--u)) var(--ux); animation: ux-edge 1.4s steps(2) infinite; }
+.ux-overdue.ux-c::after { animation-duration: .8s; }
+@keyframes ux-edge { 0% { opacity: .85; } 50% { opacity: .15; } }
+
+/* D: breathing accent bar */
+.ux-d::before { content: ''; position: absolute; z-index: 3; pointer-events: none; left: 0; top: calc(2 * var(--u)); bottom: calc(2 * var(--u)); width: calc(4 * var(--u)); background: var(--ux); animation: ux-breathe 2.4s steps(5) infinite; }
+.ux-overdue.ux-d::before { animation-duration: 1.4s; }
+@keyframes ux-breathe { 0%, 100% { opacity: .2; } 50% { opacity: .95; } }
+
+/* E: Game of Life in a corner patch */
+.ux .life-fx.life-corner { left: auto; right: calc(-16 * var(--u)); top: calc(-16 * var(--u)); width: calc(70 * var(--u)); height: calc(38 * var(--u)); }
+.ux-e { clip-path: inset(0); }
+.task > .life-fx.life-corner { position: absolute; z-index: 0; pointer-events: none; image-rendering: pixelated; }   /* lab idea E only */

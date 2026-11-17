@@ -1,0 +1,83 @@
+/* 9-slice frame: 48x48 image, calc(16 * var(--u)) tiles. Border = calc(16 * var(--u)) * scale, integer scaling only. */
+.pf {
+  --s: 2;
+  border: solid transparent;
+  /* --k = border slice in sprite pixels (16 = the whole tile); buttons set a smaller one for a thinner border.
+     --bw = how wide the border is drawn, in units (default: as wide as the slice, i.e. Normal in Theme manager). */
+  border-width: calc(var(--bw, var(--k, 16)) * var(--u) * var(--s));
+  border-image: var(--frame) var(--k, 16) fill / calc(var(--bw, var(--k, 16)) * var(--u) * var(--s)) / 0 var(--edge, stretch);
+  image-rendering: pixelated;
+  padding: calc(var(--space) * 2);
+  color: var(--text);
+}
+/* RULE for every framed element (.pf / PixelFrame / PixelButton): the frame's corners are transparent, and a background is painted under the border by default,
+   so a `background` on a frame shows up as black or grey corner squares. Keep it inside the padding box (never under the border) and do not rely on `background`
+   for the frame's own colour: the frame image already fills its centre. A new popup or panel built on .pf then cannot get dark corners. */
+.pf { background-clip: padding-box; }
+/* a framed <button> also keeps the browser's grey background */
+button.pf { background: none; }
+.pb {
+  font: inherit; font-size: var(--fs-sm); cursor: pointer; background: none; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #0008;
+  -webkit-tap-highlight-color: transparent;
+}
+.pb:active { border-image-source: var(--frame-pressed); transform: translateY(calc(2 * var(--u))); }
+/* thinner borders also need less padding; 40 units tall is the touch minimum */
+.pb.pb-medium { padding: calc(4 * var(--u)) calc(8 * var(--u)); }
+.pb.pb-compact { padding: calc(2 * var(--u)) calc(6 * var(--u)); min-height: calc(40 * var(--u)); }
+.pb:focus-visible, .pcheck input:focus-visible + .pcheck-box { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.pb:disabled { filter: grayscale(1) brightness(.7); cursor: default; }
+
+/* Progress bar: 48x16 three-slice (calc(16 * var(--u)) caps). Height = 16 * scale. */
+.pbar { --s: 2; position: relative; height: calc(16 * var(--u) * var(--s)); width: 100%; image-rendering: pixelated; }
+.pbar-frame, .pbar-fill {
+  position: absolute; inset: 0;
+  border: solid transparent; border-width: 0 calc(16 * var(--u) * var(--s));
+  image-rendering: pixelated;
+}
+.pbar-frame { border-image: var(--bar-frame) 0 16 fill / 0 calc(16 * var(--u) * var(--s)) stretch; }
+.pbar-fill  { border-image: var(--bar-fill) 0 16 fill / 0 calc(16 * var(--u) * var(--s)) stretch; transition: clip-path .4s steps(8); }
+
+.icon { height: calc(var(--px, 32) * 1 * var(--u)); width: auto; image-rendering: pixelated; vertical-align: middle; }
+.pcheck { display: inline-flex; align-items: center; gap: calc(8 * var(--u)); cursor: pointer; }
+.pcheck input { position: absolute; opacity: 0; pointer-events: none; width: calc(1 * var(--u)); height: calc(1 * var(--u)); margin: 0; padding: 0; border: 0; }
+.pcheck-box { width: calc(32 * var(--u)); height: calc(32 * var(--u)); background-size: 100% 100%; image-rendering: pixelated; display: inline-block; }
+.divider { height: calc(32 * var(--u)); background-repeat: repeat-x; background-size: auto calc(32 * var(--u)); background-position: center; image-rendering: pixelated; margin: calc(8 * var(--u)) 0; }
+/* tag chip: the sprite is a 9-slice with 3px corners, drawn at 2x (see Chip in misc.tsx) */
+.chip { background: none; display: inline-block; font-size: var(--fs-xs); line-height: 1.3; padding: calc(1 * var(--u)) calc(3 * var(--u)); color: var(--text); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a;
+  border: solid transparent; border-width: calc(6 * var(--u)); border-image: var(--chip-img, url(/assets/raw/box.png)) 3 fill / calc(6 * var(--u)) / 0 stretch; image-rendering: pixelated; }
+.statbox { text-align: center; min-width: calc(96 * var(--u)); }
+/* held down to open something (Mind: the mind maps): no text selection or image menu while holding */
+.statbox.holdable { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.statbox.holdable img { pointer-events: none; }
+.stat-name { font-size: var(--fs-xs); margin-top: calc(4 * var(--u)); }
+.stat-val { font-size: var(--fs-md); margin-top: calc(4 * var(--u)); }
+.stat-body .stat-val { color: var(--body); } .stat-mind .stat-val { color: var(--mind); } .stat-soul .stat-val { color: var(--soul); }
+.modal-backdrop { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; padding: calc(16 * var(--u)); z-index: 10; }
+/* the dialog never outgrows the window: its body scrolls and the action buttons stay visible */
+.modal { width: min(100%, calc(420 * var(--u))); background-color: transparent; display: flex; flex-direction: column; max-height: 100%; min-height: 0; overflow: hidden; }
+.modal > * { min-height: 0; }
+.modal-title { flex: none; font-size: var(--fs-md); margin: 0 0 calc(12 * var(--u)); font-weight: normal; }
+
+/* ---- progress bars: boxes + coloured segments ---- */
+.boxbar { --s: 1; display: grid; grid-template-columns: repeat(10, 1fr); width: 100%; max-width: calc(160 * var(--u) * var(--s)); }
+.boxbar i { aspect-ratio: 1; background: var(--box) center / 100% 100% no-repeat; image-rendering: pixelated; filter: grayscale(1) brightness(.35); }
+.boxbar i.on { filter: none; }
+.segbar { --s: 2; position: relative; width: 100%; height: calc(16 * var(--u) * var(--s)); background: var(--bg-3); box-shadow: inset 0 0 0 calc(2 * var(--u)) var(--border-dark); overflow: hidden; image-rendering: pixelated; }
+.seg-fill { height: 100%; image-rendering: pixelated; transition: width .4s steps(8);
+  background-image: var(--l), var(--m); background-repeat: no-repeat, repeat-x; background-size: calc(16 * var(--u) * var(--s)) 100%;
+  background-position: left center, calc(16 * var(--u) * var(--s)) center; }
+.seg-fill.full { background-image: var(--r), var(--l), var(--m); background-repeat: no-repeat, no-repeat, repeat-x; background-position: right center, left center, calc(16 * var(--u) * var(--s)) center; }
+
+/* ---- buttons that use a plain frame (no pressed sprite) / light frames need dark text ---- */
+.pb-fx:active { filter: brightness(.78); }
+.pb-dark { color: var(--bg-3); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #fff5; }
+
+/* selectable chip (priority / difficulty): same 9-slice as .chip, but a button */
+.pbox { background: none; font: inherit; font-size: var(--fs-xs); cursor: pointer; min-width: calc(24 * var(--u)); text-align: center; -webkit-tap-highlight-color: transparent; }
+.pbox:hover { filter: brightness(1.15); }
+.pbox:active { filter: brightness(.8); transform: translateY(calc(1 * var(--u))); }
+.pbox:focus-visible, .catpick:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+/* category (Body / Mind / Soul): the sprite already is the button, so no box or black backing behind it */
+.catpick { background: none; border: 0; padding: 0; margin: 0; line-height: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.catpick:hover { filter: brightness(1.15); }
+.catpick:active { transform: translateY(calc(1 * var(--u))); }

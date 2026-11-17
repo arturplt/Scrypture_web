@@ -1,0 +1,18 @@
+@import './tokens.css';
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg-1); color: var(--text); }
+body { font-family: var(--font); font-size: var(--fs-sm); line-height: 1.2; letter-spacing: 0; }
+img, canvas, .pixel { image-rendering: pixelated; }
+
+/* Atlas page */
+.atlas-bar { display: flex; flex-wrap: wrap; gap: calc(8 * var(--u)); align-items: center; margin-bottom: calc(12 * var(--u)); font-size: calc(8 * var(--u)); }
+.atlas-bar input, .atlas-bar select, .atlas-bar button { font: inherit; font-size: calc(10 * var(--u)); background: var(--bg-3); color: var(--text); border: calc(2 * var(--u)) solid var(--border-2); padding: calc(6 * var(--u)); border-radius: calc(3 * var(--u)); }
+.atlas-bar button { cursor: pointer; color: var(--gold); }
+.atlas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell), 1fr)); gap: calc(8 * var(--u)); }
+.atlas-cell { font: inherit; color: var(--text); background: var(--bg-2); border: calc(2 * var(--u)) solid var(--border-1); border-radius: calc(3 * var(--u)); padding: calc(6 * var(--u)); text-align: left; cursor: pointer; min-width: 0; }
+.atlas-cell:hover { border-color: var(--gold); }
+.atlas-img { display: grid; place-items: center; padding: calc(6 * var(--u)); min-height: calc(48 * var(--u)); overflow: hidden; }
+.atlas-name { font-size: calc(8 * var(--u)); margin-top: calc(6 * var(--u)); overflow-wrap: anywhere; }
+.atlas-meta { font-size: calc(8 * var(--u)); color: var(--text-muted); margin-top: calc(2 * var(--u)); overflow-wrap: anywhere; }
+.atlas-toast { position: fixed; bottom: calc(16 * var(--u)); left: 50%; transform: translateX(-50%); background: var(--bg-3); border: calc(2 * var(--u)) solid var(--gold); padding: calc(8 * var(--u)) calc(12 * var(--u)); font-size: calc(10 * var(--u)); z-index: 20; }
+code { color: var(--gold); }

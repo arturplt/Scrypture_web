@@ -1,0 +1,59 @@
+/* Mind map list */
+.mm-row { gap: calc(8 * var(--u)); flex-wrap: wrap; }
+.mm-row-name { min-width: 0; overflow-wrap: anywhere; }
+.mm-ask { margin: 0 0 calc(12 * var(--u)); line-height: 1.6; }
+
+/* Mind map editor: the whole screen is the canvas, the bars float over it */
+.mm { position: fixed; inset: 0; z-index: 9; background: var(--bg-3); overflow: hidden; user-select: none; -webkit-user-select: none; }
+.mm-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; background-image: radial-gradient(circle, #e8e5d226 1px, transparent 1.5px); }
+.mm-stage:active { cursor: grabbing; }
+.mm-stage.linking { cursor: crosshair; }
+/* everything inside is placed in units; one transform (pan + zoom) moves and scales boxes, text and links together */
+.mm-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
+.mm-links { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; transform-origin: 0 0; transform: scale(var(--ui)); }
+/* drawn in screen pixels (--mm-k = px per unit), so a line never gets thinner than 1.5px however far out the map is zoomed */
+.mm-link { fill: none; stroke: #e8e5d2cc; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-width: max(calc(2px * var(--mm-k, 1)), 1.5px); }
+.mm-link.on { stroke: #ffd54f; stroke-width: max(calc(3px * var(--mm-k, 1)), 2.5px); }
+.pf.mm-node { position: absolute; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+  font-size: calc(8 * var(--u)); line-height: calc(10 * var(--u)); white-space: pre; color: var(--text); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
+.pf.mm-node.light { color: #2a2418; text-shadow: none; }
+.mm-node.on, .mm-node:focus-visible { outline: calc(2 * var(--u)) solid #ffd54f; outline-offset: calc(1 * var(--u)); }
+.mm-node.src { outline: calc(2 * var(--u)) dashed #ffd54f; outline-offset: calc(1 * var(--u)); }
+/* drag it to change how wide the selected box is */
+.mm-handle { position: absolute; left: calc((var(--x) - 1) * var(--u)); top: calc((var(--y) - 6) * var(--u)); width: calc(6 * var(--u)); height: calc(12 * var(--u)); background: #ffd54f; border: calc(1 * var(--u)) solid #18170f; }
+.mm-hint { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: calc(64 * var(--u)) calc(24 * var(--u)); line-height: 1.8; pointer-events: none; }
+
+.mm-bar { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: calc(4 * var(--u)); padding: calc(6 * var(--u)); pointer-events: none; }
+.mm-bar > * { pointer-events: auto; }
+.mm-top { top: 0; padding-top: calc(6 * var(--u) + env(safe-area-inset-top)); }
+.mm-bottom { bottom: 0; justify-content: center; flex-wrap: wrap; gap: calc(6 * var(--u)); padding-bottom: calc(8 * var(--u) + env(safe-area-inset-bottom)); }
+.mm-name { flex: 1; min-width: 0; margin: 0 calc(4 * var(--u)); font-size: var(--fs-sm); font-weight: normal; color: var(--gold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; pointer-events: none; }
+.mm-ib { flex: none; width: calc(40 * var(--u)); height: calc(40 * var(--u)); padding: 0; display: grid; place-items: center; cursor: pointer;
+  background: var(--bg-2); border: calc(2 * var(--u)) solid var(--border-2); border-radius: var(--radius); -webkit-tap-highlight-color: transparent; }
+.mm-ib:active { background: var(--bg-1); transform: translateY(calc(1 * var(--u))); }
+.mm-ib:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.mm-ib:disabled { opacity: .4; cursor: default; }
+.mm-undo img { filter: brightness(2.6); }
+.mm-note { flex-basis: 100%; text-align: center; line-height: 1.6; color: var(--text); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; pointer-events: none; }
+
+/* frame choices in the box dialog */
+.mm-themes { display: flex; flex-wrap: wrap; gap: calc(6 * var(--u)); }
+.pf.mm-theme { width: calc(40 * var(--u)); height: calc(32 * var(--u)); padding: 0; cursor: pointer; }
+.mm-theme.on { outline: calc(2 * var(--u)) solid #ffd54f; outline-offset: calc(1 * var(--u)); }
+.mm-theme:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.mm-form { display: grid; gap: calc(12 * var(--u)); }
+
+/* typing in a box: the field looks like the box's own text */
+.mm-node .mm-type { pointer-events: auto; display: block; flex: none; width: calc(var(--tw) * var(--u)); height: calc(var(--tl) * 10 * var(--u)); min-width: calc(8 * var(--u)); padding: 0; margin: 0; border: 0; border-radius: 0;
+  background: transparent; color: inherit; font: inherit; font-size: calc(8 * var(--u)); line-height: calc(10 * var(--u)); text-align: center; text-shadow: inherit; caret-color: #ffd54f;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; resize: none; outline: none; user-select: text; -webkit-user-select: text; }
+/* this box has a description */
+.mm-mark { position: absolute; top: 0; right: 0; width: calc(4 * var(--u)); height: calc(4 * var(--u)); background: #ffd54f; box-shadow: 0 0 0 calc(1 * var(--u)) #18170f; }
+.mm-solo { position: absolute; left: calc(6 * var(--u)); top: calc(52 * var(--u) + env(safe-area-inset-top)); }
+.mm-solo.on { border-color: #ffd54f; background: var(--bg-1); }
+.mm-solo:not(.on) img { opacity: .55; }
+.mm-desc { flex-basis: 100%; max-height: calc(64 * var(--u)); overflow: auto; margin: 0 auto; max-width: calc(420 * var(--u)); padding: calc(6 * var(--u)) calc(8 * var(--u)); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: inherit; font-size: var(--fs-xs); line-height: 1.7; color: var(--text); background: var(--bg-2); border: calc(2 * var(--u)) solid var(--border-2); border-radius: var(--radius); cursor: pointer; user-select: text; -webkit-user-select: text; }
+.mm-desc:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }

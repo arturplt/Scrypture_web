@@ -1,0 +1,14 @@
+# dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# local and editor files
+.env
+.env.*
+*.log
+.DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json
+.claude/worktrees/

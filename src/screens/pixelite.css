@@ -1,0 +1,64 @@
+.px .px-field { flex: 1; min-width: 0; }
+.px input[type='range'] { padding: 0; border: 0; background: none; accent-color: var(--gold); }
+.px-drop { align-items: center; text-align: center; }
+.px-stage { position: relative; width: 100%; height: calc(280 * var(--u)); overflow: hidden; background: #0007; border: calc(2 * var(--u)) solid var(--border-2); touch-action: none; user-select: none; -webkit-user-select: none; cursor: move; }
+.px-stage.px-grab { cursor: crosshair; }
+.px-main { position: absolute; left: 0; top: 0; transform-origin: 0 0; image-rendering: pixelated; max-width: none; background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(16 * var(--u)) calc(16 * var(--u)); }
+.px-swatches { display: flex; flex-wrap: wrap; gap: calc(4 * var(--u)); }
+.px-swatch { width: calc(20 * var(--u)); height: calc(20 * var(--u)); border: calc(2 * var(--u)) solid var(--border-2); }
+.px-preview { overflow: auto; width: fit-content; max-width: 100%; padding: calc(4 * var(--u)); background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(16 * var(--u)) calc(16 * var(--u)); }
+.px-preview canvas { display: block; image-rendering: pixelated; }
+.px button[aria-pressed='true'] { outline: calc(2 * var(--u)) solid var(--gold); }
+.px-frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(88 * var(--u)), 1fr)); gap: calc(8 * var(--u)); width: 100%; }
+.px-frame { display: grid; justify-items: center; gap: calc(4 * var(--u)); font: inherit; font-size: var(--fs-xs); color: var(--text); background: var(--bg-3); border: calc(2 * var(--u)) solid var(--border-2); border-radius: var(--radius); padding: calc(6 * var(--u)); cursor: pointer; overflow-wrap: anywhere; }
+.px-frame img { width: calc(48 * var(--u)); height: calc(48 * var(--u)); image-rendering: pixelated; }
+.px-frame:focus-visible, .px-frame:hover { border-color: var(--gold); }
+.fe-stage { overflow: auto; max-width: 100%; padding: calc(4 * var(--u)); background: #0007; border: calc(2 * var(--u)) solid var(--border-2); }
+.fe-board { position: relative; overflow: hidden; margin: 0 auto; background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(16 * var(--u)) calc(16 * var(--u)); touch-action: none; user-select: none; -webkit-user-select: none; }
+.fe-board canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+.fe-line { position: absolute; background: rgba(0, 255, 255, .85); pointer-events: none; box-shadow: 0 0 0 1px #0008; }
+.fe-v { top: 0; bottom: 0; width: 1px; }
+.fe-h { left: 0; right: 0; height: 1px; }
+.fe-box { image-rendering: pixelated; width: 100%; max-width: calc(260 * var(--u)); height: calc(150 * var(--u)); box-sizing: border-box; }
+.px input[type='color'] { height: calc(40 * var(--u)); padding: calc(2 * var(--u)); }
+
+.fe-tools { flex-wrap: wrap; }
+.fe-sel { position: absolute; box-sizing: border-box; pointer-events: none; border: 1px dashed #fff; outline: 1px solid #000; }
+.fe-xf { position: absolute; box-sizing: border-box; border: 1px solid #fff; outline: 1px solid #000; cursor: move; touch-action: none; }
+.fe-handle { position: absolute; box-sizing: border-box; background: #fff; border: 1px solid #000; touch-action: none; }
+.fe-h-rotate { border-radius: 50%; background: #0ff; cursor: grab; }
+.fe-h-nw, .fe-h-se { cursor: nwse-resize; } .fe-h-ne, .fe-h-sw { cursor: nesw-resize; } .fe-h-n, .fe-h-s { cursor: ns-resize; } .fe-h-e, .fe-h-w { cursor: ew-resize; }
+.fe-brush { position: absolute; box-sizing: border-box; pointer-events: none; border: 1px solid #fff; outline: 1px solid #000; }
+.fe-ruler { position: absolute; left: 0; top: 0; pointer-events: none; }
+.fe-ruler line { stroke: #fff; stroke-width: 1; stroke-dasharray: 4 3; filter: drop-shadow(0 0 1px #000); }
+.fe-srcbox { border-color: #0ff; }
+.fe-patch { position: absolute; pointer-events: none; image-rendering: pixelated; opacity: .75; }
+.fe-src { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; pointer-events: none; border: 2px solid #0ff; border-radius: 50%; box-shadow: 0 0 0 1px #000; }
+/* frame editor: a lot of buttons, so make them small */
+.fe .pb.pb { font-size: var(--fs-xs); padding: calc(1 * var(--u)) calc(4 * var(--u)); min-height: calc(26 * var(--u)); }
+.fe .row { gap: calc(4 * var(--u)); }
+
+.px-timeline { display: flex; gap: calc(6 * var(--u)); overflow-x: auto; width: 100%; padding: calc(4 * var(--u)); background: #0007; border: calc(2 * var(--u)) solid var(--border-2); }
+.px-thumb { flex: none; display: grid; justify-items: center; gap: calc(2 * var(--u)); font: inherit; font-size: var(--fs-xs); color: var(--text); background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(12 * var(--u)) calc(12 * var(--u)); border: calc(2 * var(--u)) solid var(--border-2); padding: calc(2 * var(--u)); cursor: pointer; }
+.px-thumb span { background: var(--bg-3); padding: 0 calc(3 * var(--u)); }
+.px-thumb canvas { display: block; image-rendering: pixelated; }
+.px-thumb.on { border-color: var(--gold); outline: calc(2 * var(--u)) solid var(--gold); }
+.nudge { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: calc(4 * var(--u)); width: 100%; }
+.nudge input { grid-column: 2; grid-row: 1; min-width: 0; width: 100%; }
+.nudge-l { grid-column: 1; grid-row: 1; } .nudge-r { grid-column: 3; grid-row: 1; }
+.nudge-btn { font: inherit; font-size: var(--fs-xs); color: var(--text); background: var(--bg-3); border: calc(2 * var(--u)) solid var(--border-2); border-radius: var(--radius); min-width: calc(28 * var(--u)); min-height: calc(28 * var(--u)); padding: 0; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.nudge-btn:hover:not(:disabled), .nudge-btn:focus-visible { border-color: var(--gold); }
+.nudge-btn:disabled { opacity: .4; cursor: default; }
+
+.pe { display: grid; gap: calc(8 * var(--u)); width: 100%; }
+.pe-tools { flex-wrap: wrap; }
+.pe-sw { cursor: pointer; padding: 0; }
+.pe-sw:hover, .pe-sw:focus-visible { border-color: var(--gold); }
+.pe .pb.pb { font-size: var(--fs-xs); padding: calc(1 * var(--u)) calc(4 * var(--u)); min-height: calc(26 * var(--u)); }
+.pe .row { gap: calc(4 * var(--u)); }
+.pe .fe-board canvas { cursor: crosshair; }
+
+/* the canvas behind the result (Output preview, bottom bar, editor, timeline): Pixelite sets data-px-bg on <html> while it is open */
+:root[data-px-bg='white'] { --px-c: #fff; --px-i: none; }
+:root[data-px-bg='black'] { --px-c: #000; --px-i: none; }
+:root[data-px-bg='grey'] { --px-c: #808080; --px-i: none; }
