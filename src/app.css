@@ -177,10 +177,11 @@ textarea { resize: vertical; }
 :root[data-rail] .app { max-width: calc(1360 * var(--u)); display: grid; grid-template-columns: calc(128 * var(--u)) minmax(0, 1fr); align-items: start; }
 :root[data-rail] .banner { grid-column: 1 / -1; grid-row: 1; }
 :root[data-rail] .content { grid-column: 2; grid-row: 2; padding: calc(24 * var(--u)) calc(32 * var(--u)) calc(32 * var(--u)); }
-:root[data-rail] .nav { position: sticky; top: 0; bottom: auto; left: auto; right: auto; grid-column: 1; grid-row: 2; align-self: start; height: 100dvh; align-items: center; justify-content: center; padding: calc(16 * var(--u)); pointer-events: none; }
-:root[data-rail] .nav-frame { flex-direction: column; flex-wrap: nowrap; width: auto; max-width: none; gap: calc(12 * var(--u)); justify-content: flex-start; max-height: calc(100dvh - 32 * var(--u)); overflow-y: auto; scrollbar-width: none; }
+:root[data-rail] .nav { position: sticky; top: 0; bottom: auto; left: auto; right: auto; grid-column: 1; grid-row: 2; align-self: start; height: 100dvh; align-items: safe center; justify-content: center; padding: calc(8 * var(--u)); overflow-y: auto; scrollbar-width: none; pointer-events: auto; }
+/* the rail frame is only a backdrop: little padding, and the icons sit over its border instead of inside it (the .nav column scrolls when they do not fit) */
+:root[data-rail] .nav-frame { flex-direction: column; flex-wrap: nowrap; width: auto; max-width: none; gap: calc(2 * var(--u)); justify-content: flex-start; padding: 0; overflow: visible; }
 :root[data-rail] .nav-frame[data-labels='both'] .nav-btn { flex-basis: auto; }
-:root[data-rail] .nav-btn { flex: none; width: 100%; }
+:root[data-rail] .nav-btn { flex: none; width: auto; margin-inline: calc(-6 * var(--u)); }
 :root[data-layout='wide'] .msg { max-width: 70%; }
 
 /* frame-edge previews: a wide, short box so the long sides show the tiling */
