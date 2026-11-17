@@ -20,6 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # re-running an old run would put its old build live: refuse it
+      - name: Refuse to deploy an old commit
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          head=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$head" != "$GITHUB_SHA" ]; then echo "::error::This run is for an old commit ($GITHUB_SHA); main is at $head. Push or use Run workflow instead of Re-run."; exit 1; fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22

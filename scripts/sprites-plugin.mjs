@@ -83,7 +83,7 @@ export default function spritesPlugin() {
       const precache = ['/', '/manifest.webmanifest', ...walk('public/icons').map(p => '/' + p.slice('public/'.length)), ...Object.keys(bundle).map(n => '/' + n), ...files]
         .filter((u, i, a) => u !== '/index.html' && a.indexOf(u) === i);
       const version = createHash('sha1').update(precache.join('|')).digest('hex').slice(0, 10);
-      const src = readFileSync('scripts/sw-template.js', 'utf8').replace('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(precache));
+      const src = readFileSync('scripts/sw-template.js', 'utf8').replaceAll('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(precache));
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: src });
     },
   };
