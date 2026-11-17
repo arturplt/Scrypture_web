@@ -54,7 +54,7 @@ button.pf { background: none; }
 .stat-body .stat-val { color: var(--body); } .stat-mind .stat-val { color: var(--mind); } .stat-soul .stat-val { color: var(--soul); }
 .modal-backdrop { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; padding: calc(16 * var(--u)); z-index: 10; }
 /* the dialog never outgrows the window: its body scrolls and the action buttons stay visible */
-.modal { width: min(100%, calc(420 * var(--u))); background-color: transparent; display: flex; flex-direction: column; max-height: 100%; min-height: 0; overflow: hidden; }
+.modal { width: min(100%, calc(640 * var(--u))); background-color: transparent; display: flex; flex-direction: column; max-height: 100%; min-height: 0; overflow: hidden; }
 .modal > * { min-height: 0; }
 .modal-title { flex: none; font-size: var(--fs-md); margin: 0 0 calc(12 * var(--u)); font-weight: normal; }
 
