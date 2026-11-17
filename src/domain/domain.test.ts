@@ -369,3 +369,23 @@ describe('theme presets', () => {
     expect(sanitizePresets([{ id: 1, name: 'x'.repeat(60), look: null }])[0].name).toHaveLength(24);
   });
 });
+
+describe('weekly and monthly habits count periods, not days', () => {
+  const wed = new Date(2026, 0, 7, 12).getTime(), thu = new Date(2026, 0, 8, 12).getTime(), nextMon = new Date(2026, 0, 12, 12).getTime(), skip = new Date(2026, 0, 19, 12).getTime();
+  const weekly = { frequency: 'WEEKLY' as const, lastCompleted: wed, streak: 2 };
+  it('a week is Monday to Sunday and is done once', () => {
+    expect(completedToday(weekly, thu)).toBe(true);
+    expect(completedToday(weekly, nextMon)).toBe(false);
+    expect(nextStreak(2, wed, thu, 'WEEKLY')).toBe(2);
+    expect(nextStreak(2, wed, nextMon, 'WEEKLY')).toBe(3);
+    expect(nextStreak(2, wed, skip, 'WEEKLY')).toBe(1);
+  });
+  it('a missed week or month ends the streak, a quiet day does not', () => {
+    expect(effectiveStreak(weekly, nextMon)).toBe(2);
+    expect(effectiveStreak(weekly, skip)).toBe(0);
+    const monthly = { frequency: 'MONTHLY' as const, lastCompleted: new Date(2026, 0, 31, 12).getTime(), streak: 4 };
+    expect(effectiveStreak(monthly, new Date(2026, 1, 10).getTime())).toBe(4);
+    expect(effectiveStreak(monthly, new Date(2026, 2, 1).getTime())).toBe(0);
+    expect(completedToday(monthly, new Date(2026, 0, 1).getTime())).toBe(true);
+  });
+});

@@ -481,9 +481,9 @@ describe('planner', () => {
     expect(habitSlot(get(), D(14))).toBeNull(); expect(habitSlot(get(), D(16))).toMatchObject({ ruleDay: D(14) }); expect(habitSlot(get(), D(21))).toBeTruthy();
     s.actions.moveHabit(h.id, D(21), D(23), 'all');
     expect(get().plan).toMatchObject({ start: D(23), moved: { [D(14)]: D(16) } });
-    t.now = new Date(2026, 0, 8, 9).getTime();
+    t.now = new Date(2026, 0, 12, 9).getTime();
     s.actions.completeHabit(h.id);
-    expect(get().log).toEqual([D(7), D(8)]);
+    expect(get().log).toEqual([D(7), D(12)]);
     expect(s.actions.undoHabit(h.id)).toBe(true);
     expect(get().log).toEqual([D(7)]);
     s.actions.setHabitPlan(h.id, undefined);

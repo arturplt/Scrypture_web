@@ -14,7 +14,7 @@ Update the status table when a phase moves.
 | 1 | Safety net and first release | M | Partly: error toast and update toast built 2026-11-17; nothing is committed, deployed or in CI yet |
 | 2 | Real-device pass | M | Not started |
 | 3 | Planner and Bóbr, second round | M-L | First version built 2026-11-16; activities pay XP and stats (2026-11-17) |
-| 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters built. Open: custom categories, weekly/monthly habit rules |
+| 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters and weekly/monthly habit rules built. Open: custom categories |
 | 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. Rest open |
 | 6 | Mind map, second round | M | First and second versions built 2026-11-16 |
 | 7 | Exercise tracker | L | First version built 2026-11-17 (see below) |
@@ -85,7 +85,7 @@ Why: these are the screens used every day, and several Android features are stil
 - ~~Task form: several core attributes at once~~ (built 2026-11-17). Quick-create with presets is open.
 - Tags: manage them and filter by them. (Sort options "No sort" and "Created date" were built 2026-11-17.)
 - Task detail screen (full description, "Done N times", previous and next).
-- Habits: real weekly and monthly rules. (The reward, streak multiplier, quick start and the 10-second undo were built 2026-11-17.)
+- ~~Habits: real weekly and monthly rules~~ (built 2026-11-17: once per week or month, streak counts periods; "N times a week" targets are open). (The reward, streak multiplier, quick start and the 10-second undo were built 2026-11-17.)
 - Start Here: topic filter, hide what is too hard for a beginner, "add all easy ones".
 - Done when: the Android task and habit features are matched or deliberately dropped, each noted in `BACKLOG.md`.
 

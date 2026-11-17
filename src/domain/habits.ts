@@ -1,4 +1,4 @@
-import type { Habit, StatRewards } from './types';
+import type { Frequency, Habit, StatRewards } from './types';
 import { logWith } from './habitplan';
 import { statRewards } from './xp';
 
@@ -22,26 +22,39 @@ export function dayDiff(fromMs: number, toMs: number): number {
   return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86_400_000);
 }
 
-export function nextStreak(streak: number, lastCompleted: number | null, now: number): number {
+/**
+ * Which period a moment falls in, counted from a fixed start: a calendar day, a week (Monday to Sunday) or a calendar month.
+ * A habit is done once per period and its streak counts consecutive periods.
+ */
+export function periodIndex(frequency: Frequency, ms: number): number {
+  const d = new Date(ms);
+  if (frequency === 'MONTHLY') return d.getFullYear() * 12 + d.getMonth();
+  const days = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+  return frequency === 'WEEKLY' ? Math.floor((days + 3) / 7) : days;   // 1 Jan 1970 was a Thursday: +3 puts the week break on Monday
+}
+export const periodDiff = (frequency: Frequency, fromMs: number, toMs: number) => periodIndex(frequency, toMs) - periodIndex(frequency, fromMs);
+
+export function nextStreak(streak: number, lastCompleted: number | null, now: number, frequency: Frequency = 'DAILY'): number {
   if (lastCompleted == null) return 1;
-  const d = dayDiff(lastCompleted, now);
+  const d = periodDiff(frequency, lastCompleted, now);
   if (d <= 0) return streak;   // same day (or clock went back): unchanged
   if (d === 1) return streak + 1;
-  return 1;                    // gap: streak restarts
+  return 1;                    // a period skipped: streak restarts
 }
 
-/** Mirrors Android HabitViewModel.completeHabit (streak counts calendar days, whatever the frequency). */
+/** Android counts calendar days whatever the frequency; here a weekly habit counts weeks and a monthly one months. */
 export function completeHabit(habit: Habit, now: number): Habit {
-  const streak = nextStreak(habit.streak, habit.lastCompleted, now);
+  const streak = nextStreak(habit.streak, habit.lastCompleted, now, habit.frequency);
   return { ...habit, streak, bestStreak: Math.max(habit.bestStreak, streak), lastCompleted: now, log: logWith(habit, now), updatedAt: now };
 }
 
-export const completedToday = (h: Habit, now: number) => h.lastCompleted != null && dayDiff(h.lastCompleted, now) === 0;
+/** Done for the current period: today for a daily habit, this week or month for the others. */
+export const completedToday = (h: Pick<Habit, 'lastCompleted' | 'frequency'>, now: number) => h.lastCompleted != null && periodDiff(h.frequency, h.lastCompleted, now) === 0;
 
 /** Streak as it should be shown now: a streak not continued yesterday or today is already lost. */
-export function effectiveStreak(h: Pick<Habit, 'streak' | 'lastCompleted'>, now: number): number {
+export function effectiveStreak(h: Pick<Habit, 'streak' | 'lastCompleted'> & { frequency?: Frequency }, now: number): number {
   if (h.lastCompleted == null) return 0;
-  return dayDiff(h.lastCompleted, now) > 1 ? 0 : h.streak;
+  return periodDiff(h.frequency ?? 'DAILY', h.lastCompleted, now) > 1 ? 0 : h.streak;
 }
 
 /** How the habit list can be ordered: newest first, longest streak, still-to-do-today first, or A-Z. */
