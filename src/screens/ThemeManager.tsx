@@ -27,7 +27,7 @@ const EDGE_LABEL: Record<(typeof FRAME_EDGES)[number], Key> = { stretch: 'edgeSt
 
 /** Every element of the mockup that can be clicked, with the label shown while editing it. */
 const TARGET_LABEL = {
-  device: 'deviceCase', frame: 'frames', nav: 'navBar', primary: 'mainButtons', secondary: 'secondaryButtons', chips: 'filterButtons', chipAll: 'all', chipBody: 'body', chipMind: 'mind', chipSoul: 'soul',
+  device: 'deviceCase', frame: 'frames', nav: 'navBar', primary: 'mainButtons', secondary: 'secondaryButtons', keys: 'keyboardKeys', keysFn: 'keyboardFnKeys', chips: 'filterButtons', chipAll: 'all', chipBody: 'body', chipMind: 'mind', chipSoul: 'soul',
   task: 'taskCard', habit: 'habitCard', done: 'doneCard', taskDialog: 'taskDialog', habitDialog: 'habitDialog', tick: 'tickBox',
   xp: 'experiencePoints', hunger: 'hunger', happiness: 'happiness',
   dashLevel: 'tmLevelCard', dashBody: 'tmBodyBox', dashMind: 'tmMindBox', dashSoul: 'tmSoulBox', dashPen: 'tmPen', dashHunger: 'tmHungerCard', dashHappiness: 'tmHappinessCard', dashMenu: 'tmMenuTiles', dashInventory: 'tmInventory', dashNudge: 'tmNudge', manageDialog: 'tmManageDialog', tip: 'tmTip', slot: 'tmSlot', plCard: 'tmPlCard', plBoard: 'tmPlBoard', plEvent: 'tmPlEvent',
@@ -250,6 +250,18 @@ export function ThemeManager() {
         {sizeEditor}
       </>
     ),
+    keys: (
+      <>
+        {styleEditor({ label: t('keyboardKeys'), value: buttons.keys, setValue: id => set({ buttons: { ...buttons, keys: id } }), compact: true,
+          base: buttonOpts('button_green'), preview: id => <ButtonLook look={id} fallback="button_green" size="compact">Aa</ButtonLook>, edges: 'frame' })}
+      </>
+    ),
+    keysFn: (
+      <>
+        {styleEditor({ label: t('keyboardFnKeys'), value: buttons.keysFn, setValue: id => set({ buttons: { ...buttons, keysFn: id } }), compact: true,
+          base: buttonOpts('button_red'), preview: id => <ButtonLook look={id} fallback="button_red" size="compact">Aa</ButtonLook>, edges: 'frame' })}
+      </>
+    ),
     chips: (
       <>
         {styleEditor({ label: t('filterButtons'), value: chips, setValue: id => set({ chips: id }), base: CHIP_IDS.map(id => ({ id, label: id, node: chipPair(id) })), preview: chipPair })}
@@ -343,6 +355,11 @@ export function ThemeManager() {
         <div className="row between">
           <h2 className="subtitle">{t('chatTasks')}</h2>
           <Hot {...hot('primary')}><ButtonLook look={buttons.primary} fallback="button_green">{t('newButton')}</ButtonLook></Hot>
+        </div>
+
+        <div className="row" style={{ gap: 'calc(2 * var(--u))' }}>
+          {['Q', 'W', 'E', 'R'].map(k => <Hot key={k} {...hot('keys')}><ButtonLook look={buttons.keys} fallback="button_green" size="compact">{k}</ButtonLook></Hot>)}
+          <Hot {...hot('keysFn')}><ButtonLook look={buttons.keysFn} fallback="button_red" size="compact">⌫</ButtonLook></Hot>
         </div>
 
         <Hot {...hot('chips')}>

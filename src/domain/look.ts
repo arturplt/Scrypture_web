@@ -80,7 +80,7 @@ export interface Look {
   chipsCat: ChipsCat;
   elements: Elements;
   nav: NavSettings;
-  buttons: { primary: string; secondary: string };
+  buttons: { primary: string; secondary: string; keys: string; keysFn: string };
   bars: { xp: string; hunger: string; happiness: string };
   /** The player's saved looks (see Preset). */
   presets: Preset[];
@@ -99,7 +99,7 @@ export const DEFAULT_LOOK: Look = {
   chipsCat: DEFAULT_CHIPS_CAT,
   elements: DEFAULT_ELEMENTS,
   nav: DEFAULT_NAV,
-  buttons: { primary: 'button_green', secondary: 'button_red' },
+  buttons: { primary: 'button_green', secondary: 'button_red', keys: 'button_green', keysFn: 'button_red' },
   bars: { xp: 'gold', hunger: 'boxes_red', happiness: 'boxes_green' }, // hunger/happiness as boxes like Android
   presets: [],
 };
@@ -132,7 +132,7 @@ export function sanitizeLook(raw: Partial<Record<keyof Look, unknown>> | undefin
       labels: (NAV_LABELS as readonly unknown[]).includes(r.nav?.labels) ? (r.nav!.labels as string) : DEFAULT_NAV.labels,
     },
     elements: Object.fromEntries(Object.entries(DEFAULT_ELEMENTS).map(([k, v]) => [k, str(r.elements?.[k], v)])) as unknown as Elements,
-    buttons: { primary: str(r.buttons?.primary, d.buttons.primary), secondary: str(r.buttons?.secondary, d.buttons.secondary) },
+    buttons: { primary: str(r.buttons?.primary, d.buttons.primary), secondary: str(r.buttons?.secondary, d.buttons.secondary), keys: str(r.buttons?.keys, d.buttons.keys), keysFn: str(r.buttons?.keysFn, d.buttons.keysFn) },
     bars: { xp: str(r.bars?.xp, d.bars.xp), hunger: str(r.bars?.hunger, d.bars.hunger), happiness: str(r.bars?.happiness, d.bars.happiness) },
   };
 }

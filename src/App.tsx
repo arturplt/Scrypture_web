@@ -31,6 +31,7 @@ import { EventHost } from './ui/EventHost';
 import { startUiSound } from './audio/uiSound';
 import { UndoBar } from './ui/UndoBar';
 import { Notices } from './ui/Notices';
+import { Keyboard } from './ui/Keyboard';
 import { useI18n } from './i18n/useT';
 import { useLayoutEffect, useRef } from 'react';
 import { useEffect } from 'react';
@@ -177,6 +178,7 @@ export function App() {
       <EventHost />
       <UndoBar />
       <Notices />
+      <Keyboard />
     </div>
   );
 }
