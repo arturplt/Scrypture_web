@@ -265,20 +265,21 @@ function EventForm({ event, day, time: at, onClose }: { event?: PlanEvent; day: 
   const [note, setNote] = useState(event?.note ?? '');
   const [repeat, setRepeat] = useState<Frequency | undefined>(undefined);   // a new activity only: an existing one already is what it is
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [asking, setAsking] = useState(false);   // a repeated activity: change only this one, or the future ones too?
   const when = inputToDay(date);
   const valid = title.trim().length > 0 && when !== undefined;
 
-  function save() {
+  function save(scope: 'one' | 'all' = 'one') {
     if (!valid) return;
     const clock = parseClock(time);
     const fields = { title, day: when!, time: clock, minutes: clock !== undefined && minutes ? minutes : undefined, category, note };
-    if (event) actions.updateEvent(event.id, { ...fields, series: event.series, repeat: event.repeat }); else actions.addEvent(fields, repeat);
+    if (event) actions.updateEventScope(event.id, fields, scope); else actions.addEvent(fields, repeat);
     onClose();
   }
 
   return (
     <Modal open onClose={onClose} theme="app" title={event ? t('plEditActivity') : t('plNewActivity')}>
-      <form className="form" onSubmit={e => { e.preventDefault(); save(); }}>
+      <form className="form" onSubmit={e => { e.preventDefault(); if (event?.series) setAsking(true); else save(); }}>
         <div className="form-body">
           <label className="field">{t('title')}
             <input autoFocus value={title} maxLength={80} onChange={e => setTitle(e.target.value)} placeholder={t('plActivityPlaceholder')} />
@@ -314,6 +315,16 @@ function EventForm({ event, day, time: at, onClose }: { event?: PlanEvent; day: 
             <textarea rows={2} value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder={t('optional')} />
           </label>
         </div>
+        {asking ? (
+          <div className="form-actions">
+            <p className="pl-ask">{t('plEditAskText', { title: event?.title ?? title })}</p>
+            <div className="row wrap">
+              <PixelButton type="button" scale={1} onClick={() => save('one')}>{t('plAskOne')}</PixelButton>
+              <PixelButton type="button" scale={1} onClick={() => save('all')}>{t('plAskAll')}</PixelButton>
+              <PixelButton type="button" scale={1} variant="red" onClick={() => setAsking(false)}>{t('back')}</PixelButton>
+            </div>
+          </div>
+        ) : (
         <div className="row wrap form-actions">
           <PixelButton type="submit" disabled={!valid} scale={1}>{event ? t('update') : t('add')}</PixelButton>
           <PixelButton type="button" scale={1} variant="red" onClick={onClose}>{t('cancel')}</PixelButton>
@@ -322,6 +333,7 @@ function EventForm({ event, day, time: at, onClose }: { event?: PlanEvent; day: 
               {event.series && <PixelButton type="button" scale={1} variant="red" onClick={() => { actions.deleteEvent(event.id, 'all'); onClose(); }}>{t('plDeleteAll')}</PixelButton>}</>
             : <PixelButton type="button" scale={1} variant="red" onClick={() => setConfirmDelete(true)}>{t('delete')}</PixelButton>)}
         </div>
+        )}
       </form>
     </Modal>
   );

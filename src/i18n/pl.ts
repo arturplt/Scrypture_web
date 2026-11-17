@@ -403,6 +403,7 @@ export const pl: Record<Key, string> = {
   "estimatedMinutes": "Szacowane minuty",
   "optional": "opcjonalnie",
   "tagsPlaceholder": "oddzielone przecinkami",
+  "plEditAskText": "'{title}' się powtarza. Zmienić tylko to wystąpienie czy to i wszystkie następne?",
   "tmSlot": "Miejsca w plecaku",
   "slotClassic": "Klasyczne miejsce",
   "tmPlCard": "Karty boczne planera",

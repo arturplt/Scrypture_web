@@ -740,3 +740,21 @@ describe('shortlist drag and drop', () => {
     expect(s.getState().tasks.find(t => t.id === a.id)!.dueDate).toBe(day(5));
   });
 });
+
+describe('editing a repeated activity', () => {
+  it('changes only this one, or this one and the later ones', () => {
+    const { s } = make();
+    s.actions.addEvent({ title: 'Swim', day: day(5), time: 480 }, 'WEEKLY');
+    const ev = () => s.getState().planner.events.slice().sort((a, b) => a.day - b.day);
+    const [first, second, third] = ev();
+    s.actions.updateEventScope(second.id, { title: 'Swim hard', day: second.day, time: 540 }, 'one');
+    expect(ev().slice(0, 3).map(e => [e.title, e.time])).toEqual([['Swim', 480], ['Swim hard', 540], ['Swim', 480]]);
+    expect(ev()[1].series).toBe(first.series);
+    s.actions.updateEventScope(second.id, { title: 'Run', day: second.day + 86_400_000, time: 600 }, 'all');
+    const after = ev();
+    expect(after[0].title).toBe('Swim');                                // earlier ones stay
+    expect(after[1]).toMatchObject({ title: 'Run', time: 600, day: second.day + 86_400_000 });
+    expect(after[2]).toMatchObject({ title: 'Run', time: 600, day: third.day + 86_400_000 });   // shifted by the same day
+    expect(after.every(e => e.series === first.series)).toBe(true);
+  });
+});

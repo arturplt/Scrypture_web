@@ -403,6 +403,7 @@ export const la: Record<Key, string> = {
   "estimatedMinutes": "Minutae aestimatae",
   "optional": "optionale",
   "tagsPlaceholder": "commatibus separata",
+  "plEditAskText": "'{title}' repetitur. Muta hoc solum, an hoc et omnia futura?",
   "tmSlot": "Loculi inventarii",
   "slotClassic": "Loculus antiquus",
   "tmPlCard": "Tabellae laterales",

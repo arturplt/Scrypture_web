@@ -402,6 +402,7 @@ export const en = {
   "estimatedMinutes": "Estimated minutes",
   "optional": "optional",
   "tagsPlaceholder": "comma, separated",
+  "plEditAskText": "'{title}' repeats. Change only this one, or this one and all the future ones?",
   "tmSlot": "Inventory slots",
   "slotClassic": "Classic slot",
   "tmPlCard": "Planner side cards",

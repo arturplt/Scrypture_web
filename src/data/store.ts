@@ -330,6 +330,14 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if (!clean) return;
       set({ ...state, planner: { ...state.planner, events: state.planner.events.map(e => (e.id === id ? { id, ...clean, done: e.done, ...(e.paid ? { paid: e.paid } : {}), createdAt: e.createdAt } : e)) } });
     },
+    /** Edit a repeated activity: only this one, or this one and every later one of its series (a changed date shifts them all by as many days). */
+    updateEventScope(id: string, input: NewEvent, scope: 'one' | 'all') {
+      const e = state.planner.events.find(x => x.id === id);
+      if (!e) return;
+      if (scope === 'one' || !e.series) { actions.updateEvent(id, { ...input, series: e.series, repeat: e.repeat }); return; }
+      const by = dayDiff(e.day, input.day);
+      for (const x of seriesFrom(state.planner.events, e)) actions.updateEvent(x.id, { ...input, day: addDays(x.day, by), series: x.series, repeat: x.repeat });
+    },
     /** The board: an activity dragged to another day or time (`time` undefined = no time), or stretched to a new length. */
     moveEvent(id: string, day: number, time: number | undefined, scope: 'one' | 'all' = 'one') {
       const e = state.planner.events.find(x => x.id === id);
