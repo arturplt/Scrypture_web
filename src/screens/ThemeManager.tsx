@@ -95,7 +95,7 @@ export function ThemeManager() {
   useEffect(() => { sheet.current?.scrollTo({ top: 0 }); }, [sel]);
 
   const centreApplies = frameEdges === 'mirror' || frameEdges === 'random';
-  const plateAttrs = usePlateAttrs(nav.plate);
+  const plateAttrs = usePlateAttrs(nav.plate, nav.plateScale);
   const navFrame = frameOr(nav.frame, 'wood_steel');
   const navLight = LIGHT_FRAMES.has(resolveFrame(navFrame, s.frameTheme, '', '').name);
 
@@ -217,11 +217,15 @@ export function ThemeManager() {
       <>
         {frameEditor(t('frame'), nav.frame, id => set({ nav: { ...nav, frame: id } }), frameOpts(true))}
         <Choices navs label={t('navActive')} wide value={nav.active} onPick={id => set({ nav: { ...nav, active: id } })}
-          opts={NAV_ACTIVE.map(id => ({ id, label: id, node: <NavLook active={id} plate={nav.plate} /> }))} />
+          opts={NAV_ACTIVE.map(id => ({ id, label: id, node: <NavLook active={id} plate={nav.plate} plateScale={nav.plateScale} /> }))} />
         {nav.active === 'plate' && styleEditor({
           label: t('navPlate'), value: nav.plate, setValue: id => set({ nav: { ...nav, plate: id } }), wide: true, navs: true,
-          base: PLATE_IDS.map(id => ({ id, label: id, node: <NavLook active="plate" plate={id} /> })), preview: id => <NavLook active="plate" plate={id} />,
+          base: PLATE_IDS.map(id => ({ id, label: id, node: <NavLook active="plate" plate={id} plateScale={nav.plateScale} /> })), preview: id => <NavLook active="plate" plate={id} plateScale={nav.plateScale} />,
         })}
+        {nav.active === 'plate' && (
+          <Choices label={t('navPlateScale')} value={String(nav.plateScale)} onPick={id => set({ nav: { ...nav, plateScale: Number(id) } })}
+            opts={[1, 2, 3, 4].map(n => ({ id: String(n), label: `${n}x`, node: <NavLook active="plate" plate={nav.plate} plateScale={n} /> }))} />
+        )}
         <div className="tm-group">
           <div className="tm-label">{t('navItems')}</div>
           <div className="nav-items">

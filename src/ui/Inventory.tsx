@@ -45,7 +45,7 @@ type Deal = ReturnType<typeof tradeFor>;
 /** Today's trade slot beside Bóbr: what he asks for on his left, what he gives on his right. Nothing while he is not in the mood. */
 export function TradeSlot({ emotion, deal, side }: { emotion: Emotion; deal: Deal; side: 'left' | 'right' }) {
   if (!willTrade(emotion)) return <div className="pen-slots" />;
-  return <div className="pen-slots"><Slot id={side === 'left' ? deal.request : deal.offer} n={1} /></div>;
+  return <div className={`pen-slots pen-slots-${side}`}><Slot id={side === 'left' ? deal.request : deal.offer} n={1} /></div>;
 }
 
 /** The trade button, laid over the pen's bottom border (shown while the trade is open: tap Bóbr to open or close it). */

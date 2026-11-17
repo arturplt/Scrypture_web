@@ -354,6 +354,7 @@ export const en = {
   "navBar": "Navigation bar",
   "navActive": "Active tab",
   "navPlate": "Plate",
+  "navPlateScale": "Plate size",
   "navItems": "Items",
   "navLabels": "Labels",
   "navIconsOnly": "Icons only",

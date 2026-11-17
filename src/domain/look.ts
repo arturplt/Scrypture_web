@@ -38,8 +38,8 @@ export const DEFAULT_ELEMENTS: Elements = { tick: 'classic', task: 'app', habit:
 export const NAV_ITEMS = ['home', 'tasks', 'habits', 'plan', 'start', 'chat', 'trophies', 'apps', 'settings'] as const;
 export const NAV_ACTIVE = ['outline', 'glow', 'plate', 'underline', 'lift'] as const;
 export const NAV_LABELS = ['icons', 'both'] as const;
-export interface NavSettings { frame: string; active: string; plate: string; items: string[]; labels: string }
-export const DEFAULT_NAV: NavSettings = { frame: 'wood_steel', active: 'outline', plate: 'wood', items: ['home', 'tasks', 'habits'], labels: 'icons' };
+export interface NavSettings { frame: string; active: string; plate: string; plateScale: number; items: string[]; labels: string }
+export const DEFAULT_NAV: NavSettings = { frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits'], labels: 'icons' };
 
 /** Valid, de-duplicated items in the fixed canonical order, always including Home. */
 export function sanitizeNavItems(raw: unknown): string[] {
@@ -127,6 +127,7 @@ export function sanitizeLook(raw: Partial<Record<keyof Look, unknown>> | undefin
     nav: {
       frame: str(r.nav?.frame, DEFAULT_NAV.frame),
       plate: str(r.nav?.plate, DEFAULT_NAV.plate),
+      plateScale: [1, 2, 3, 4].includes(r.nav?.plateScale as number) ? (r.nav!.plateScale as number) : DEFAULT_NAV.plateScale,
       active: (NAV_ACTIVE as readonly unknown[]).includes(r.nav?.active) ? (r.nav!.active as string) : DEFAULT_NAV.active,
       items: sanitizeNavItems(r.nav?.items),
       labels: (NAV_LABELS as readonly unknown[]).includes(r.nav?.labels) ? (r.nav!.labels as string) : DEFAULT_NAV.labels,

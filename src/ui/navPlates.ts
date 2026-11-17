@@ -18,8 +18,8 @@ export const PLATE_IDS = Object.keys(NAV_PLATES) as NavPlate[];
 /** `id` may carry a colour variant (`wood~120`). */
 export const plateDef = (id: string): PlateDef => NAV_PLATES[splitFrame(id).name as NavPlate] ?? NAV_PLATES.wood;
 /** Attributes for the nav element: the sprite (in its colour variant) as a CSS variable, plus whether the label needs light text. */
-export function usePlateAttrs(id: string) {
+export function usePlateAttrs(id: string, scale = 2) {
   const d = plateDef(id), plain = `url(/assets/raw/${d.sprite}.png)`;
   const [huedUrl] = useHuedUrls([`/assets/raw/${d.sprite}.png`], splitFrame(id).hue);
-  return { style: { '--plate': huedUrl ?? plain } as React.CSSProperties, 'data-plate-dark': d.dark ? '' : undefined };
+  return { style: { '--plate': huedUrl ?? plain, '--ps': scale } as React.CSSProperties, 'data-plate-dark': d.dark ? '' : undefined };
 }

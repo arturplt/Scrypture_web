@@ -355,6 +355,7 @@ export const pl: Record<Key, string> = {
   "navBar": "Pasek nawigacji",
   "navActive": "Aktywna zakładka",
   "navPlate": "Płytka",
+  "navPlateScale": "Rozmiar płytki",
   "navItems": "Elementy",
   "navLabels": "Podpisy",
   "navIconsOnly": "Tylko ikony",

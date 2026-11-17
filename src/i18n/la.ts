@@ -355,6 +355,7 @@ export const la: Record<Key, string> = {
   "navBar": "Tabula navigationis",
   "navActive": "Tabula activa",
   "navPlate": "Tabula",
+  "navPlateScale": "Magnitudo tabulae",
   "navItems": "Res",
   "navLabels": "Tituli",
   "navIconsOnly": "Imagines tantum",

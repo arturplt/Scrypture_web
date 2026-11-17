@@ -601,3 +601,20 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .spawn.ground { top: auto; bottom: calc(-26 * var(--u)); animation: none; }
 .spawn.ground img { animation: bob 1s steps(2) infinite; }
 @media (prefers-reduced-motion: reduce) { .pen .bobr-img, .spawn.ground img { animation: none !important; } }
+
+/* sliding active-tab marker: one element that glides between tabs (outline / plate / underline looks); the per-button versions are switched off */
+.nav-frame { position: relative; }
+.nav-frame[data-slide] .nav-btn.active { border-color: transparent; background: none; border-image: none; }
+.nav-frame[data-slide] .nav-btn.active::after { display: none; }
+.nav-frame[data-slide] .nav-btn { z-index: 1; }
+.nav-sel { position: absolute; z-index: 0; box-sizing: border-box; pointer-events: none; opacity: 0; transition: left .48s cubic-bezier(.3,1.5,.5,1), top .48s cubic-bezier(.3,1.5,.5,1), width .48s cubic-bezier(.3,1.5,.5,1), height .48s cubic-bezier(.3,1.5,.5,1), opacity .2s; image-rendering: pixelated; }
+.nav-frame[data-active='outline'] .nav-sel { border: calc(6 * var(--u)) solid var(--gold); background: #0004; border-radius: var(--radius); }
+.nav-frame[data-active='plate'] .nav-sel { border: calc(3 * var(--ps, 2) * var(--u)) solid transparent; border-image: var(--plate, url(/assets/raw/box_wood.png)) 3 fill / calc(3 * var(--ps, 2) * var(--u)) / 0 stretch; }
+.nav-frame[data-active='underline'] .nav-sel::after { content: ''; position: absolute; left: 15%; right: 15%; bottom: calc(-4 * var(--u)); height: calc(4 * var(--u)); background: var(--gold); }
+:root[data-motion='reduce'] .nav-sel { transition: none; }
+
+/* trade slots float over the pen's left / right edge instead of taking a grid column, so opening the trade never changes the pen's size */
+.pen-row .pen-slots { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; }
+.pen-row .pen-slots-left { left: calc(4 * var(--u)); }
+.pen-row .pen-slots-right { right: calc(4 * var(--u)); }
+.pen-row > .pen-hit, .pen-row > .pen { grid-column: 2; }   /* the floating slots leave the grid, so keep Bóbr in the middle column */

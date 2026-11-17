@@ -217,7 +217,7 @@ describe('look (appearance + accessibility)', () => {
     expect(DEFAULT_LOOK.bars).toMatchObject({ hunger: 'boxes_red', happiness: 'boxes_green' });
   });
   it('keeps valid values and replaces garbage', () => {
-    const ok = { presets: [], device: false, crt: 'high', deviceFrame: 'tech', textScale: 1.5, uiScale: 2, frameEdges: 'random', buttonSize: 'medium', frameCenter: 'random', chips: 'stone', chipEdges: 'random', chipsCat: { all: 'same', body: 'ember', mind: 'stone', soul: 'gold' }, nav: { frame: 'tech', active: 'plate', plate: 'ember', items: ['home', 'chat', 'settings'], labels: 'both' }, elements: { tick: 'slot', task: 'gold', habit: 'app', done: 'tech', taskDialog: 'space', habitDialog: 'blue' , dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app', dashNudge: 'app', manageDialog: 'wood_steel', tip: 'gold_ornate', slot: 'tech', plCard: 'gold', plBoard: 'app', plEvent: 'red' }, buttons: { primary: 'gold', secondary: 'button_red', keys: 'blue', keysFn: 'button_red' }, bars: { xp: 'stone', hunger: 'seg_red', happiness: 'bev' } };
+    const ok = { presets: [], device: false, crt: 'high', deviceFrame: 'tech', textScale: 1.5, uiScale: 2, frameEdges: 'random', buttonSize: 'medium', frameCenter: 'random', chips: 'stone', chipEdges: 'random', chipsCat: { all: 'same', body: 'ember', mind: 'stone', soul: 'gold' }, nav: { frame: 'tech', active: 'plate', plate: 'ember', plateScale: 3, items: ['home', 'chat', 'settings'], labels: 'both' }, elements: { tick: 'slot', task: 'gold', habit: 'app', done: 'tech', taskDialog: 'space', habitDialog: 'blue' , dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app', dashNudge: 'app', manageDialog: 'wood_steel', tip: 'gold_ornate', slot: 'tech', plCard: 'gold', plBoard: 'app', plEvent: 'red' }, buttons: { primary: 'gold', secondary: 'button_red', keys: 'blue', keysFn: 'button_red' }, bars: { xp: 'stone', hunger: 'seg_red', happiness: 'bev' } };
     expect(sanitizeLook(ok)).toEqual(ok);
     const bad = sanitizeLook({ textScale: 7, uiScale: '2', frameEdges: 'wavy', buttonSize: 'tiny', frameCenter: 'huge', buttons: { primary: 5, secondary: '' }, bars: null } as never);
     expect(bad).toEqual(DEFAULT_LOOK);
@@ -231,12 +231,12 @@ describe('look (appearance + accessibility)', () => {
     expect(sanitizeLook({ elements: 'nope' } as never).elements).toEqual(DEFAULT_LOOK.elements);
   });
   it('navigation bar: defaults, always keeps Home, canonical order, drops unknown and duplicate items', () => {
-    expect(DEFAULT_LOOK.nav).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', items: ['home', 'tasks', 'habits'], labels: 'icons' });
+    expect(DEFAULT_LOOK.nav).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits'], labels: 'icons' });
     expect(sanitizeNavItems(['settings', 'chat', 'chat', 'nope', 7])).toEqual(['home', 'chat', 'settings']);   // Home added, order fixed
     expect(sanitizeNavItems([])).toEqual(['home']);
     expect(sanitizeNavItems('nope')).toEqual(['home', 'tasks', 'habits']);
     const bad = sanitizeLook({ nav: { frame: '', active: 'blink', items: ['tasks'], labels: 'text' } } as never).nav;
-    expect(bad).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', items: ['home', 'tasks'], labels: 'icons' });
+    expect(bad).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks'], labels: 'icons' });
   });
   it('button size: compact by default, thinner borders for smaller sizes, decorated frames protected', () => {
     expect(DEFAULT_LOOK.buttonSize).toBe('compact');

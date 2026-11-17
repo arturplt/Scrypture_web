@@ -90,7 +90,7 @@ export function App() {
   const chipStyle = useChipVars(chips);
   const nav = useAppState(s => s.settings.nav);
   const badges = useNavBadges();
-  const plate = usePlateAttrs(nav.plate);
+  const plate = usePlateAttrs(nav.plate, nav.plateScale);
   const mainFrame = useAppState(s => s.settings.frameTheme);
   const navFrame = frameOr(nav.frame, 'wood_steel');
   const navLight = LIGHT_FRAMES.has(resolveFrame(navFrame, mainFrame, '', '').name);   // dark labels on light frames
@@ -148,11 +148,54 @@ export function App() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [onboarded, playing, device]);
+  // Tab switch: the page slides in from the side of the new tab and overshoots a little before settling (the bar's selector slides too, below)
+  const prevRoute = useRef(route);
+  const contentRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const from = prevRoute.current;
+    prevRoute.current = route;
+    if (from === route || reduceMotion || !onboarded) return;
+    const ids = NAV_DEFS.filter(d => nav.items.includes(d.id));
+    const at = (r: string) => ids.findIndex(d => isActivePath(r, d.path));
+    const a = at(from), b = at(route);
+    const dir = a >= 0 && b >= 0 && a !== b ? Math.sign(b - a) : route.length >= from.length ? 1 : -1;
+    const els: [Element | null, number][] = [[contentRef.current, 40]];
+    const root = document.documentElement;
+    root.style.overflowX = 'clip';
+    const anims = els.flatMap(([el, pct]) => el ? [el.animate(
+      [{ transform: `translateX(${dir * pct}%)`, opacity: 0.2 }, { transform: 'translateX(0)', opacity: 1 }],
+      { duration: 480, easing: 'cubic-bezier(.3,1.5,.5,1)' })] : []);
+    Promise.allSettled(anims.map(x => x.finished)).then(() => { root.style.overflowX = ''; });
+    return () => { anims.forEach(x => x.cancel()); root.style.overflowX = ''; };
+  }, [route]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // the active-tab marker (outline / plate / underline) is one element that glides to the new tab with an overshoot
+  const slide = ['outline', 'plate', 'underline'].includes(nav.active);
+  const selRef = useRef<HTMLSpanElement>(null);
+  const selPlaced = useRef(false);
+  useLayoutEffect(() => {
+    const frame = navRef.current?.firstElementChild as HTMLElement | null | undefined, sel = selRef.current;
+    if (!frame || !sel) { selPlaced.current = false; return; }
+    const place = () => {
+      const b = frame.querySelector<HTMLElement>('.nav-btn.active');
+      if (!b) { sel.style.opacity = '0'; return; }
+      sel.style.transition = selPlaced.current && !reduceMotion ? '' : 'none';
+      sel.style.opacity = '1';
+      sel.style.left = `${b.offsetLeft}px`; sel.style.top = `${b.offsetTop}px`;
+      sel.style.width = `${b.offsetWidth}px`; sel.style.height = `${b.offsetHeight}px`;
+      selPlaced.current = true;
+    };
+    place();
+    let first = true;   // observe() reports once straight away: that is not a resize, and snapping then would cancel the glide
+    const ro = new ResizeObserver(() => { if (first) { first = false; return; } selPlaced.current = false; place(); });
+    ro.observe(frame);
+    return () => ro.disconnect();
+  }, [route, slide, nav.items, nav.labels, nav.plate, navPreview, rail, device, onboarded, playing, reduceMotion]);
   const banner = !persistent && <div className="banner" role="alert">{t('storageWarning')}</div>;
   if (!onboarded) return <div className="app">{banner}<main className="content"><Onboarding /></main></div>;
   const navEl = !playing && (
       <nav className="nav" aria-label={t('mainNav')} ref={navRef}>
-        <PixelFrame theme={navFrame} scale={1} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} {...plate}>
+        <PixelFrame theme={navFrame} scale={1} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} data-slide={slide ? '' : undefined} {...plate}>
+          {slide && !navPreview && <span className="nav-sel" ref={selRef} aria-hidden="true" />}
           {navPreview ? <>
             <button className="nav-btn" onClick={() => navigate('/apps')} aria-label={t('back')}>
               <Icon name="arrow_stone_left" size={device ? 32 : 48} />
@@ -171,7 +214,7 @@ export function App() {
           })}
         </PixelFrame>
       </nav>);
-  const page = <main className="content" id="main" tabIndex={-1}><Screen route={route} /></main>;
+  const page = <main className="content" id="main" tabIndex={-1} ref={contentRef}><Screen route={route} /></main>;
   const here = NAV_DEFS.find(d => isActivePath(route, d.path));
   const title = route === '/' ? 'Scrypture' : here ? t(here.label) : route.startsWith('/games') ? t('games') : route === '/theme' ? t('themeManager') : route === '/apps/pixelite' ? t('pixelite') : route.startsWith('/habits') ? t('chatHabits') : t('settings');
   return (
