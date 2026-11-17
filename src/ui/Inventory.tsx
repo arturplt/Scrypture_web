@@ -4,13 +4,16 @@ import { PixelFrame } from './PixelFrame';
 import { PixelButton } from './PixelButton';
 import { useT } from '../i18n/useT';
 import { useUi } from './useUi';
-import { frameOr } from './themes';
+import { backdropFrame, frameOr } from './themes';
 
 /** One inventory slot: the Android slot sprite with the item in it and its count in the corner. Empty slots show the item dimmed. */
 export function Slot({ id, n, as: Tag = 'span', glow = Tag === 'button', ...rest }: { id: ItemId; n: number; as?: 'span' | 'button'; /** bob and glow: "tap me now" */ glow?: boolean } & React.HTMLAttributes<HTMLElement>) {
   const { px } = useUi();
+  const style = useAppState(s => s.settings.elements.slot);
+  const custom = style !== 'classic';   // a chosen frame is drawn as a backdrop (never below 1x) instead of the original slot sprite
   return (
-    <Tag className={`slot ${n === 0 ? 'empty' : ''} ${Tag === 'button' ? 'tap' : ''} ${glow ? 'feed' : ''}`} {...rest}>
+    <Tag className={`slot ${custom ? 'slot-frame' : ''} ${n === 0 ? 'empty' : ''} ${Tag === 'button' ? 'tap' : ''} ${glow ? 'feed' : ''}`} {...rest}>
+      {custom && <PixelFrame as="span" theme={backdropFrame(style, 'app')} scale={1} className="slot-bg" aria-hidden />}
       <img className="pixel" src={`/assets/raw/${ITEM_SPRITE[id]}.png`} width={px(32)} height={px(32)} alt={ITEM_LABEL[id]} />
       <b className="slot-n">{n}</b>
     </Tag>

@@ -57,7 +57,7 @@ function EventCard({ event: e, onNow, expanded, leaving, label, onToggle, onTick
 }) {
   const { t } = useI18n();
   const el = useAppState(s => s.settings.elements);
-  const theme = e.done ? frameOr(el.done, 'grey_stone_chiseld') : 'blue';
+  const theme = e.done ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.plEvent, 'blue');
   const tinted = useTintedFrame(theme, !e.done && e.category ? CATEGORY_TINT[e.category] : null);
   const style = { ...(tinted ? { '--frame': tinted } : {}), ...(leaving ? fxVars('event', EVENT_STARS) : {}) } as CSSProperties;
   return (
@@ -163,6 +163,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   onEditEvent: (e: PlanEvent) => void; onEditTask: (t: Task) => void; onEditHabit: (h: Habit) => void; onNewEvent: (day: number, time?: number) => void; onNewTask: (day: number) => void; onAddHabit: (day: number) => void;
 }) {
   const { t, locale } = useI18n();
+  const elements = useAppState(s => s.settings.elements);
   const span = planner.span ?? DEFAULT_SPAN;
   const today = startOfDay(now), nowMin = minutesOfDay(now);
   const days = boardDays(day, span);
@@ -287,7 +288,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const landing = (e: PlanEvent) => { const d = dragging(e.id); return d?.over ? whenOf({ ...e, ...placeEvent(e, d.over.day, d.over.time) }) : whenOf(e); };
 
   return (
-    <PixelFrame theme="app" scale={1} className="card pl-board">
+    <PixelFrame theme={frameOr(elements.plBoard, 'app')} scale={1} className="card pl-board">
       <div className="pl-bar">
         <button type="button" className="pl-ib" aria-label={t('plEarlier')} title={t('plEarlier')} onClick={() => onDay(addDays(days[0], -span))}><Icon name="arrow_stone_left" size={16} /></button>
         <h2 className="pl-month-name" aria-live="polite">{range}</h2>

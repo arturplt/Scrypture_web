@@ -8,6 +8,7 @@ import { useNow } from '../hooks';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
 import { PixelFrame } from '../ui/PixelFrame';
+import { frameOr } from '../ui/themes';
 import { PixelButton } from '../ui/PixelButton';
 import { Sparkles, fxVars, prefersReducedMotion } from '../ui/CompleteFx';
 import { Chip, Icon, Modal, PixelCheckbox } from '../ui/misc';
@@ -40,6 +41,7 @@ function CatPick({ value, onChange, size = 32 }: { value: Category | undefined; 
  */
 export function Planner() {
   const { t, locale } = useI18n();
+  const elements = useAppState(s => s.settings.elements);
   const tasks = useAppState(s => s.tasks);
   const habits = useAppState(s => s.habits);
   const planner = useAppState(s => s.planner);
@@ -138,7 +140,7 @@ export function Planner() {
       </div>
       <h1 className="title">{t('planner')}</h1>
 
-      <PixelFrame theme="app" scale={1} className="card">
+      <PixelFrame theme={frameOr(elements.plCard, 'app')} scale={1} className="card">
         <h2 className="subtitle">{t('plShortlist')} ({short.length}/{SHORTLIST_MAX})</h2>
         <div className="muted small">{t('plShortHint', { n: SHORTLIST_MAX })} {t('plShortDrag')}</div>
         {short.length === 0 && <div className="muted small">{t('plShortEmpty')}</div>}
@@ -157,7 +159,7 @@ export function Planner() {
 
       <div className="pl-cols">
         <div className="pl-col">
-          <PixelFrame theme="app" scale={1} className="card">
+          <PixelFrame theme={frameOr(elements.plCard, 'app')} scale={1} className="card">
             <div className="pl-month">
               <button type="button" className="pl-ib" aria-label={t('plPrevMonth')} title={t('plPrevMonth')} onClick={() => turn(-1)}><Icon name="arrow_stone_left" size={16} /></button>
               <h2 className="pl-month-name" aria-live="polite">{new Date(view.y, view.m, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' })}</h2>
@@ -183,7 +185,7 @@ export function Planner() {
         </div>
 
         <div className="pl-col">
-          <PixelFrame theme="app" scale={1} className="card">
+          <PixelFrame theme={frameOr(elements.plCard, 'app')} scale={1} className="card">
             <h2 className="subtitle">{t('plHabitsDone')}</h2>
             <div className="muted small">{t('plHabitsDoneHint', { n: HISTORY_DAYS })}</div>
             {history.length === 0 && <div className="muted small">{t('plHabitsDoneNone', { n: HISTORY_DAYS })}</div>}

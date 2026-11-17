@@ -15,6 +15,7 @@ import { TickLook, TickSample } from '../ui/TickLook';
 import { PLATE_IDS, usePlateAttrs } from '../ui/navPlates';
 import { NAV_DEFS, isActivePath } from '../ui/navItems';
 import { Chip, Icon, PixelCheckbox, StatBox } from '../ui/misc';
+import { Slot } from '../ui/Inventory';
 import { LIGHT_FRAMES } from '../ui/themes';
 import { NavLook } from '../ui/NavLook';
 import { useT } from '../i18n/useT';
@@ -29,7 +30,7 @@ const TARGET_LABEL = {
   device: 'deviceCase', frame: 'frames', nav: 'navBar', primary: 'mainButtons', secondary: 'secondaryButtons', chips: 'filterButtons', chipAll: 'all', chipBody: 'body', chipMind: 'mind', chipSoul: 'soul',
   task: 'taskCard', habit: 'habitCard', done: 'doneCard', taskDialog: 'taskDialog', habitDialog: 'habitDialog', tick: 'tickBox',
   xp: 'experiencePoints', hunger: 'hunger', happiness: 'happiness',
-  dashLevel: 'tmLevelCard', dashBody: 'tmBodyBox', dashMind: 'tmMindBox', dashSoul: 'tmSoulBox', dashPen: 'tmPen', dashHunger: 'tmHungerCard', dashHappiness: 'tmHappinessCard', dashMenu: 'tmMenuTiles', dashInventory: 'tmInventory', dashNudge: 'tmNudge', manageDialog: 'tmManageDialog', tip: 'tmTip',
+  dashLevel: 'tmLevelCard', dashBody: 'tmBodyBox', dashMind: 'tmMindBox', dashSoul: 'tmSoulBox', dashPen: 'tmPen', dashHunger: 'tmHungerCard', dashHappiness: 'tmHappinessCard', dashMenu: 'tmMenuTiles', dashInventory: 'tmInventory', dashNudge: 'tmNudge', manageDialog: 'tmManageDialog', tip: 'tmTip', slot: 'tmSlot', plCard: 'tmPlCard', plBoard: 'tmPlBoard', plEvent: 'tmPlEvent',
 } as const satisfies Record<string, Key>;
 type Target = keyof typeof TARGET_LABEL;
 
@@ -267,6 +268,11 @@ export function ThemeManager() {
     dashPen: elementFrame('dashPen'), dashHunger: elementFrame('dashHunger'), dashHappiness: elementFrame('dashHappiness'),
     dashMenu: elementFrame('dashMenu'), dashInventory: elementFrame('dashInventory'), dashNudge: elementFrame('dashNudge'),
     manageDialog: elementFrame('manageDialog'), tip: elementFrame('tip'),
+    plCard: elementFrame('plCard'), plBoard: elementFrame('plBoard'), plEvent: elementFrame('plEvent', false),
+    slot: frameEditor(t('frame'), elements.slot, id => set({ elements: { ...elements, slot: id } }), [
+      { id: 'classic', label: t('slotClassic'), node: <span className="slot"><img className="pixel" src="/assets/raw/coin.png" width="32" height="32" alt="" /></span> },
+      ...frameOpts(false),
+    ], false),
     tick: styleEditor({ value: elements.tick, setValue: id => set({ elements: { ...elements, tick: id } }), base: TICK_IDS.map(id => ({ id, label: id, node: <TickLook id={id} /> })), preview: id => <TickLook id={id} /> }),
     xp: barEditor('xp'),
     hunger: barEditor('hunger'),
@@ -384,8 +390,21 @@ export function ThemeManager() {
         </Hot>
         <Hot {...hot('dashInventory')}>
           <PixelFrame theme={frameOr(elements.dashInventory, 'app')} scale={1} className="card">
-            <div className="row">{(['coin', 'stone', 'hay', 'stick'] as const).map(i => <Icon key={i} name={i} size={32} />)}</div>
+            <div className="row">{(['bcoin', 'stone', 'hay', 'stick'] as const).map((i, k) => <Hot key={i} {...hot('slot')}><Slot id={i} n={k + 1} /></Hot>)}</div>
           </PixelFrame>
+        </Hot>
+
+        <Hot {...hot('plBoard')}>
+          <PixelFrame theme={frameOr(elements.plBoard, 'app')} scale={1} className="card">
+            <div className="small">{t('planner')}</div>
+            <Hot {...hot('plEvent')}>
+              <PixelFrame theme={frameOr(elements.plEvent, 'blue')} scale={1} className="task event compact"><div className="task-head"><span className="task-title">{t('plShortlist')}</span></div></PixelFrame>
+            </Hot>
+          </PixelFrame>
+        </Hot>
+
+        <Hot {...hot('plCard')}>
+          <PixelFrame theme={frameOr(elements.plCard, 'app')} scale={1} className="card"><div className="small">{t('plShortlist')}</div></PixelFrame>
         </Hot>
 
         <Hot {...hot('dashNudge')}>

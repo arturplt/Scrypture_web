@@ -28,9 +28,11 @@ export interface Elements {
   /** Bóbr's nudge line on Home */ dashNudge: string;
   /** the Categories and Tags dialogs */ manageDialog: string;
   /** the hover tip on the Body and Mind boxes */ tip: string;
+  /** inventory slots: 'classic' (the original slot sprite) or a frame */ slot: string;
+  /** Planner: the side cards (shortlist, month, habits), the board, and an activity card */ plCard: string; plBoard: string; plEvent: string;
 }
 export const DEFAULT_ELEMENTS: Elements = { tick: 'classic', task: 'app', habit: 'app', done: 'grey_stone_chiseld', taskDialog: 'wood_gold_gem', habitDialog: 'wood_gold_gem',
-  dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app', dashNudge: 'app', manageDialog: 'wood_gold_gem', tip: 'wood_gold_gem' };
+  dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app', dashNudge: 'app', manageDialog: 'wood_gold_gem', tip: 'wood_gold_gem', slot: 'classic', plCard: 'app', plBoard: 'app', plEvent: 'blue' };
 
 /** Navigation bar: which destinations appear (Home is always kept), how the active one is marked, and whether labels show. */
 export const NAV_ITEMS = ['home', 'tasks', 'habits', 'plan', 'start', 'chat', 'trophies', 'apps', 'settings'] as const;

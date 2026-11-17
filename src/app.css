@@ -498,3 +498,9 @@ textarea { resize: vertical; }
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-select: text; }
 img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
+
+/* a slot drawn with a chosen frame: the frame is a backdrop at full size, the item and its count sit over it */
+.slot.slot-frame { border: 0; border-image: none; }
+.pf.slot-bg { position: absolute; inset: 0; padding: 0; pointer-events: none; }
+.slot.slot-frame img, .slot.slot-frame .slot-n { position: relative; }
+.slot.slot-frame .slot-n { position: absolute; }
