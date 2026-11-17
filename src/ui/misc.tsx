@@ -58,7 +58,7 @@ export function StatBox({ stat, value, frame = 'app', onLongPress, tip }: { stat
     <PixelFrame theme={frameOr(frame, 'app')} scale={1} className={`statbox stat-${stat} ${onLongPress ? 'holdable' : ''}`} {...hold}>
       <img className="stat-icon" src={rawUrl(`${stat}_active`)} alt={stat} />
       <div className="stat-val">{value}</div>
-      {tip && <PixelFrame as="span" theme="wood_gold_gem:stretch:clean:8" scale={1} className="tip" role="tooltip">{tip}</PixelFrame>}
+      {tip && <span className="tip" role="tooltip"><PixelFrame as="span" theme="wood_gold_gem:stretch:clean:16" scale={1} className="tip-bg" aria-hidden /><span className="tip-text">{tip}</span></span>}
     </PixelFrame>
   );
 }

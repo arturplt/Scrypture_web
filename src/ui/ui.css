@@ -84,6 +84,9 @@ button.pf { background: none; }
 
 /* hover / focus tip: a small pixel-art box above its element */
 .statbox { position: relative; }
-.pf.tip { position: absolute; left: 50%; bottom: calc(100% + 2 * var(--u)); transform: translateX(-50%); width: max-content; max-width: calc(180 * var(--u)); padding: calc(4 * var(--u)) calc(6 * var(--u)); font-size: var(--fs-xs); line-height: 1.5; text-align: center; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 5; }
+.tip { position: absolute; left: 50%; bottom: calc(100% + 2 * var(--u)); transform: translateX(-50%); width: max-content; max-width: calc(200 * var(--u)); min-height: calc(32 * var(--u)); display: flex; align-items: center; justify-content: center; padding: 0 calc(8 * var(--u)); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 5; }
+/* the frame is a backdrop at full size (never below 1x); the text sits over it with little padding */
+.pf.tip-bg { position: absolute; inset: 0; padding: 0; }
+.tip-text { position: relative; font-size: var(--fs-xs); line-height: 1.4; text-align: center; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
 .statbox:hover > .tip, .statbox:focus-visible > .tip { opacity: 1; visibility: visible; }
 @media (hover: none) { .statbox:hover > .tip { opacity: 0; visibility: hidden; } }
