@@ -208,7 +208,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const fitTitles = () => {
     for (const el of scrollRef.current?.querySelectorAll<HTMLElement>('.pl-item.timed:not(.open) .task-title, .pl-loose .task-title, .pl-group-head > span') ?? []) {
       el.style.fontSize = '';
-      const base = parseFloat(getComputedStyle(el).fontSize), floor = Math.max(4, Math.round(base * 0.6));
+      const base = parseFloat(getComputedStyle(el).fontSize), floor = Math.max(4, Math.round(base * 0.5));
       for (let size = Math.floor(base); el.scrollWidth > el.clientWidth && size > floor; size--) el.style.fontSize = `${size - 1}px`;
     }
   };
@@ -218,7 +218,11 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => fitTitles());
     ro.observe(el);
-    return () => ro.disconnect();
+    // the pixel font may arrive after the first measure (the text is wider once it has): measure again then
+    const again = () => fitTitles();
+    document.fonts?.ready.then(again);
+    document.fonts?.addEventListener?.('loadingdone', again);
+    return () => { ro.disconnect(); document.fonts?.removeEventListener?.('loadingdone', again); };
   }, []);
   useEffect(() => () => stopDrag.current?.(), []);
 
