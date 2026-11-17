@@ -1,5 +1,5 @@
 import { NODE_THEMES } from './mindmap';
-import type { Task } from './types';
+import type { Habit, Task } from './types';
 
 /**
  * Your own task categories (Career, Home, Garden...): a name and a frame colour for the task cards. They only group tasks;
@@ -32,6 +32,6 @@ export function sanitizeCategories(raw: unknown): CustomCategory[] {
 export const categoryNameFree = (list: readonly CustomCategory[], name: string, except?: string) =>
   !!cleanCategoryName(name) && !list.some(c => c.id !== except && c.name.toLowerCase() === cleanCategoryName(name).toLowerCase());
 
-/** How many tasks each category holds, in list order. */
-export const categoryCounts = (list: readonly CustomCategory[], tasks: readonly Pick<Task, 'group'>[]) =>
-  list.map(c => ({ ...c, count: tasks.filter(t => t.group === c.id).length }));
+/** How many tasks and habits each category holds, in list order. */
+export const categoryCounts = (list: readonly CustomCategory[], tasks: readonly Pick<Task, 'group'>[], habits: readonly Pick<Habit, 'group'>[] = []) =>
+  list.map(c => ({ ...c, count: tasks.filter(t => t.group === c.id).length + habits.filter(h => h.group === c.id).length }));

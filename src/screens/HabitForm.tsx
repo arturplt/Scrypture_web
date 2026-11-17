@@ -16,13 +16,16 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
   const [category, setCategory] = useState<Category>(habit?.category ?? 'BODY');
   const [frequency, setFrequency] = useState<Frequency>(habit?.frequency ?? 'DAILY');
   const [description, setDescription] = useState(habit?.description ?? '');
+  const cats = useAppState(s => s.categories);
+  const [group, setGroup] = useState<string | undefined>(habit?.group);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const valid = title.trim().length > 0;
 
   function save() {
     if (!valid) return;
-    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined });
-    else actions.addHabit({ title, category, frequency, description });
+    const groupId = group && cats.some(c => c.id === group) ? group : undefined;
+    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined, group: groupId });
+    else actions.addHabit({ title, category, frequency, description, group: groupId });
     onClose();
   }
 
@@ -49,6 +52,14 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
               ))}
             </div>
           </div>
+          {cats.length > 0 && (
+            <div className="field">{t('customCategory')}
+              <div className="row wrap" role="group" aria-label={t('customCategory')}>
+                <button type="button" className={`seg ${!group ? 'on' : ''}`} aria-pressed={!group} onClick={() => setGroup(undefined)}>{t('noCustomCategory')}</button>
+                {cats.map(c => <button type="button" key={c.id} className={`seg ${group === c.id ? 'on' : ''}`} aria-pressed={group === c.id} onClick={() => setGroup(c.id)}>{c.name}</button>)}
+              </div>
+            </div>
+          )}
           <label className="field">{t('description')}
             <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} />
           </label>

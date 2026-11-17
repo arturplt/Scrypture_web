@@ -12,7 +12,8 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
   const t = useT();
   const cats = useAppState(s => s.categories);
   const tasks = useAppState(s => s.tasks);
-  const rows = categoryCounts(cats, tasks);
+  const habits = useAppState(s => s.habits);
+  const rows = categoryCounts(cats, tasks, habits);
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [name, setName] = useState('');
   const [frame, setFrame] = useState(DEFAULT_CATEGORY_FRAME);

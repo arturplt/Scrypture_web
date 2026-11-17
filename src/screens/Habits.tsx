@@ -8,6 +8,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { PixelButton } from '../ui/PixelButton';
 import { Chip, Icon, PixelCheckbox } from '../ui/misc';
 import { HabitForm } from './HabitForm';
+import { CategoryManager } from './CategoryManager';
 import { useI18n, useT } from '../i18n/useT';
 import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
 import { CATEGORY_TINT } from '../ui/colors';
@@ -27,9 +28,10 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
   useEffect(() => { if (!burst) return; const id = setTimeout(() => setBurst(false), 1600); return () => clearTimeout(id); }, [burst]);
   // while the burst plays the card keeps its live colours; it turns into the stone "done" card once the effect has finished
   const shownDone = done && !burst;
-  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.habit, 'app');
+  const group = useAppState(st => (habit.group ? st.categories.find(c => c.id === habit.group) : undefined));   // its own category frame wins over the default card
+  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(group.frame, 'app') : frameOr(el.habit, 'app');
   const mainFrame = useAppState(st => st.settings.frameTheme);
-  const cat = shownDone || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
+  const cat = shownDone || !!group || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
   const tinted = useTintedFrame(theme, cat, cat);   // the whole card takes its Body/Mind/Soul colour
   const undo = useUndo();
   const canUndo = !!undo && 'habitId' in undo && undo.habitId === habit.id;   // within 10 s of ticking it
@@ -61,6 +63,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
         <Chip>{t(habit.frequency.toLowerCase() as 'daily' | 'weekly' | 'monthly').toUpperCase()}</Chip>
         <Chip color={streak > 0 ? 'var(--success)' : 'var(--bg-3)'}>{t('streak').toUpperCase()} {streak}</Chip>
         <Chip color="var(--bg-3)">{t('best').toUpperCase()} {habit.bestStreak}</Chip>
+        {group && <Chip color="var(--bg-3)">{group.name}</Chip>}
       </div>
     </PixelFrame>
   );
@@ -75,6 +78,10 @@ export function Habits() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [sort, setSort] = useState<HabitSort>('newest');
+  const cats = useAppState(s => s.categories);
+  const [pick, setPick] = useState<string | null>(null);
+  const [managingCats, setManagingCats] = useState(false);
+  const activeGroup = pick && cats.some(c => c.id === pick) ? pick : null;
   const flip = useFlip<HTMLDivElement>();   // in the TO DO order a ticked habit glides down to the finished ones
   const doneToday = habits.filter(h => completedToday(h, now)).length;
 
@@ -96,9 +103,17 @@ export function Habits() {
           ))}
         </div>
       )}
+      {(cats.length > 0 || habits.length > 0) && (
+        <div className="row wrap" role="group" aria-label={t('customCategory')}>
+          <span className="muted small">{t('customCategory')}</span>
+          {cats.length > 0 && <button className={`seg ${!activeGroup ? 'on' : ''}`} aria-pressed={!activeGroup} onClick={() => setPick(null)}>{t('allTags')}</button>}
+          {cats.map(c => <button key={c.id} className={`seg ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setPick(activeGroup === c.id ? null : c.id)}>{c.name}</button>)}
+          <button className="seg" onClick={() => setManagingCats(true)}>{t('manageCategories')}</button>
+        </div>
+      )}
       {/* Daily, weekly and monthly habits are kept apart; the chosen sort applies inside each group */}
       {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(f => {
-        const group = sortHabits(habits.filter(h => h.frequency === f), sort, now);
+        const group = sortHabits(habits.filter(h => h.frequency === f && (!activeGroup || h.group === activeGroup)), sort, now);
         if (!group.length) return null;
         return (
           <section key={f} className="list" aria-label={t(f.toLowerCase() as 'daily' | 'weekly' | 'monthly')}>
@@ -107,6 +122,7 @@ export function Habits() {
           </section>
         );
       })}
+      {managingCats && <CategoryManager onClose={() => setManagingCats(false)} />}
       {creating && <HabitForm onClose={() => setCreating(false)} />}
       {editing && <HabitForm habit={editing} onClose={() => setEditing(null)} />}
     </div>

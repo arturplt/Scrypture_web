@@ -44,6 +44,8 @@ export interface Habit {
   lastCompleted: number | null; // epoch ms
   description?: string;
   origin?: string;
+  /** id of the custom category it belongs to (see categories.ts) */
+  group?: string;
   /** where it sits on the planner (unset = not planned): see habitplan.ts */
   plan?: import('./habitplan').HabitPlan;
   /** the days it was completed on (local midnights), oldest first */

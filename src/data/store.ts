@@ -16,7 +16,7 @@ export interface NewTask {
   /** id of the Start Here suggestion it came from */
   origin?: string;
 }
-export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string }
+export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** id of its custom category */ group?: string }
 
 export function createStore(kv: KV | null = browserKV(), clock: () => number = Date.now, genId: () => string = newId) {
   let state: AppState = loadState(kv, clock());
@@ -100,10 +100,11 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, categories: state.categories.map(c => (c.id === id ? next : c)) });
       return true;
     },
-    /** Delete a category; its tasks stay, just without one. */
+    /** Delete a category; its tasks and habits stay, just without one. */
     deleteCategory(id: string) {
       const now = clock();
-      set({ ...state, categories: state.categories.filter(c => c.id !== id), tasks: state.tasks.map(t => (t.group === id ? { ...t, group: undefined, updatedAt: now } : t)) });
+      set({ ...state, categories: state.categories.filter(c => c.id !== id), tasks: state.tasks.map(t => (t.group === id ? { ...t, group: undefined, updatedAt: now } : t)),
+        habits: state.habits.map(h => (h.group === id ? { ...h, group: undefined, updatedAt: now } : h)) });
     },
     deleteTask(id: string) { set({ ...state, tasks: state.tasks.filter(t => t.id !== id) }); },
     /** Complete a task: pays XP + stats, bumps counters, checks achievements, offers undo. No-op if it is already done. */
@@ -140,7 +141,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     // ---- habits
     addHabit(input: NewHabit): Habit {
       const now = clock();
-      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, createdAt: now, updatedAt: now };
+      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, group: input.group, createdAt: now, updatedAt: now };
       set({ ...state, habits: [habit, ...state.habits] });
       return habit;
     },

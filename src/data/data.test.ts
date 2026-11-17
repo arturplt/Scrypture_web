@@ -700,3 +700,18 @@ describe('custom categories', () => {
     expect(s.actions.addCategory('one more', 'red')).toBeNull();
   });
 });
+
+describe('custom categories on habits', () => {
+  it('a habit can belong to a category; deleting the category frees it and counts both', () => {
+    const { s } = make();
+    const id = s.actions.addCategory('Health', 'green')!;
+    const h = s.actions.addHabit({ title: 'Walk', category: 'BODY', frequency: 'DAILY', group: id });
+    expect(s.getState().habits[0].group).toBe(id);
+    s.actions.updateHabit(h.id, { group: undefined });
+    expect(s.getState().habits[0].group).toBeUndefined();
+    s.actions.updateHabit(h.id, { group: id });
+    s.actions.deleteCategory(id);
+    expect(s.getState().habits).toHaveLength(1);
+    expect(s.getState().habits[0].group).toBeUndefined();
+  });
+});
