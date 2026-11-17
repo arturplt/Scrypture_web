@@ -14,7 +14,7 @@ Update the status table when a phase moves.
 | 1 | Safety net and first release | M | Partly: error toast and update toast built 2026-11-17; nothing is committed, deployed or in CI yet |
 | 2 | Real-device pass | M | Not started |
 | 3 | Planner and Bóbr, second round | M-L | First version built 2026-11-16; activities pay XP and stats (2026-11-17) |
-| 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters and weekly/monthly habit rules built. Open: custom categories |
+| 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
 | 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. Rest open |
 | 6 | Mind map, second round | M | First and second versions built 2026-11-16 |
 | 7 | Exercise tracker | L | First version built 2026-11-17 (see below) |
@@ -81,7 +81,7 @@ Why: the planner is new and is the part meant to tie the app together; the first
 
 Why: these are the screens used every day, and several Android features are still missing from them.
 
-- Custom task categories (the web only has Body, Mind and Soul).
+- ~~Custom task categories~~ (built 2026-11-17: name and frame, manager, filter; they group tasks and do not change the stats).
 - ~~Task form: several core attributes at once~~ (built 2026-11-17). Quick-create with presets is open.
 - Tags: manage them and filter by them. (Sort options "No sort" and "Created date" were built 2026-11-17.)
 - Task detail screen (full description, "Done N times", previous and next).

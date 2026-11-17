@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateXP, difficultyXP, statRewards, calculateLevel, xpForNextLevel, progressToNextLevel, bobrStage,
   nextStreak, completeHabit, dayDiff, seedAchievements, checkAchievements, isConditionMet,
-  addXP, applyTaskCompletion, initialStats, type Habit,
+  sanitizeCategories, categoryNameFree, addXP, applyTaskCompletion, initialStats, type Habit,
 } from './index';
 
 describe('xp', () => {
@@ -387,5 +387,25 @@ describe('weekly and monthly habits count periods, not days', () => {
     expect(effectiveStreak(monthly, new Date(2026, 1, 10).getTime())).toBe(4);
     expect(effectiveStreak(monthly, new Date(2026, 2, 1).getTime())).toBe(0);
     expect(completedToday(monthly, new Date(2026, 0, 1).getTime())).toBe(true);
+  });
+});
+
+describe('custom categories', () => {
+  it('keeps good ones, drops junk and duplicates, fixes the frame', () => {
+    const list = sanitizeCategories([{ id: 'a', name: '  Career ', frame: 'gold' }, { id: 'b', name: 'career', frame: 'red' }, { id: 'a', name: 'Home', frame: 'red' }, { id: 'c', name: 'Home', frame: 'nope' }, { name: 'x' }, null, { id: 'd', name: '   ' }]);
+    expect(list).toEqual([{ id: 'a', name: 'Career', frame: 'gold' }, { id: 'c', name: 'Home', frame: 'blue' }]);
+    expect(sanitizeCategories('nope')).toEqual([]);
+    expect(sanitizeCategories(Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, name: `n${i}`, frame: 'red' })))).toHaveLength(12);
+  });
+  it('a name is free unless another category has it', () => {
+    const list = [{ id: 'a', name: 'Career', frame: 'gold' }];
+    expect(categoryNameFree(list, 'career')).toBe(false);
+    expect(categoryNameFree(list, 'Career', 'a')).toBe(true);
+    expect(categoryNameFree(list, '  ')).toBe(false);
+  });
+  it('filters tasks by category', () => {
+    const mk = (id: string, group?: string) => ({ id, title: id, category: 'MIND', priority: 'LOW', difficulty: 0, completed: false, experienceReward: 1, statRewards: { body: 0, mind: 1, soul: 0 }, tags: [], group, createdAt: 0, updatedAt: 0 }) as never;
+    const { open } = viewTasks([mk('x', 'a'), mk('y'), mk('z', 'b')], { category: 'ALL', sort: 'none', showCompleted: false, group: 'a' });
+    expect(open.map(t => t.id)).toEqual(['x']);
   });
 });

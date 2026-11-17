@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -11,6 +11,8 @@ export interface NewTask {
   description?: string; dueDate?: number; tags?: string[]; estimatedDuration?: number;
   /** extra core attributes the task trains (each +1 stat), besides its category */
   coreAttributes?: Category[];
+  /** id of its custom category */
+  group?: string;
   /** id of the Start Here suggestion it came from */
   origin?: string;
 }
@@ -57,7 +59,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
         priority: input.priority, difficulty: input.difficulty, completed: false,
         experienceReward: calculateXP(input.priority, input.difficulty),
         statRewards: statRewards(input.coreAttributes ?? [], input.category),
-        dueDate: input.dueDate, tags: input.tags ?? [], estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
+        dueDate: input.dueDate, tags: input.tags ?? [], group: input.group, estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
       };
       set({ ...state, tasks: [task, ...state.tasks] });
       return task;
@@ -81,6 +83,28 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, tasks: state.tasks.map(t => (t.tags.includes(from) ? { ...t, tags: retag(t.tags, from, clean), updatedAt: clock() } : t)) });
     },
     deleteTag(tag: string) { actions.renameTag(tag, ''); },
+    /** Custom task categories: a name and a frame. Returns the new id, or null when the name is empty, taken or the list is full. */
+    addCategory(name: string, frame: string): string | null {
+      const list = state.categories;
+      if (list.length >= MAX_CATEGORIES || !categoryNameFree(list, name)) return null;
+      const id = genId();
+      set({ ...state, categories: [...list, { id, name: cleanCategoryName(name), frame: isCategoryFrame(frame) ? frame : DEFAULT_CATEGORY_FRAME }] });
+      return id;
+    },
+    /** Rename a category and/or change its frame; false when the name is empty or already taken. */
+    updateCategory(id: string, patch: { name?: string; frame?: string }): boolean {
+      const cur = state.categories.find(c => c.id === id);
+      if (!cur) return false;
+      if (patch.name !== undefined && !categoryNameFree(state.categories, patch.name, id)) return false;
+      const next = { ...cur, ...(patch.name !== undefined ? { name: cleanCategoryName(patch.name) } : {}), ...(patch.frame !== undefined && isCategoryFrame(patch.frame) ? { frame: patch.frame } : {}) };
+      set({ ...state, categories: state.categories.map(c => (c.id === id ? next : c)) });
+      return true;
+    },
+    /** Delete a category; its tasks stay, just without one. */
+    deleteCategory(id: string) {
+      const now = clock();
+      set({ ...state, categories: state.categories.filter(c => c.id !== id), tasks: state.tasks.map(t => (t.group === id ? { ...t, group: undefined, updatedAt: now } : t)) });
+    },
     deleteTask(id: string) { set({ ...state, tasks: state.tasks.filter(t => t.id !== id) }); },
     /** Complete a task: pays XP + stats, bumps counters, checks achievements, offers undo. No-op if it is already done. */
     completeTask(id: string) {

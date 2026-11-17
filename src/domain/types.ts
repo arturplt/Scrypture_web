@@ -20,6 +20,8 @@ export interface Task {
   statRewards: StatRewards;
   dueDate?: number; // epoch ms
   tags: string[];
+  /** id of the custom category it belongs to (see categories.ts) */
+  group?: string;
   estimatedDuration?: number; // minutes
   /** How many times it has been completed (a task can be unticked and completed again). */
   completionCount?: number;

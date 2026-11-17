@@ -8,6 +8,7 @@ import { Chip, Icon, PixelCheckbox } from '../ui/misc';
 import { DIFFICULTY_COLORS, PRIORITY_COLORS } from '../ui/colors';
 import { TaskForm } from './TaskForm';
 import { TagManager } from './TagManager';
+import { CategoryManager } from './CategoryManager';
 import { FirstTaskTutorial } from '../ui/FirstTaskTutorial';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
@@ -32,14 +33,15 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
   const open = !task.completed;
   const [expanded, setExpanded] = useState(false);   // clicking the title shows the description
   const moreId = useId();
-  const theme = task.completed ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.task, 'app');
+  const group = useAppState(st => (task.group ? st.categories.find(c => c.id === task.group) : undefined));   // its own category frame wins over the default card
+  const theme = task.completed ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(group.frame, 'app') : frameOr(el.task, 'app');
   const urgency = open && !leaving ? urgencyOf(task, now) : 'none';
   // One rule per thing: the card is the Body/Mind/Soul colour, one light overlay over the whole card (border and inside) shows
   // difficulty (green easy -> red hard), and urgency is shown only by the blinking "!" gem in the corner, so the colours never stack into muddy mixes.
   // A colour variant chosen for the frame wins over the category colour (otherwise the tint would paint over it): then only the
   // light difficulty overlay is added.
   const mainFrame = useAppState(st => st.settings.frameTheme);
-  const variant = resolveFrame(theme, mainFrame, '', '').hue !== 0;
+  const variant = (!task.completed && !!group) || resolveFrame(theme, mainFrame, '', '').hue !== 0;
   const cat = open && !variant ? CATEGORY_TINT[task.category] : null;
   const diff = difficultyTint(task.difficulty);
   const tinted = useTintedFrame(theme, cat, variant && open ? diff : cat, open ? (variant
@@ -71,6 +73,7 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
         {task.estimatedDuration != null && <Chip>{task.estimatedDuration}m</Chip>}
         <Chip color="#b6a432">{task.experienceReward} XP</Chip>
         {(task.completionCount ?? 0) >= 2 && <Chip color="var(--info)">×{task.completionCount}</Chip>}
+        {group && <Chip color={group.frame === 'gold' ? '#b6a432' : 'var(--bg-3)'}>{group.name}</Chip>}
         {task.tags.map(t => <Chip key={t} color="var(--bg-3)">#{t}</Chip>)}
       </div>
     </PixelFrame>
@@ -90,6 +93,10 @@ export function Tasks() {
   const [tag, setTag] = useState<string | null>(null);
   const [quick, setQuick] = useState('');
   const [managing, setManaging] = useState(false);
+  const [group, setGroup] = useState<string | null>(null);
+  const [managingCats, setManagingCats] = useState(false);
+  const cats = useAppState(s => s.categories);
+  const activeGroup = group && cats.some(c => c.id === group) ? group : null;
   const [showCompleted, setShowCompleted] = useState(false);
   const [editing, setEditing] = useState<Task | 'new' | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);   // the task whose completion animation is playing
@@ -105,7 +112,7 @@ export function Tasks() {
   const tags = tagCounts(tasks);
   const activeTag = tag && tags.some(x => x.tag === tag) ? tag : null;   // a tag that no longer exists filters nothing
   const presets = quickPresets(tasks).filter(p => !tasks.some(x => !x.completed && x.title.trim().toLowerCase() === p.title.trim().toLowerCase()));   // not while the same chore is already open
-  const { open, done } = viewTasks(tasks, { category, sort, showCompleted, tag: activeTag });
+  const { open, done } = viewTasks(tasks, { category, sort, showCompleted, tag: activeTag, group: activeGroup });
   const doneCount = tasks.filter(x => x.completed).length;
 
   return (
@@ -147,6 +154,13 @@ export function Tasks() {
         </div>
       )}
 
+      <div className="row wrap" role="group" aria-label={t('customCategory')}>
+        <span className="muted small">{t('customCategory')}</span>
+        {cats.length > 0 && <button className={`seg ${!activeGroup ? 'on' : ''}`} aria-pressed={!activeGroup} onClick={() => setGroup(null)}>{t('allTags')}</button>}
+        {cats.map(c => <button key={c.id} className={`seg ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setGroup(activeGroup === c.id ? null : c.id)}>{c.name}</button>)}
+        <button className="seg" onClick={() => setManagingCats(true)}>{t('manageCategories')}</button>
+      </div>
+
       {open.length === 0 && (
         <PixelFrame theme="app" scale={1} className="card">
           <p className="muted">{tasks.length === 0 ? t('createFirstTask') : t('nothingOpen')}</p>
@@ -165,6 +179,7 @@ export function Tasks() {
       </div>
 
       {!tutorialSeen && tasks.length === 0 && !editing && <FirstTaskTutorial />}
+      {managingCats && <CategoryManager onClose={() => setManagingCats(false)} />}
       {managing && <TagManager onClose={() => setManaging(false)} />}
       {editing && <TaskForm task={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
     </div>

@@ -26,6 +26,8 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
   const [due, setDue] = useState(toInput(task ? task.dueDate : dueDate));
   const [minutes, setMinutes] = useState(task?.estimatedDuration?.toString() ?? '');
   const [tags, setTags] = useState(task?.tags.join(', ') ?? '');
+  const cats = useAppState(s => s.categories);
+  const [group, setGroup] = useState<string | undefined>(task?.group);
   // extra attributes the task also trains (each +1 stat); an existing task's are what its stat rewards hold beyond its own category
   const [extra, setExtra] = useState<Category[]>(() => (task ? CATS.filter(c => (task.statRewards[c.toLowerCase() as 'body' | 'mind' | 'soul'] ?? 0) - (c === task.category ? 1 : 0) > 0 && c !== task.category) : []));
   const extras = extra.filter(c => c !== category);
@@ -44,6 +46,7 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
       dueDate: fromInput(due),
       estimatedDuration: minutes ? Math.max(1, parseInt(minutes, 10) || 0) || undefined : undefined,
       tags: [...new Set(tags.split(',').map(cleanTag).filter(Boolean))],
+      group: group && cats.some(c => c.id === group) ? group : undefined,
     };
     if (task) actions.updateTask(task.id, fields); else actions.addTask(fields);
     onClose();
@@ -104,6 +107,14 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
         <label className="field">{t('estimatedMinutes')}
           <input inputMode="numeric" value={minutes} onChange={e => setMinutes(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('optional')} />
         </label>
+        {cats.length > 0 && (
+          <div className="field">{t('customCategory')}
+            <div className="row wrap" role="group" aria-label={t('customCategory')}>
+              <button type="button" className={`seg ${!group ? 'on' : ''}`} aria-pressed={!group} onClick={() => setGroup(undefined)}>{t('noCustomCategory')}</button>
+              {cats.map(c => <button type="button" key={c.id} className={`seg ${group === c.id ? 'on' : ''}`} aria-pressed={group === c.id} onClick={() => setGroup(c.id)}>{c.name}</button>)}
+            </div>
+          </div>
+        )}
         <label className="field">{t('tags')}
           <input value={tags} onChange={e => setTags(e.target.value)} placeholder={t('tagsPlaceholder')} />
         </label>

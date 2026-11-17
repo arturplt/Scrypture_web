@@ -6,6 +6,7 @@ export * from './achievements';
 export * from './progress';
 export * from './bobr';
 export * from './tasks';
+export * from './categories';
 export * from './chat';
 export * from './look';
 export * from './presets';

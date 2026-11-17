@@ -1,5 +1,5 @@
 import { CURRENT_VERSION, defaultState, type AppState } from './state';
-import { sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
+import { sanitizeCategories, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
 export const STORAGE_KEY = 'scrypture:state';
 
@@ -53,6 +53,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
       // sound volume 0..1, in steps of 0.1 (anything else means the default)
       reduceMotion: isObj(s.settings) && s.settings.reduceMotion === true,
       volume: isObj(s.settings) && typeof s.settings.volume === 'number' && s.settings.volume >= 0 && s.settings.volume <= 1 ? Math.round(s.settings.volume * 10) / 10 : d.settings.volume },
+    categories: sanitizeCategories(s.categories),
     inventory: isObj(s.inventory) ? s.inventory : {},
     rockGame: sanitizeRockSave(s.rockGame),
     sanctuary: sanitizeSanctuarySave(s.sanctuary),

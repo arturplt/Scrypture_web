@@ -670,3 +670,33 @@ describe('shortlist order', () => {
     expect(s.getState().planner.shortlist).toEqual([ids[0], ids[2], ids[1]]);
   });
 });
+
+describe('custom categories', () => {
+  it('adds, renames, recolours and deletes; deleting keeps the tasks', () => {
+    const { s, kv, t } = make();
+    const id = s.actions.addCategory('Career', 'gold')!;
+    expect(id).toBeTruthy();
+    expect(s.actions.addCategory('career', 'red')).toBeNull();   // same name
+    expect(s.actions.addCategory('  ', 'red')).toBeNull();
+    const other = s.actions.addCategory('Home', 'nonsense')!;
+    expect(s.getState().categories).toEqual([{ id, name: 'Career', frame: 'gold' }, { id: other, name: 'Home', frame: 'blue' }]);
+    expect(s.actions.updateCategory(other, { name: 'Career' })).toBe(false);
+    expect(s.actions.updateCategory(other, { name: 'House', frame: 'red' })).toBe(true);
+    const task = s.actions.addTask({ title: 'CV', category: 'MIND', priority: 'LOW', difficulty: 1, group: id });
+    expect(s.getState().tasks[0].group).toBe(id);
+    s.actions.updateTask(task.id, { group: other });
+    expect(s.getState().tasks[0].group).toBe(other);
+    // it survives a reload
+    const again = createStore(kv, () => t.now);
+    expect(again.getState().categories.map(c => c.name)).toEqual(['Career', 'House']);
+    s.actions.deleteCategory(other);
+    expect(s.getState().categories).toHaveLength(1);
+    expect(s.getState().tasks).toHaveLength(1);
+    expect(s.getState().tasks[0].group).toBeUndefined();
+  });
+  it('holds at most 12', () => {
+    const { s } = make();
+    for (let i = 0; i < 12; i++) expect(s.actions.addCategory(`c${i}`, 'red')).toBeTruthy();
+    expect(s.actions.addCategory('one more', 'red')).toBeNull();
+  });
+});

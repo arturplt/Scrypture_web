@@ -1,4 +1,4 @@
-import type { Achievement, Habit, Task, UserStats } from '../domain';
+import type { Achievement, CustomCategory, Habit, Task, UserStats } from '../domain';
 import { DEFAULT_LOOK, emptyExerciseSave, emptyMindMaps, emptyPlanner, emptyRockSave, emptySanctuarySave, emptyWorlds, initialStats, seedAchievements, type ExerciseSave, type Look, type MindMapsSave, type PlannerSave, type RockSave, type SanctuarySave, type WorldsSave } from '../domain';
 
 export interface ChatMessage {
@@ -13,6 +13,8 @@ export interface AppState {
   version: number;
   user: { name: string | null; onboarded: boolean; tutorialSeen: boolean };
   tasks: Task[];
+  /** your own task categories */
+  categories: CustomCategory[];
   habits: Habit[];
   stats: UserStats;
   achievements: Achievement[];
@@ -40,6 +42,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   version: CURRENT_VERSION,
   user: { name: null, onboarded: false, tutorialSeen: false },
   tasks: [],
+  categories: [],
   habits: [],
   stats: initialStats(),
   achievements: seedAchievements(),

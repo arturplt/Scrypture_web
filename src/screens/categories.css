@@ -1,0 +1,6 @@
+.pf.cat-swatch { width: calc(32 * var(--u)); height: calc(24 * var(--u)); padding: 0; flex: none; }
+.cat-frames { display: flex; flex-wrap: wrap; gap: calc(6 * var(--u)); }
+.pf.cat-pick { width: calc(40 * var(--u)); height: calc(32 * var(--u)); padding: 0; cursor: pointer; }
+.cat-pick.on { outline: calc(2 * var(--u)) solid #ffd54f; outline-offset: calc(1 * var(--u)); }
+.cat-pick:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.cat-row { min-height: calc(32 * var(--u)); }

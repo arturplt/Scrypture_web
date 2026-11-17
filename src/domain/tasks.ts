@@ -1,7 +1,7 @@
 import type { Category, Priority, Task } from './types';
 
 export type TaskSort = 'newest' | 'due' | 'priority' | 'difficulty' | 'created' | 'none';
-export interface TaskView { category: Category | 'ALL'; sort: TaskSort; showCompleted: boolean; /** only tasks with this tag */ tag?: string | null }
+export interface TaskView { category: Category | 'ALL'; sort: TaskSort; showCompleted: boolean; /** only tasks with this tag */ tag?: string | null; /** only tasks in this custom category */ group?: string | null }
 
 const PRIORITY_RANK: Record<Priority, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 
@@ -35,7 +35,7 @@ const bySort: Record<TaskSort, (a: Task, b: Task) => number> = {
 
 /** Open tasks sorted as requested, followed (optionally) by completed ones, most recently finished first. */
 export function viewTasks(tasks: Task[], v: TaskView): { open: Task[]; done: Task[] } {
-  const inCat = tasks.filter(t => (v.category === 'ALL' || t.category === v.category) && (!v.tag || t.tags.includes(v.tag)));
+  const inCat = tasks.filter(t => (v.category === 'ALL' || t.category === v.category) && (!v.tag || t.tags.includes(v.tag)) && (!v.group || t.group === v.group));
   return {
     open: inCat.filter(t => !t.completed).sort(bySort[v.sort]),
     done: v.showCompleted ? inCat.filter(t => t.completed).sort((a, b) => b.updatedAt - a.updatedAt) : [],
