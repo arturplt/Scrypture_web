@@ -1,4 +1,4 @@
-import { todaySummary, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, MAX_LEVEL } from '../domain';
+import { bobrNudge, todaySummary, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, MAX_LEVEL } from '../domain';
 import { useAppState } from '../data/hooks';
 import { useNow } from '../hooks';
 import { useT } from '../i18n/useT';
@@ -33,6 +33,8 @@ export function Dashboard() {
   const habitsToDo = habits.filter(h => !completedToday(h, now)).length;
   const unlocked = achievements.filter(a => a.unlocked).length;
   const planned = todaySummary({ ...planner, tasks, habits }, now).total;   // activities and to-dos still open today
+  const nudge = bobrNudge({ ...planner, tasks, habits }, now);
+  const nudgeText = !nudge ? '' : nudge.kind === 'now' ? t('nudgeNow', { title: nudge.title }) : nudge.kind === 'soon' ? t('nudgeSoon', { title: nudge.title, n: nudge.minutes }) : t('nudgeLate', { n: nudge.n });
   /** The menu: destination, sprite, label and an optional counter badge. */
   const menu = [
     { path: '/tasks', icon: 'task', label: t('chatTasks'), badge: openTasks ? String(openTasks) : null },
@@ -66,6 +68,7 @@ export function Dashboard() {
         </div>
 
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card"><BobrPen stage={bobrStage(stats.level)} emotion={emotion} /></PixelFrame>
+        {nudge && <PixelFrame as="button" theme={fr(el.dashPen)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
 
         <div className="needs">
           <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span>{t('hunger').toUpperCase()}</span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>

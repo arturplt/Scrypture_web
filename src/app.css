@@ -489,3 +489,6 @@ textarea { resize: vertical; }
 
 /* Settings > reduce motion: the same as the system preference, chosen in the app */
 :root[data-motion='reduce'] *, :root[data-motion='reduce'] *::before, :root[data-motion='reduce'] *::after { animation: none !important; transition: none !important; }
+
+/* Bóbr's nudge on Home */
+.nudge { text-align: left; font-size: var(--fs-xs); line-height: 1.6; cursor: pointer; }

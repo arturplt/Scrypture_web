@@ -335,3 +335,19 @@ export function moveInList<T>(list: readonly T[], item: T, by: -1 | 1): T[] {
   [out[i], out[j]] = [out[j], out[i]];
   return out;
 }
+
+// ---- Bóbr's nudge on Home ----------------------------------------------------------------------------------------
+
+export type Nudge = { kind: 'now'; title: string } | { kind: 'soon'; title: string; minutes: number } | { kind: 'late'; n: number };
+/**
+ * The one thing Bóbr speaks up about on Home without being asked: an activity under way or starting within SOON_MINUTES,
+ * else tasks that are late. Nothing to say = null.
+ */
+export function bobrNudge(p: PlanData, now: number): Nudge | null {
+  const s = todaySummary(p, now), nowMin = minutesOfDay(now), e = s.nextEvent;
+  if (e && e.time != null) {
+    if (e.time <= nowMin) return { kind: 'now', title: e.title };
+    if (e.time - nowMin <= SOON_MINUTES) return { kind: 'soon', title: e.title, minutes: e.time - nowMin };
+  }
+  return s.late > 0 ? { kind: 'late', n: s.late } : null;
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boardDays, boardHours, eventLength, layoutDay, placeEvent, resizeEvent, snapMinutes,
   MAX_EVENTS, SHORTLIST_MAX, addDays, chatGreeting, chatOptions, chatReply, cleanEvent, dayPlan, eventsOn, fmtClock, initialFlow, initialStats, minutesOfDay, monthGrid, monthMarks,
-  nextSteps, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
+  bobrNudge, nextSteps, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
   type ChatContext, type ChatFlow, type Habit, type PlanData, type PlanEvent, type Task,
 } from './index';
 import { makeT } from '../i18n';
@@ -108,6 +108,15 @@ describe('a day and what to do next', () => {
     expect(one(540, 60)).toBe(1);  // 09:00 for an hour: ends now
     expect(one(540, 59)).toBe(0);
     expect(nextSteps(data({ events: [ev('e', { time: 600, done: true })] }), NOW)).toEqual([]);
+  });
+});
+
+describe('Bóbr nudge', () => {
+  it('speaks of an activity that is on or about to start, else of late tasks, else nothing', () => {
+    expect(bobrNudge(data({ events: [ev('standup', { time: 615 })] }), NOW)).toEqual({ kind: 'soon', title: 'standup', minutes: 15 });
+    expect(bobrNudge(data({ events: [ev('standup', { time: 590, minutes: 30 })] }), NOW)).toEqual({ kind: 'now', title: 'standup' });
+    expect(bobrNudge(data({ events: [ev('dinner', { time: 1140 })], tasks: [task('a', { dueDate: TODAY - DAY })] }), NOW)).toEqual({ kind: 'late', n: 1 });
+    expect(bobrNudge(data({ events: [ev('dinner', { time: 1140 })] }), NOW)).toBeNull();
   });
 });
 
