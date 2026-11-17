@@ -1,0 +1,21 @@
+/* Notes */
+.note-row { gap: calc(8 * var(--u)); flex-wrap: wrap; }
+.note-row-name { min-width: 0; overflow-wrap: anywhere; }
+.note-snip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-ask { margin: 0 0 calc(12 * var(--u)); line-height: 1.6; }
+.note-body { width: 100%; line-height: 1.6; box-sizing: border-box; }
+.note-title { width: 100%; box-sizing: border-box; }
+.note-tools { align-items: center; gap: calc(8 * var(--u)); }
+.note-swatch { width: calc(24 * var(--u)); height: calc(24 * var(--u)); border: calc(2 * var(--u)) solid var(--border-dark); padding: 0; cursor: pointer; }
+.note-swatch.on { outline: calc(2 * var(--u)) solid var(--text); outline-offset: calc(1 * var(--u)); }
+.note-bar { display: grid; gap: calc(6 * var(--u)); }
+.field.note-body { display: block; min-height: 0; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; overflow-y: auto; }
+.note-body.empty > div:first-child::before { content: attr(data-placeholder); opacity: .5; }
+.note-body:focus { outline: calc(2 * var(--u)) solid var(--gold); }
+.note-line { display: flex; flex-wrap: nowrap; gap: calc(6 * var(--u)); overflow-x: auto; padding: calc(2 * var(--u)); }
+.note-line .note-swatch { flex: none; }
+.note-justify { color: var(--text-muted); padding: calc(8 * var(--u)); box-sizing: border-box; }
+button.note-justify.on { color: var(--gold); }
+/* the editor fills what is left of the screen and scrolls inside, so the page itself never outgrows the screen */
+.note-screen { height: calc(100dvh - 16 * var(--u) - var(--nav-clear) - env(safe-area-inset-bottom)); grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: calc(8 * var(--u)); }
+:root[data-rail] .note-screen { height: calc(100dvh - 56 * var(--u)); }   /* the navigation is at the side: only the page padding (24 + 32) is taken off */

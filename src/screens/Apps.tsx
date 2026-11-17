@@ -11,6 +11,7 @@ const APPS: { path: string; icon: string; name: Key; hint: Key }[] = [
   { path: '/apps/sanctuary', icon: 'home', name: 'sanctuary', hint: 'sanctuaryHint' },
   { path: '/apps/exercise', icon: 'body_active', name: 'exercise', hint: 'exerciseHint' },
   { path: '/apps/mindmap', icon: 'mind_active', name: 'mindMap', hint: 'mindMapHint' },
+  { path: '/apps/notes', icon: 'soul_active', name: 'notes', hint: 'notesHint' },
 ];
 
 export function Apps() {

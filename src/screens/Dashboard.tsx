@@ -64,7 +64,7 @@ export function Dashboard() {
         <div className="stats3">
           <StatBox stat="body" value={stats.body} frame={el.dashBody} onLongPress={() => navigate('/apps/exercise')} tip={t('holdBodyTip')} />
           <StatBox stat="mind" value={stats.mind} frame={el.dashMind} onLongPress={() => navigate('/apps/mindmap')} tip={t('holdMindTip')} />
-          <StatBox stat="soul" value={stats.soul} frame={el.dashSoul} />
+          <StatBox stat="soul" value={stats.soul} frame={el.dashSoul} onLongPress={() => navigate('/apps/notes')} tip={t('holdSoulTip')} />
         </div>
 
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card"><BobrPen stage={bobrStage(stats.level)} emotion={emotion} /></PixelFrame>

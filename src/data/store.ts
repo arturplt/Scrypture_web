@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -263,6 +263,25 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, mindMaps: { list: state.mindMaps.list.map(m => (m.id === id ? { ...m, ...rest, ...clean, updatedAt: clock() } : m)) } });
     },
     deleteMindMap(id: string) { set({ ...state, mindMaps: { list: state.mindMaps.list.filter(m => m.id !== id) } }); },
+    /** Notes: make an empty one. Returns its id, or null when the list is full. */
+    createNote(title: string): string | null {
+      if (state.notes.list.length >= MAX_NOTES) return null;
+      const n = newNote(genId(), title, clock());
+      set({ ...state, notes: { list: [...state.notes.list, n] } });
+      return n.id;
+    },
+    /** Save an edit of a note (its title or body). */
+    updateNote(id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'size'>> & { color?: string | null; aligns?: NoteAlign[]; runs?: Run[] }) {
+      let runsPatch = {};
+      if (patch.runs) {
+        const runs = normalizeRuns(patch.runs);
+        const formatted = runs.some(r => r.s !== undefined || r.c !== undefined);
+        runsPatch = { body: runsText(runs), runs: formatted ? runs : undefined };
+      }
+      const clean = { ...(patch.title === undefined ? {} : { title: cleanNoteTitle(patch.title) }), ...(patch.body === undefined ? {} : { body: cleanNoteBody(patch.body), runs: undefined }), ...(patch.size === undefined ? {} : { size: clampNoteSize(patch.size) }), ...(patch.aligns === undefined ? {} : { aligns: cleanAligns(patch.aligns) }), ...(patch.color === undefined ? {} : { color: patch.color && isHexColor(patch.color) ? patch.color.toLowerCase() : undefined }), ...runsPatch };
+      set({ ...state, notes: { list: state.notes.list.map(n => (n.id === id ? { ...n, ...clean, updatedAt: clock() } : n)) } });
+    },
+    deleteNote(id: string) { set({ ...state, notes: { list: state.notes.list.filter(n => n.id !== id) } }); },
     // ---- exercise tracker
     /** Begin a workout, optionally with its exercises planned (a preset). Returns the id; if one is already running that one is returned instead. Null when the history is full. */
     startWorkout(name?: string, planned: PlannedExercise[] = []): string | null {

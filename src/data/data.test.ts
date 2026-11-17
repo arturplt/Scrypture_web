@@ -402,6 +402,18 @@ describe('mind maps', () => {
     expect(normalize({ version: 1, tasks: [] }).mindMaps).toEqual({ list: [] });
     expect(normalize({ version: 1, mindMaps: 'junk' }).mindMaps).toEqual({ list: [] });
   });
+  it('notes: create, edit, delete, survive a reload; junk saves give an empty list', () => {
+    const { kv, s } = make();
+    const id = s.actions.createNote('  Ideas  ')!;
+    s.actions.updateNote(id, { body: 'one\r\ntwo' });
+    expect(s.getState().notes.list[0]).toMatchObject({ id, title: 'Ideas', body: 'one\ntwo' });
+    expect(createStore(kv, Date.now, () => 'x').getState().notes.list[0]).toMatchObject({ title: 'Ideas', body: 'one\ntwo' });
+    s.actions.deleteNote(id);
+    expect(s.getState().notes.list).toEqual([]);
+    expect(normalize({ version: 1, notes: 'junk' }).notes).toEqual({ list: [] });
+    for (let i = 0; i < 100; i++) expect(s.actions.createNote(`n${i}`)).not.toBeNull();
+    expect(s.actions.createNote('too many')).toBeNull();
+  });
 });
 
 describe('planner', () => {

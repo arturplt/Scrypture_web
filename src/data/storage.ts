@@ -1,5 +1,5 @@
 import { CURRENT_VERSION, defaultState, type AppState } from './state';
-import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
+import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeNotes, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
 /** Older saves kept one `group` per task or habit; now it is a list `groups` (left out when empty). */
 const withGroups = (x: any) => {
@@ -65,6 +65,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     rockGame: sanitizeRockSave(s.rockGame),
     sanctuary: sanitizeSanctuarySave(s.sanctuary),
     mindMaps: sanitizeMindMaps(s.mindMaps),
+    notes: sanitizeNotes(s.notes),
     exercise: sanitizeExerciseSave(s.exercise),
     planner: sanitizePlanner(s.planner),
     worlds: sanitizeWorlds(s.worlds),

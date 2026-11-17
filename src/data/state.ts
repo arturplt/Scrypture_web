@@ -1,5 +1,5 @@
 import type { Achievement, CustomCategory, Habit, Task, UserStats } from '../domain';
-import { DEFAULT_LOOK, emptyExerciseSave, emptyMindMaps, emptyPlanner, emptyRockSave, emptySanctuarySave, emptyWorlds, initialStats, seedAchievements, type ExerciseSave, type Look, type MindMapsSave, type PlannerSave, type RockSave, type SanctuarySave, type WorldsSave } from '../domain';
+import { DEFAULT_LOOK, emptyExerciseSave, emptyMindMaps, emptyNotes, emptyPlanner, emptyRockSave, emptySanctuarySave, emptyWorlds, initialStats, seedAchievements, type ExerciseSave, type Look, type MindMapsSave, type NotesSave, type PlannerSave, type RockSave, type SanctuarySave, type WorldsSave } from '../domain';
 
 export interface ChatMessage {
   id: string;
@@ -26,6 +26,7 @@ export interface AppState {
   sanctuary: SanctuarySave;
   /** Mind maps: boxes and the links between them. */
   mindMaps: MindMapsSave;
+  notes: NotesSave;
   /** Exercise tracker: the workouts (one may be in progress). */
   exercise: ExerciseSave;
   /** Planner: activities on the calendar and the shortlist of to-dos. */
@@ -51,6 +52,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   rockGame: emptyRockSave(),
   sanctuary: emptySanctuarySave(),
   mindMaps: emptyMindMaps(),
+  notes: emptyNotes(),
   exercise: emptyExerciseSave(),
   planner: emptyPlanner(),
   worlds: emptyWorlds(),

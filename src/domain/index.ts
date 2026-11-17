@@ -14,6 +14,7 @@ export * from './starter';
 export * from './rockgame';
 export * from './sanctuary';
 export * from './mindmap';
+export * from './notes';
 export * from './exercise';
 export * from './planner';
 export * from './worldgen';
