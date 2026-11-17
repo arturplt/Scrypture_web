@@ -441,7 +441,7 @@ textarea { resize: vertical; }
 :root[data-device] .dash .bobr { height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
 :root[data-device] .dash .bobr-img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 :root[data-device] .dash .menu-grid { grid-auto-rows: minmax(min-content, 1fr); }   /* tiles keep their own height: a short screen scrolls, it never squeezes them over the inventory */
-.dash .stat-icon { max-width: calc(40 * var(--u)); }
+.dash .stat-icon { width: calc(64 * var(--u)); max-width: none; }   /* 2x the 32px sprite */
 .dash .card { gap: calc(4 * var(--u)); padding: calc(4 * var(--u)) calc(6 * var(--u)); }
 
 /* phone: Home gets denser so the Bóbr still has room. Menu = four small tiles per row (icon above the label), the XP total line goes. */
@@ -457,7 +457,7 @@ textarea { resize: vertical; }
 :root[data-device][data-layout='compact'] .dash .card .row.between { flex-wrap: nowrap; gap: calc(4 * var(--u)); }
 :root[data-device][data-layout='compact'] .dash .card .row.between > span { min-width: 0; white-space: nowrap; font-size: calc(var(--fs-xs) * .9); }
 :root[data-device][data-layout='compact'] .dash .statbox { display: flex; align-items: center; justify-content: center; gap: calc(4 * var(--u)); }
-:root[data-device][data-layout='compact'] .dash .stat-icon { max-width: calc(28 * var(--u)); margin: 0; }
+:root[data-device][data-layout='compact'] .dash .stat-icon { margin: 0; }
 :root[data-device][data-layout='compact'] .dash .stat-val { margin-top: 0; }
 :root[data-device][data-layout='compact'] .dash .inv ~ .small { display: none; }
 :root[data-device][data-layout='compact'] .dash .trade > .small.muted:only-child { display: none; }
@@ -469,7 +469,7 @@ textarea { resize: vertical; }
 .stat-val, .slot-n, .menu-badge .chip, .xp { white-space: nowrap; overflow-wrap: normal; }
 /* phone: the stat boxes grow to fit their number instead of squeezing it; inventory slots are big enough for a two-digit count */
 :root[data-device][data-layout='compact'] .dash .stats3 { grid-template-columns: repeat(3, minmax(max-content, 1fr)); }
-:root[data-device][data-layout='compact'] .dash .stat-icon { width: calc(26 * var(--u)); max-width: none; flex: none; }
+:root[data-device][data-layout='compact'] .dash .stat-icon { width: calc(64 * var(--u)); max-width: none; flex: none; }
 :root[data-device][data-layout='compact'] .dash .stat-val { font-size: var(--fs-sm); }
 :root[data-device][data-layout='compact'] .dash .slot-n { font-size: calc(var(--fs-xs) * .85); right: calc(2 * var(--u)); bottom: calc(2 * var(--u)); }
 
