@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent as RPointerEvent } from 'react';
+import { useMemo, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
 import {
   REPEAT_COUNT, SHORTLIST_MAX, dayToInput, fmtClock, habitHistory, inputToDay, isOverdue, monthGrid, monthMarks, parseClock, shortlistTasks, startOfDay,
   type Category, type Frequency, type Habit, type PlanEvent, type Task,
@@ -9,6 +9,7 @@ import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
 import { PixelFrame } from '../ui/PixelFrame';
 import { PixelButton } from '../ui/PixelButton';
+import { Sparkles, fxVars, prefersReducedMotion } from '../ui/CompleteFx';
 import { Chip, Icon, Modal, PixelCheckbox } from '../ui/misc';
 import { TaskForm } from './TaskForm';
 import { HabitForm } from './HabitForm';
@@ -52,6 +53,7 @@ export function Planner() {
   const [habitDay, setHabitDay] = useState<number | null>(null);   // choosing a habit to put on this day
   const [habitForm, setHabitForm] = useState<Habit | 'new' | null>(null);
   const [carry, setCarry] = useState<{ id: string; dx: number; dy: number; day: number | null } | null>(null);   // a shortlist to-do being dragged onto the board
+  const [ticking, setTicking] = useState<string | null>(null);   // the shortlist to-do whose completion effect is playing
   const [todo, setTodo] = useState('');
   const [todoCat, setTodoCat] = useState<Category>('MIND');
 
@@ -65,7 +67,13 @@ export function Planner() {
   const show = (d: number) => { const x = new Date(d); setDay(d); setView({ y: x.getFullYear(), m: x.getMonth() }); };
   const turn = (by: number) => setView(v => { const x = new Date(v.y, v.m + by, 1); return { y: x.getFullYear(), m: x.getMonth() }; });
   const addTodo = () => { if (todo.trim() && actions.addTodo(todo, todoCat)) setTodo(''); };
-  const toggleTask = (x: Task) => (x.completed ? actions.uncompleteTask(x.id) : actions.completeTask(x.id));
+  const toggleTask = (x: Task) => {
+    if (x.completed) { actions.uncompleteTask(x.id); return; }
+    if (ticking) return;
+    if (prefersReducedMotion()) { actions.completeTask(x.id); return; }
+    setTicking(x.id);
+    setTimeout(() => { actions.completeTask(x.id); setTicking(null); }, 900);
+  };
 
   /**
    * Dragging a to-do off the shortlist (with the mouse anywhere on its line, by touch on its handle): dropped on a day of the
@@ -104,9 +112,12 @@ export function Planner() {
   /** One line of the shortlist: handle, tick box, title (opens the task), what it is worth, and the button that takes it off. */
   const taskRow = (x: Task) => (
     <div key={x.id} className={`pl-row pl-short ${x.completed ? 'done' : 'can-drag'} ${carry?.id === x.id ? 'dragging' : ''}`} onPointerDown={ev => grab(ev, x)}
-      style={carry?.id === x.id ? { transform: `translate(${Math.round(carry.dx)}px, ${Math.round(carry.dy)}px)` } : undefined}>
+      style={{ ...(carry?.id === x.id ? { transform: `translate(${Math.round(carry.dx)}px, ${Math.round(carry.dy)}px)` } : {}), ...(ticking === x.id ? fxVars('task', x.experienceReward) : {}) } as CSSProperties}>
       {!x.completed && <span className="pl-grip" role="img" aria-label={t('plMove', { title: x.title })} title={t('plMove', { title: x.title })} />}
-      <PixelCheckbox checked={x.completed} ariaLabel={`${x.completed ? t('uncompleteTask') : t('completeTask')}: ${x.title}`} onChange={() => toggleTask(x)} label="" />
+      <span className="fx-anchor">
+        <PixelCheckbox checked={x.completed || ticking === x.id} ariaLabel={`${x.completed ? t('uncompleteTask') : t('completeTask')}: ${x.title}`} onChange={() => toggleTask(x)} label="" />
+        {ticking === x.id && <Sparkles count={Math.min(x.experienceReward, 30)} />}
+      </span>
       <button type="button" className="pl-title" disabled={x.completed} onClick={() => setTaskForm(x)}>{x.title}</button>
       {isOverdue(x, now) ? <Chip color="var(--error)" border="#a04848">{t('late')} {fmtShort(x.dueDate!, locale)}</Chip>
         : x.dueDate != null && startOfDay(x.dueDate) !== today ? <Chip color="var(--border-2)">{fmtShort(x.dueDate, locale)}</Chip> : null}

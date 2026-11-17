@@ -71,8 +71,8 @@ Why: the planner is new and is the part meant to tie the app together; the first
 - Week view, and a day shown as a timeline with hours.
 - ~~Bóbr speaks first on Home~~ (built 2026-11-17).
 - Shortlist: reorder by dragging; decide whether 5 stays fixed.
-- Turn a mind-map box into a task or an activity, and show a ticked task on its box.
-- The completion sparkle when ticking from the Planner or from "What now?".
+- ~~Turn a mind-map box into a task or an activity~~ (built 2026-11-17); showing a ticked task on its box is open.
+- The completion sparkle: built for the Planner 2026-11-17; "What now?" in the chat is open.
 - A calendar sprite for the tile and the bar (needs art).
 - Chat leftovers that fit here: saved chat history, a typing animation. (The "favourite task" reply was built 2026-11-17.)
 - Done when: a week can be planned ahead, Bóbr reminds you without being asked, and a mind map can feed the plan.
@@ -103,7 +103,7 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 
 ## Phase 6: mind map, second round
 
-- ~~Tidy button~~ (built 2026-11-17); collapsing a branch is open.
+- ~~Tidy button~~ (built 2026-11-17); ~~collapsing a branch~~ (built 2026-11-17).
 - Show and flip a link's direction, since it decides what a branch is.
 - Export a map as a picture; duplicate a map.
 - Keep undo steps after the map is closed; offer the user's own frames and colour variants for boxes.

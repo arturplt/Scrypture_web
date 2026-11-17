@@ -379,3 +379,21 @@ export function tidyMap(m: MindMap): MindMap {
   const nodes = m.nodes.map(n => ({ ...n, x: clamp(snap(left + colX[depth.get(n.id)!]), -MM_LIMIT, MM_LIMIT), y: clamp(snap(top + pos.get(n.id)!), -MM_LIMIT, MM_LIMIT) }));
   return nodes.every((n, i) => n.x === m.nodes[i].x && n.y === m.nodes[i].y) ? m : { ...m, nodes };
 }
+
+/**
+ * Collapsing branches: the map as it is shown when the boxes in `collapsed` hide everything under them (the boxes themselves stay).
+ * `hidden` says how many boxes each collapsed box hides. A box also under another collapsed one is simply not shown.
+ */
+export function collapseView(m: MindMap, collapsed: ReadonlySet<string>): { map: MindMap; hidden: Map<string, number> } {
+  if (!collapsed.size) return { map: m, hidden: new Map() };
+  const gone = new Set<string>(), hidden = new Map<string, number>();
+  for (const id of collapsed) {
+    if (!findNode(m, id)) continue;
+    const under = [...branchOf(m, id)].filter(x => x !== id);
+    if (under.length) hidden.set(id, under.length);
+    for (const x of under) gone.add(x);
+  }
+  for (const id of gone) hidden.delete(id);
+  if (!gone.size) return { map: m, hidden };
+  return { map: { ...m, nodes: m.nodes.filter(n => !gone.has(n.id)), links: m.links.filter(l => !gone.has(l.from) && !gone.has(l.to)) }, hidden };
+}

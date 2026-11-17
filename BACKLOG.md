@@ -305,7 +305,7 @@ Left out or still to do:
 - [ ] Export a map as a picture, and copy / duplicate a map
 - [ ] Typing on a phone: when the on-screen keyboard opens it may cover the box (the view does not know the keyboard's height); untested on a real device
 - [ ] A link's direction decides what a branch is (parent to child). Links made with "Link" point from the box you started on; there is no way to see or flip a link's direction
-- [ ] Collapsing a branch and turning a box into a task: suggested, not built. (Tidy button built 2026-11-17: tree layout left to right; not hand-tuned on big maps)
+- [x] Fold/Unfold a branch (not saved; a folded box shows +N) and To task / To plan buttons on a selected box (built 2026-11-17; a task or activity made this way does not show back on its box). Earlier: collapsing and turning a box into a task were suggested, not built. (Tidy button built 2026-11-17: tree layout left to right; not hand-tuned on big maps)
 - [ ] Undo steps are lost when the map is closed
 - [ ] Box frame names in the dialog are read to screen readers in English only (`green ornate`, ...)
 - [ ] The eight box frames are Android's `NodeThemeManager` list; the user's own frames and colour variants are not offered
@@ -327,11 +327,11 @@ Not done / to decide:
 - [ ] Activities do not repeat (no "every Tuesday") and have no reminders or notifications
 - [ ] No week view, and a day is a list, not a timeline with hours
 - [x] The shortlist can be reordered with up/down buttons (2026-11-17). Its size (5) is still fixed
-- [ ] Completing a task from the Planner or from "What now?" has no sparkle animation (the Tasks screen has one)
+- [x] Sparkle when ticking a to-do on the Planner shortlist (built 2026-11-17; the board already had it). Still none for "What now?" in the chat
 - [x] Bóbr nudge on Home (built 2026-11-17): a line under the pen when an activity is on or starts within 30 min, else when tasks are late; tap opens the Planner. Still open: a spoken line in the chat, and nudges while the app is closed (notifications)
 - [ ] Week starts on Monday for every language
 - [ ] Checked in the browser at phone width by reading the page (the preview pane was hidden for the last part): the two-column layout on wide screens and the look of the activity form were not looked at
-- [ ] Mind map boxes cannot become tasks or activities yet (suggested earlier)
+- [x] Mind map boxes become tasks or activities with a button (built 2026-11-17); a ticked task is not shown on its box
 
 
 

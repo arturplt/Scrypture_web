@@ -57,3 +57,5 @@
 .mm-desc { flex-basis: 100%; max-height: calc(64 * var(--u)); overflow: auto; margin: 0 auto; max-width: calc(420 * var(--u)); padding: calc(6 * var(--u)) calc(8 * var(--u)); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
   font: inherit; font-size: var(--fs-xs); line-height: 1.7; color: var(--text); background: var(--bg-2); border: calc(2 * var(--u)) solid var(--border-2); border-radius: var(--radius); cursor: pointer; user-select: text; -webkit-user-select: text; }
 .mm-desc:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+
+.mm-fold { position: absolute; right: calc(2 * var(--u)); bottom: calc(1 * var(--u)); font-size: var(--fs-xs); color: #ffd54f; pointer-events: none; }

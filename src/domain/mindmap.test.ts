@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_MAP_NODES, MAX_MIND_MAPS, MM_FIT_MAX_ZOOM, MM_MAX_ZOOM, MM_MIN_W, MM_MIN_ZOOM, addLink, addNode, anchor, canLink, childSpot, colsForRight, curveDistance, curvePath,
   curvePoint, fitView, freeSpot, linkAt, linkCurve, mapBounds, moveNode, newMindMap, nodeAt, nodeSize, raiseNode, removeLink, removeNode, sanitizeMindMap,
-  sanitizeMindMaps, branchOf, cleanDesc, linkCurves, moveBranch, setNodeDesc, setNodeCols, setNodeLabel, setNodeTheme, snap, tidyMap, wrapLabel, zoomAt, type MindMap,
+  sanitizeMindMaps, branchOf, cleanDesc, linkCurves, moveBranch, setNodeDesc, setNodeCols, setNodeLabel, setNodeTheme, snap, tidyMap, collapseView, wrapLabel, zoomAt, type MindMap,
 } from './mindmap';
 
 const empty = () => newMindMap('m', 'Test', 0);
@@ -244,5 +244,19 @@ describe('tidy', () => {
     expect(t.nodes).toHaveLength(3);
     expect(tidyMap(t)).toBe(t);
     expect(tidyMap(empty())).toEqual(empty());
+  });
+});
+
+describe('collapse', () => {
+  it('hides what is under a folded box and counts it', () => {
+    const m = addLink(addLink(three(), 'l1', 'a', 'b'), 'l2', 'b', 'c');   // a -> b -> c
+    const v = collapseView(m, new Set(['a']));
+    expect(v.map.nodes.map(n => n.id)).toEqual(['a']);
+    expect(v.map.links).toEqual([]);
+    expect(v.hidden.get('a')).toBe(2);
+    const inner = collapseView(m, new Set(['a', 'b']));   // b is hidden by a, so only a shows a count
+    expect([...inner.hidden]).toEqual([['a', 2]]);
+    expect(collapseView(m, new Set()).map).toBe(m);
+    expect(collapseView(m, new Set(['c'])).map).toBe(m);   // a leaf hides nothing
   });
 });

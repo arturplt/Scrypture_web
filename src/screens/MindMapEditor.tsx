@@ -1,7 +1,7 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
 import {
   DEFAULT_NODE_THEME, MAX_MAP_NODES, MM_CHAR, MM_DESC_MAX, MM_GRID, MM_LABEL_MAX, MM_PAD_X, NODE_THEMES, addLink, addNode, childSpot, cleanLabel, colsForRight, curvePath,
-  findNode, fitView, freeSpot, linkAt, linkCurves, mapBounds, moveBranch, moveNode, nodeAt, nodeSize, raiseNode, removeLink, removeNode, setNodeCols, setNodeDesc,
+  findNode, fitView, freeSpot, linkAt, linkCurves, mapBounds, moveBranch, moveNode, nodeAt, nodeSize, raiseNode, startOfDay, collapseView, branchOf, removeLink, removeNode, setNodeCols, setNodeDesc,
   setNodeLabel, setNodeTheme, tidyMap, zoomAt, type MapNode, type MapView, type MindMap,
 } from '../domain';
 import { actions, store, useAppState } from '../data/hooks';
@@ -47,7 +47,7 @@ export function MindMapEditor({ id }: { id: string }) {
 }
 
 /** The boxes and links. Memoised: panning and zooming only move the layer they sit in. */
-const Layer = memo(function Layer({ map, sel, linking, typing, api }: { map: MindMap; sel: Sel; linking: string | null; typing: Typing | null; api: MutableRefObject<TypeApi> }) {
+const Layer = memo(function Layer({ map, hidden, sel, linking, typing, api }: { map: MindMap; hidden: Map<string, number>; sel: Sel; linking: string | null; typing: Typing | null; api: MutableRefObject<TypeApi> }) {
   const selNode = sel && 'node' in sel ? findNode(map, sel.node) : undefined;
   const curves = linkCurves(map);
   return (
@@ -77,6 +77,7 @@ const Layer = memo(function Layer({ map, sel, linking, typing, api }: { map: Min
                 }} />
             ) : lines.map((line, i) => <span key={i}>{line}</span>)}
             {n.desc && <i className="mm-mark" aria-hidden />}
+            {hidden.has(n.id) && <b className="mm-fold" aria-hidden>+{hidden.get(n.id)}</b>}
           </PixelFrame>
         );
       })}
@@ -93,6 +94,8 @@ function Editor({ id }: { id: string }) {
   // the store's copy is read once: from then on this screen owns the map and saves every finished edit
   const [map, setMap] = useState<MindMap>(() => store.getState().mindMaps.list.find(m => m.id === id)!);
   const [sel, setSel] = useState<Sel>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());   // boxes whose branch is folded away (not saved)
+  const shown = useMemo(() => collapseView(map, collapsed), [map, collapsed]);
   const [linking, setLinking] = useState<string | null>(null);   // the box a new link starts from
   const [typing, setTypingState] = useState<Typing | null>(null);
   const [details, setDetails] = useState<string | null>(null);   // the box whose text, description and frame are open in the dialog
@@ -108,8 +111,8 @@ function Editor({ id }: { id: string }) {
   const gesture = useRef<Gesture | null>(null);
   const lastTap = useRef({ at: 0, key: '', x: 0, y: 0 });
   // pointer and key handlers read the latest values through this, so they never go stale
-  const live = useRef({ map, sel, linking, ui, typing, details, solo });
-  live.current = { map, sel, linking, ui, typing, details, solo };
+  const live = useRef({ shown, map, sel, linking, ui, typing, details, solo });
+  live.current = { shown, map, sel, linking, ui, typing, details, solo };
 
   // ---- view
   const applyView = useCallback(() => {
@@ -278,7 +281,7 @@ function Editor({ id }: { id: string }) {
   };
   const tapEmpty = (p: { x: number; y: number }) => {
     if (live.current.linking) { setLinking(null); return; }
-    const w = toMap(p), l = linkAt(live.current.map, w.x, w.y, Math.max(6, 14 / scale()));
+    const w = toMap(p), l = linkAt(live.current.shown.map, w.x, w.y, Math.max(6, 14 / scale()));
     if (l) { setSel({ link: l.id }); return; }
     if (doubleTap('', p)) { addBox(undefined, w); return; }
     setSel(null);
@@ -308,7 +311,7 @@ function Editor({ id }: { id: string }) {
     if (pointers.current.size > 2) return;
     const w = toMap(p), m = live.current.map;
     const grip = e.button === 0 ? onHandle(w) : undefined;
-    const n = e.button === 0 && !grip ? nodeAt(m, w.x, w.y) : undefined;
+    const n = e.button === 0 && !grip ? nodeAt(live.current.shown.map, w.x, w.y) : undefined;
     if (grip) gesture.current = { mode: 'resize', id: grip.id, before: m };
     else if (n) gesture.current = { mode: 'node', id: n.id, sx: p.x, sy: p.y, wx: w.x, wy: w.y, ox: n.x, oy: n.y, moved: false, before: m };
     else gesture.current = { mode: 'pan', sx: p.x, sy: p.y, moved: false };
@@ -408,7 +411,7 @@ function Editor({ id }: { id: string }) {
       <div ref={stage} className={`mm-stage ${linking ? 'linking' : ''}`} role="application" aria-label={name} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel}
         onContextMenu={e => e.preventDefault()}
         onFocus={e => { const nid = (e.target as HTMLElement).dataset?.node; if (nid && !live.current.linking && !live.current.typing) { setSel({ node: nid }); const n = findNode(live.current.map, nid); if (n) reveal(n); } }}>
-        <div ref={world} className="mm-world"><Layer map={map} sel={sel} linking={linking} typing={typing} api={typeApi} /></div>
+        <div ref={world} className="mm-world"><Layer map={shown.map} hidden={shown.hidden} sel={sel} linking={linking} typing={typing} api={typeApi} /></div>
         {map.nodes.length === 0 && <div className="mm-hint muted small">{t('mmStart')}<br />{t('mmHelp')}</div>}
       </div>
 
@@ -436,7 +439,11 @@ function Editor({ id }: { id: string }) {
         ) : selectedNode ? <>
           <PixelButton scale={1} size="compact" onClick={() => setDetails(selectedNode.id)}>{t('edit')}</PixelButton>
           <PixelButton scale={1} size="compact" onClick={() => addBox(selectedNode.id)}>{t('mmChild')}</PixelButton>
+          {(collapsed.has(selectedNode.id) || branchOf(map, selectedNode.id).size > 1) &&
+            <PixelButton scale={1} size="compact" onClick={() => setCollapsed(c => { const n = new Set(c); if (!n.delete(selectedNode.id)) n.add(selectedNode.id); return n; })}>{collapsed.has(selectedNode.id) ? t('mmExpand') : t('mmCollapse')}</PixelButton>}
           <PixelButton scale={1} size="compact" disabled={map.nodes.length < 2} onClick={() => setLinking(selectedNode.id)}>{t('mmLink')}</PixelButton>
+          <PixelButton scale={1} size="compact" onClick={() => { actions.addTask({ title: selectedNode.label, category: 'MIND', priority: 'MEDIUM', difficulty: 2, description: selectedNode.desc }); say(t('mmMadeTask', { title: selectedNode.label })); }}>{t('mmToTask')}</PixelButton>
+          <PixelButton scale={1} size="compact" onClick={() => { actions.addEvent({ title: selectedNode.label, day: startOfDay(Date.now()), note: selectedNode.desc }); say(t('mmMadeEvent', { title: selectedNode.label })); }}>{t('mmToEvent')}</PixelButton>
           <PixelButton scale={1} size="compact" variant="red" onClick={deleteSelected}>{t('delete')}</PixelButton>
         </> : sel ? (
           <PixelButton scale={1} size="compact" variant="red" onClick={deleteSelected}>{t('mmDeleteLink')}</PixelButton>
