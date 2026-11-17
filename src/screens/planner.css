@@ -164,3 +164,4 @@
 .pl-lane { grid-template-columns: minmax(0, 1fr); }
 .pl-lane > * { min-width: 0; }
 .pl-lane .task, .pl-lane .pl-item > .task { min-width: 0; max-width: 100%; }
+.pl-board .pl-lane .task:not(.is-open) { padding: calc(4 * var(--u)) calc(6 * var(--u)); }   /* cards in the top lane: a little room so the streak and chips do not touch the border */
