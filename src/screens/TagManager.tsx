@@ -4,18 +4,20 @@ import { actions, useAppState } from '../data/hooks';
 import { Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
 import { useT } from '../i18n/useT';
+import { frameOr } from '../ui/themes';
 
 /** Every tag in use, with how many tasks have it: rename (an existing name merges) or delete it from all tasks. */
 export function TagManager({ onClose }: { onClose: () => void }) {
   const t = useT();
   const tasks = useAppState(s => s.tasks);
+  const dialog = useAppState(s => s.settings.elements.manageDialog);
   const tags = tagCounts(tasks);
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [confirm, setConfirm] = useState<string | null>(null);
   const save = () => { if (editing && cleanTag(name)) actions.renameTag(editing, name); setEditing(null); };
   return (
-    <Modal open onClose={onClose} title={t('manageTags')}>
+    <Modal open onClose={onClose} theme={frameOr(dialog, 'wood_gold_gem')} title={t('manageTags')}>
       {tags.length === 0 && <p className="muted">{t('noTags')}</p>}
       <div className="list">
         {tags.map(({ tag, count }) => (

@@ -53,6 +53,11 @@ export const buildFrame = ({ name, hue, edges, center, scale }: FrameParts): str
   while (parts.length && !parts[parts.length - 1]) parts.pop();   // trailing parts left out
   return `${name}${hue ? `~${hue}` : ''}${parts.length ? `:${parts.join(':')}` : ''}`;
 };
+/** A frame id as chosen in the Theme manager, made safe for a small backdrop: clean stretched edges unless chosen, and never below 1x (corner size 16 or more). */
+export const backdropFrame = (id: string, fallback: FrameTheme | 'app' = 'wood_gold_gem'): string => {
+  const p = splitFrame(frameOr(id, fallback));
+  return buildFrame({ ...p, edges: p.edges ?? 'stretch', center: p.center ?? 'clean', scale: String(Math.max(16, Number(p.scale) || 16)) });
+};
 /** `name~hue` keeping the id's own edge / centre choice. */
 export const withHue = (name: string, hue: number) => buildFrame({ name, hue });
 

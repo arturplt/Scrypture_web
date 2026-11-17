@@ -2,7 +2,7 @@ import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { PixelFrame } from './PixelFrame';
 import { useTickUrls } from './TickLook';
 import { useAppState } from '../data/hooks';
-import { frameOr, rawUrl, type FrameTheme } from './themes';
+import { backdropFrame, frameOr, rawUrl, type FrameTheme } from './themes';
 import { useTintedImage } from './tintFrame';
 import './ui.css';
 
@@ -54,11 +54,12 @@ export function useLongPress(fn?: () => void, ms = 500) {
 
 export function StatBox({ stat, value, frame = 'app', onLongPress, tip }: { stat: 'body' | 'mind' | 'soul'; value: number; frame?: string; onLongPress?: () => void; /** shown in a pixel-art box when hovered or focused */ tip?: string }) {
   const hold = useLongPress(onLongPress);
+  const tipFrame = useAppState(s => s.settings.elements.tip);
   return (
     <PixelFrame theme={frameOr(frame, 'app')} scale={1} className={`statbox stat-${stat} ${onLongPress ? 'holdable' : ''}`} {...hold}>
       <img className="stat-icon" src={rawUrl(`${stat}_active`)} alt={stat} />
       <div className="stat-val">{value}</div>
-      {tip && <span className="tip" role="tooltip"><PixelFrame as="span" theme="wood_gold_gem:stretch:clean:16" scale={1} className="tip-bg" aria-hidden /><span className="tip-text">{tip}</span></span>}
+      {tip && <span className="tip" role="tooltip"><PixelFrame as="span" theme={backdropFrame(tipFrame)} scale={1} className="tip-bg" aria-hidden /><span className="tip-text">{tip}</span></span>}
     </PixelFrame>
   );
 }

@@ -339,3 +339,4 @@ Not done / to decide:
 
 - 2026-11-17: built a Settings High contrast switch (brighter text, darker backgrounds, clearer borders; not checked against a screen reader or with real low-vision use) and a hint on Home about holding Body and Mind (shown until one is held, remembered on the device).
 - 2026-11-17: the Home hold hint is now a hover/focus tip in a pixel-art box on the Body and Mind boxes (touch screens show none, since there is no hover; the boxes' long-press still works).
+- 2026-11-17: Theme manager has three new elements: Bóbr's nudge card on Home, the Category and tag dialogs, and the hover tip (its frame is always drawn at 1x or larger, whatever corner size is picked). Category chips keep one frame per category, chosen in the category manager, so they have no Theme manager entry. The Notices toasts and the Planner are still not in the Theme manager.

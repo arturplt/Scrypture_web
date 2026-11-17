@@ -5,12 +5,14 @@ import { Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
 import { PixelFrame } from '../ui/PixelFrame';
 import { useT } from '../i18n/useT';
+import { frameOr } from '../ui/themes';
 import './categories.css';
 
 /** Your own task categories: a name and a frame for the cards. Add, rename, change the frame, or delete (its tasks keep going without one). */
 export function CategoryManager({ onClose }: { onClose: () => void }) {
   const t = useT();
   const cats = useAppState(s => s.categories);
+  const dialog = useAppState(s => s.settings.elements.manageDialog);
   const tasks = useAppState(s => s.tasks);
   const habits = useAppState(s => s.habits);
   const rows = categoryCounts(cats, tasks, habits);
@@ -26,7 +28,7 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
   };
   const free = categoryNameFree(cats, name, editing && editing !== 'new' ? editing : undefined);
   return (
-    <Modal open onClose={onClose} title={t('manageCategories')}>
+    <Modal open onClose={onClose} theme={frameOr(dialog, 'wood_gold_gem')} title={t('manageCategories')}>
       {rows.length === 0 && editing !== 'new' && <p className="muted">{t('noCategories')}</p>}
       <div className="list">
         {rows.map(c => editing === c.id ? null : (

@@ -6,7 +6,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { ButtonLook, PixelButton } from '../ui/PixelButton';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { BAR_IDS, BAR_LABELS } from '../ui/bars';
-import { BUTTON_STYLES, CHIP_SCALES, FRAME_HUES, FRAME_SCALES, FRAME_THEMES, buildFrame, frameOr, resolveFrame, splitFrame, withHue, type FrameTheme } from '../ui/themes';
+import { BUTTON_STYLES, CHIP_SCALES, FRAME_HUES, FRAME_SCALES, FRAME_THEMES, backdropFrame, buildFrame, frameOr, resolveFrame, splitFrame, withHue, type FrameTheme } from '../ui/themes';
 import { BUTTON_SIZES, CHIP_EDGES, CRT_LEVELS, DEFAULT_APPEARANCE, BUILTIN_PRESETS, MAX_PRESETS, appearanceOf, type Preset, FRAME_CENTERS, FRAME_EDGES, NAV_ACTIVE, NAV_LABELS, sanitizeNavItems } from '../domain';
 import type { Key } from '../i18n';
 import { CHIP_IDS, ChipLook, useCatChipStyle } from '../ui/chips';
@@ -29,7 +29,7 @@ const TARGET_LABEL = {
   device: 'deviceCase', frame: 'frames', nav: 'navBar', primary: 'mainButtons', secondary: 'secondaryButtons', chips: 'filterButtons', chipAll: 'all', chipBody: 'body', chipMind: 'mind', chipSoul: 'soul',
   task: 'taskCard', habit: 'habitCard', done: 'doneCard', taskDialog: 'taskDialog', habitDialog: 'habitDialog', tick: 'tickBox',
   xp: 'experiencePoints', hunger: 'hunger', happiness: 'happiness',
-  dashLevel: 'tmLevelCard', dashBody: 'tmBodyBox', dashMind: 'tmMindBox', dashSoul: 'tmSoulBox', dashPen: 'tmPen', dashHunger: 'tmHungerCard', dashHappiness: 'tmHappinessCard', dashMenu: 'tmMenuTiles', dashInventory: 'tmInventory',
+  dashLevel: 'tmLevelCard', dashBody: 'tmBodyBox', dashMind: 'tmMindBox', dashSoul: 'tmSoulBox', dashPen: 'tmPen', dashHunger: 'tmHungerCard', dashHappiness: 'tmHappinessCard', dashMenu: 'tmMenuTiles', dashInventory: 'tmInventory', dashNudge: 'tmNudge', manageDialog: 'tmManageDialog', tip: 'tmTip',
 } as const satisfies Record<string, Key>;
 type Target = keyof typeof TARGET_LABEL;
 
@@ -265,7 +265,8 @@ export function ThemeManager() {
     habitDialog: elementFrame('habitDialog'),
     dashLevel: elementFrame('dashLevel'), dashBody: elementFrame('dashBody'), dashMind: elementFrame('dashMind'), dashSoul: elementFrame('dashSoul'),
     dashPen: elementFrame('dashPen'), dashHunger: elementFrame('dashHunger'), dashHappiness: elementFrame('dashHappiness'),
-    dashMenu: elementFrame('dashMenu'), dashInventory: elementFrame('dashInventory'),
+    dashMenu: elementFrame('dashMenu'), dashInventory: elementFrame('dashInventory'), dashNudge: elementFrame('dashNudge'),
+    manageDialog: elementFrame('manageDialog'), tip: elementFrame('tip'),
     tick: styleEditor({ value: elements.tick, setValue: id => set({ elements: { ...elements, tick: id } }), base: TICK_IDS.map(id => ({ id, label: id, node: <TickLook id={id} /> })), preview: id => <TickLook id={id} /> }),
     xp: barEditor('xp'),
     hunger: barEditor('hunger'),
@@ -284,7 +285,7 @@ export function ThemeManager() {
       <div className="meter"><span>{t(TARGET_LABEL[slot])}</span><PixelProgressBar value={value} look={bars[slot]} scale={1} /></div>
     </Hot>
   );
-  const dialog = (id: 'taskDialog' | 'habitDialog', title: Key) => (
+  const dialog = (id: 'taskDialog' | 'habitDialog' | 'manageDialog', title: Key) => (
     <Hot {...hot(id)}>
       <PixelFrame theme={frameOr(elements[id], 'wood_gold_gem')} scale={1} className="tm-dialog">
         <div className="small">{t(title)}</div>
@@ -387,6 +388,14 @@ export function ThemeManager() {
           </PixelFrame>
         </Hot>
 
+        <Hot {...hot('dashNudge')}>
+          <PixelFrame theme={frameOr(elements.dashNudge, 'app')} scale={1} className="card nudge">{t('nudgeSoon', { title: t('task'), n: 15 })}</PixelFrame>
+        </Hot>
+
+        <Hot {...hot('tip')}>
+          <span className="tip tip-static"><PixelFrame as="span" theme={backdropFrame(elements.tip)} scale={1} className="tip-bg" aria-hidden /><span className="tip-text">{t('holdBodyTip')}</span></span>
+        </Hot>
+
         <Hot {...hot('task')}>
           <PixelFrame theme={frameOr(elements.task, 'app')} scale={1} className="task">
             <div className="task-head">{tick(false)}<span className="task-title">{t('task')}</span><span className="xp"><Icon name="xp" size={16} />25</span></div>
@@ -410,6 +419,7 @@ export function ThemeManager() {
         <div className="tm-dialogs">
           {dialog('taskDialog', 'taskDialog')}
           {dialog('habitDialog', 'habitDialog')}
+          {dialog('manageDialog', 'tmManageDialog')}
         </div>
 
         <Hot {...hot('nav', 'hot-nav')}>

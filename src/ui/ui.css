@@ -90,3 +90,4 @@ button.pf { background: none; }
 .tip-text { position: relative; font-size: var(--fs-xs); line-height: 1.4; text-align: center; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
 .statbox:hover > .tip, .statbox:focus-visible > .tip { opacity: 1; visibility: visible; }
 @media (hover: none) { .statbox:hover > .tip { opacity: 0; visibility: hidden; } }
+.tip.tip-static { position: relative; left: auto; bottom: auto; transform: none; opacity: 1; visibility: visible; display: inline-flex; }

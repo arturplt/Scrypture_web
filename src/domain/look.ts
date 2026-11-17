@@ -25,9 +25,12 @@ export interface Elements {
   tick: string; task: string; habit: string; done: string; taskDialog: string; habitDialog: string;
   /** Home screen frames (all default to the main frame): level card, Body/Mind/Soul boxes, Bóbr pen, hunger / happiness cards, menu tiles, inventory */
   dashLevel: string; dashBody: string; dashMind: string; dashSoul: string; dashPen: string; dashHunger: string; dashHappiness: string; dashMenu: string; dashInventory: string;
+  /** Bóbr's nudge line on Home */ dashNudge: string;
+  /** the Categories and Tags dialogs */ manageDialog: string;
+  /** the hover tip on the Body and Mind boxes */ tip: string;
 }
 export const DEFAULT_ELEMENTS: Elements = { tick: 'classic', task: 'app', habit: 'app', done: 'grey_stone_chiseld', taskDialog: 'wood_gold_gem', habitDialog: 'wood_gold_gem',
-  dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app' };
+  dashLevel: 'app', dashBody: 'app', dashMind: 'app', dashSoul: 'app', dashPen: 'app', dashHunger: 'app', dashHappiness: 'app', dashMenu: 'app', dashInventory: 'app', dashNudge: 'app', manageDialog: 'wood_gold_gem', tip: 'wood_gold_gem' };
 
 /** Navigation bar: which destinations appear (Home is always kept), how the active one is marked, and whether labels show. */
 export const NAV_ITEMS = ['home', 'tasks', 'habits', 'plan', 'start', 'chat', 'trophies', 'apps', 'settings'] as const;

@@ -68,7 +68,7 @@ export function Dashboard() {
         </div>
 
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card"><BobrPen stage={bobrStage(stats.level)} emotion={emotion} /></PixelFrame>
-        {nudge && <PixelFrame as="button" theme={fr(el.dashPen)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
+        {nudge && <PixelFrame as="button" theme={fr(el.dashNudge)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
 
         <div className="needs">
           <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span>{t('hunger').toUpperCase()}</span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>
