@@ -52,12 +52,13 @@ export function useLongPress(fn?: () => void, ms = 500) {
   };
 }
 
-export function StatBox({ stat, value, frame = 'app', onLongPress }: { stat: 'body' | 'mind' | 'soul'; value: number; frame?: string; onLongPress?: () => void }) {
+export function StatBox({ stat, value, frame = 'app', onLongPress, tip }: { stat: 'body' | 'mind' | 'soul'; value: number; frame?: string; onLongPress?: () => void; /** shown in a pixel-art box when hovered or focused */ tip?: string }) {
   const hold = useLongPress(onLongPress);
   return (
     <PixelFrame theme={frameOr(frame, 'app')} scale={1} className={`statbox stat-${stat} ${onLongPress ? 'holdable' : ''}`} {...hold}>
       <img className="stat-icon" src={rawUrl(`${stat}_active`)} alt={stat} />
       <div className="stat-val">{value}</div>
+      {tip && <PixelFrame as="span" theme="wood_gold_gem:stretch:clean:8" scale={1} className="tip" role="tooltip">{tip}</PixelFrame>}
     </PixelFrame>
   );
 }

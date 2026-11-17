@@ -338,3 +338,4 @@ Not done / to decide:
 - 2026-11-17: built Start Here topic filter, easy-only filter and "add all easy ones"; Settings reduce-motion switch; Time Trial speed multiplier shown in the HUD.
 
 - 2026-11-17: built a Settings High contrast switch (brighter text, darker backgrounds, clearer borders; not checked against a screen reader or with real low-vision use) and a hint on Home about holding Body and Mind (shown until one is held, remembered on the device).
+- 2026-11-17: the Home hold hint is now a hover/focus tip in a pixel-art box on the Body and Mind boxes (touch screens show none, since there is no hover; the boxes' long-press still works).
