@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
 import {
-  REPEAT_COUNT, SHORTLIST_MAX, dayToInput, fmtClock, habitHistory, inputToDay, isOverdue, monthGrid, monthMarks, parseClock, shortlistTasks, startOfDay,
+  REPEAT_COUNT, SHORTLIST_MAX, dayToInput, fmtClock, habitHistory, inputToDay, isOverdue, monthGrid, monthMarks, parseClock, shortlistTasks, snapMinutes, startOfDay,
   type Category, type Frequency, type Habit, type PlanEvent, type Task,
 } from '../domain';
 import { actions, useAppState } from '../data/hooks';
@@ -14,7 +14,7 @@ import { Sparkles, fxVars, prefersReducedMotion } from '../ui/CompleteFx';
 import { Chip, Icon, Modal, PixelCheckbox } from '../ui/misc';
 import { TaskForm } from './TaskForm';
 import { HabitForm } from './HabitForm';
-import { PlannerBoard, dayAtPoint, scrollerOf, swallowClick } from './PlannerBoard';
+import { PlannerBoard, dayAtPoint, scrollerOf, slotAtPoint, swallowClick } from './PlannerBoard';
 import './planner.css';
 
 const CATS: Category[] = ['BODY', 'MIND', 'SOUL'];
@@ -87,7 +87,7 @@ export function Planner() {
     if (!target.closest('.pl-grip') && (ev.pointerType !== 'mouse' || target.closest('input, label, .pl-ib'))) return;
     const x0 = ev.clientX, y0 = ev.clientY, scroller = scrollerOf(ev.currentTarget), top0 = scroller.top();
     let px = x0, py = y0, active = false, raf = 0;
-    const show = () => setCarry({ id: x.id, dx: px - x0, dy: py - y0 + scroller.top() - top0, day: dayAtPoint(px, py), slot: slotAtPoint(px, py, x.id) });
+    const show = () => setCarry({ id: x.id, dx: px - x0, dy: py - y0 + scroller.top() - top0, day: dayAtPoint(px, py), slot: listSlotAt(px, py, x.id) });
     const loop = () => {
       const dir = py < 70 ? -1 : py > window.innerHeight - 70 ? 1 : 0;
       if (dir) { scroller.by(dir * 12); show(); }
@@ -105,16 +105,16 @@ export function Planner() {
       setCarry(null);
       if (!active || e.type !== 'pointerup') return;
       swallowClick();
-      const to = dayAtPoint(px, py);
-      if (to != null) { actions.shortlistToDay(x.id, to); return; }   // moved onto the calendar: dated, and no longer on the shortlist
-      const slot = slotAtPoint(px, py, x.id);
+      const to = slotAtPoint(px, py);
+      if (to) { actions.shortlistToDay(x.id, to.day, to.time === undefined ? undefined : Math.max(0, Math.min(1425, snapMinutes(to.time)))); return; }   // moved onto the calendar: dated, and no longer on the shortlist
+      const slot = listSlotAt(px, py, x.id);
       if (slot != null) actions.shortlistPlace(x.id, slot);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
   }
 
   /** Where a dragged to-do would land in the shortlist when the pointer is over it: its place among the other lines, else null. */
-  function slotAtPoint(px: number, py: number, id: string): number | null {
+  function listSlotAt(px: number, py: number, id: string): number | null {
     const box = document.querySelector('.pl-shortlist')?.getBoundingClientRect();
     if (!box || px < box.left || px > box.right || py < box.top - 24 || py > box.bottom + 24) return null;
     const rows = [...document.querySelectorAll<HTMLElement>('.pl-shortlist .pl-short')].filter(r => r.dataset.task !== id);

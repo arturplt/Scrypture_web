@@ -26,13 +26,14 @@ const fmtDate = (ms: number, locale: string) => new Date(ms).toLocaleDateString(
  * `compact`: the small card of the Planner board (the chips show only once it is opened).
  * `stay`: the card does not leave when ticked (the board keeps done tasks on their day), so it hops instead of flinging away.
  */
-export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = false, stay = false }: { task: Task; now: number; onEdit: () => void; onComplete: () => void; leaving: boolean; compact?: boolean; stay?: boolean }) {
+export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = false, stay = false, expanded: shown, onToggle }: { task: Task; now: number; onEdit: () => void; onComplete: () => void; leaving: boolean; compact?: boolean; stay?: boolean; /** controlled open state (the Planner board keeps it, so the block can grow) */ expanded?: boolean; onToggle?: () => void }) {
   const { t, locale } = useI18n();
   const el = useAppState(s => s.settings.elements);
   const overdue = isOverdue(task, now);
   const p = PRIORITY_COLORS[task.priority];
   const open = !task.completed;
-  const [expanded, setExpanded] = useState(false);   // clicking the title shows the description
+  const [own, setOwn] = useState(false);   // clicking the title shows the description
+  const expanded = shown ?? own, setExpanded = (f: (v: boolean) => boolean) => (onToggle ? onToggle() : setOwn(f));
   const moreId = useId();
   const cats = useAppState(st => st.categories);
   const groups = cats.filter(c => task.groups?.includes(c.id));   // shown as a chip in its own frame; the card itself follows the theme manager

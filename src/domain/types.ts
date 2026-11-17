@@ -23,6 +23,8 @@ export interface Task {
   /** ids of the custom categories it belongs to (see categories.ts) */
   groups?: string[];
   estimatedDuration?: number; // minutes
+  /** time of day it is planned for on its due date (minutes after midnight): it then shows as a block on the Planner timeline */
+  scheduledTime?: number;
   /** How many times it has been completed (a task can be unticked and completed again). */
   completionCount?: number;
   lastCompletedAt?: number;

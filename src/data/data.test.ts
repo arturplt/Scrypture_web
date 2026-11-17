@@ -758,3 +758,23 @@ describe('editing a repeated activity', () => {
     expect(after.every(e => e.series === first.series)).toBe(true);
   });
 });
+
+describe('tasks planned for a time of day', () => {
+  it('a task can get a time on its due date, from the board or the shortlist, and a bad saved time is dropped', () => {
+    const { s, kv, t } = make();
+    const a = s.actions.addTask({ title: 'a', category: 'MIND', priority: 'LOW', difficulty: 0, dueDate: day(5) });
+    s.actions.updateTask(a.id, { dueDate: day(6), scheduledTime: 600 });
+    expect(s.getState().tasks[0]).toMatchObject({ dueDate: day(6), scheduledTime: 600 });
+    s.actions.updateTask(a.id, { dueDate: day(6), scheduledTime: undefined });
+    expect(s.getState().tasks[0].scheduledTime).toBeUndefined();
+    const b = s.actions.addTask({ title: 'b', category: 'MIND', priority: 'LOW', difficulty: 0 });
+    s.actions.shortlistAdd(b.id);
+    s.actions.shortlistToDay(b.id, day(7), 720);
+    expect(s.getState().tasks.find(x => x.id === b.id)).toMatchObject({ dueDate: day(7), scheduledTime: 720 });
+    expect(s.getState().planner.shortlist).toEqual([]);
+    const saved = JSON.parse(kv.getItem('scrypture:state')!);
+    saved.tasks[0].scheduledTime = 99999;
+    kv.setItem('scrypture:state', JSON.stringify(saved));
+    expect(createStore(kv, () => t.now).getState().tasks[0].scheduledTime).toBeUndefined();
+  });
+});

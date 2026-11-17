@@ -2,7 +2,11 @@ import { CURRENT_VERSION, defaultState, type AppState } from './state';
 import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
 /** Older saves kept one `group` per task or habit; now it is a list `groups` (left out when empty). */
-const withGroups = (x: any) => { const { group: _g, ...rest } = x; const groups = groupsFrom(x); return groups.length ? { ...rest, groups } : rest; };
+const withGroups = (x: any) => {
+  const { group: _g, scheduledTime, ...rest } = x, groups = groupsFrom(x);
+  const time = typeof scheduledTime === 'number' && Number.isFinite(scheduledTime) && scheduledTime >= 0 && scheduledTime <= 1439 && x.dueDate != null ? { scheduledTime: Math.round(scheduledTime) } : {};   // a planned time only makes sense with a due date
+  return { ...rest, ...time, ...(groups.length ? { groups } : {}) };
+};
 export const STORAGE_KEY = 'scrypture:state';
 
 /** Minimal key/value interface (localStorage-compatible) so tests can inject a fake. */

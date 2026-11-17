@@ -13,6 +13,8 @@ export interface NewTask {
   coreAttributes?: Category[];
   /** ids of its custom categories */
   groups?: string[];
+  /** time of day on its due date (minutes after midnight) */
+  scheduledTime?: number;
   /** id of the Start Here suggestion it came from */
   origin?: string;
 }
@@ -59,7 +61,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
         priority: input.priority, difficulty: input.difficulty, completed: false,
         experienceReward: calculateXP(input.priority, input.difficulty),
         statRewards: statRewards(input.coreAttributes ?? [], input.category),
-        dueDate: input.dueDate, tags: input.tags ?? [], groups: input.groups?.length ? input.groups : undefined, estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
+        dueDate: input.dueDate, tags: input.tags ?? [], groups: input.groups?.length ? input.groups : undefined, scheduledTime: input.scheduledTime, estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
       };
       set({ ...state, tasks: [task, ...state.tasks] });
       return task;
@@ -410,10 +412,10 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, planner: { ...state.planner, shortlist: placeInList(list, taskId, index) } });
     },
     /** Drop a shortlist to-do on a day of the calendar: it gets that date and leaves the shortlist. */
-    shortlistToDay(taskId: string, day: number) {
+    shortlistToDay(taskId: string, day: number, time?: number) {
       const now = clock();
       set({ ...state,
-        tasks: state.tasks.map(t => (t.id === taskId && !t.completed ? { ...t, dueDate: day, updatedAt: now } : t)),
+        tasks: state.tasks.map(t => (t.id === taskId && !t.completed ? { ...t, dueDate: day, scheduledTime: time, updatedAt: now } : t)),
         planner: { ...state.planner, shortlist: pruneShortlist(state.planner.shortlist, state.tasks, now).filter(x => x !== taskId) } });
     },
     shortlistRemove(taskId: string) {

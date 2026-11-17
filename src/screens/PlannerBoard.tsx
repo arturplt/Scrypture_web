@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import {
-  DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, resizeEvent, resizeHabit, slotDone, slotTime, startOfDay,
+  DEFAULT_EVENT_MINUTES, DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, snapMinutes, resizeEvent, resizeHabit, slotDone, slotTime, startOfDay,
   type Frequency, type Habit, type HabitSlot, type PlanEvent, type PlannerSave, type Span, type Task,
 } from '../domain';
 import { actions, useAppState, useUndo } from '../data/hooks';
@@ -31,6 +31,15 @@ export function dayAtPoint(x: number, y: number): number | null {
     if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return Number(el.dataset.plday);
   }
   return null;
+}
+/** Where a point of the screen is on the board: the day, and the time of day when it is over an hour grid (undefined over a top lane). */
+export function slotAtPoint(x: number, y: number): { day: number; time: number | undefined } | null {
+  for (const el of document.querySelectorAll<HTMLElement>('.pl-grid-col[data-plday]')) {
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return { day: Number(el.dataset.plday), time: Number(el.dataset.from) * 60 + ((y - r.top) / r.height) * Number(el.dataset.hours) * 60 };
+  }
+  const day = dayAtPoint(x, y);
+  return day == null ? null : { day, time: undefined };
 }
 /** The click that ends a drag must not open what was dragged. */
 export function swallowClick() {
@@ -162,7 +171,7 @@ type Ask = { what: 'event'; id: string; title: string; day: number; time: number
   | { what: 'habittime'; id: string; title: string; ruleDay: number; day: number; time: number | undefined };
 
 /** A block on a day's hour grid: an activity with a time, or a turn of a planned habit that has one. */
-interface Block { key: string; time: number; length: number; event?: PlanEvent; slot?: HabitSlot }
+interface Block { key: string; time: number; length: number; event?: PlanEvent; slot?: HabitSlot; task?: Task }
 
 interface Drag {
   kind: 'task' | 'event' | 'habit' | 'newhabit' | 'resize' | 'hresize'; id: string;
@@ -198,7 +207,9 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const [hidden, setHidden] = useState<Frequency[]>(() => { try { const v = JSON.parse(localStorage.getItem('scrypture:plhidefreq') ?? '[]'); return Array.isArray(v) ? v.filter((f): f is Frequency => ['DAILY', 'WEEKLY', 'MONTHLY'].includes(f)) : []; } catch { return []; } });
   const toggleFreq = (f: Frequency) => setHidden(h => { const next = h.includes(f) ? h.filter(x => x !== f) : [...h, f]; try { localStorage.setItem('scrypture:plhidefreq', JSON.stringify(next)); } catch { /* private mode */ } return next; });
   const slots = new Map(days.map(d => [d, habitsOn(habits.filter(h => !hidden.includes(h.frequency)), d)]));   // the planned habits of each shown day
-  const habitSpans = [...slots.values()].flat().filter(s => slotTime(s) != null).map(s => [slotTime(s)!, slotTime(s)! + eventLength(s.habit.plan!)] as [number, number]);
+  const timedTasks = (d: number) => tasks.filter(x => x.scheduledTime != null && x.dueDate != null && startOfDay(x.dueDate) === d);   // tasks planned for a time of their day
+  const taskSpan = (x: Task): [number, number] => [x.scheduledTime!, x.scheduledTime! + (x.estimatedDuration ?? DEFAULT_EVENT_MINUTES)];
+  const habitSpans = [...days.flatMap(d => timedTasks(d).map(taskSpan)), ...[...slots.values()].flat().filter(s => slotTime(s) != null).map(s => [slotTime(s)!, slotTime(s)! + eventLength(s.habit.plan!)] as [number, number])];
   const [from, to] = allHours ? [0, 24] : boardHours(planner.events, days, days.includes(today) ? nowMin : undefined, habitSpans);
   const [open, setOpen] = useState<string | null>(null);        // the activity whose card is opened
   const [leaving, setLeaving] = useState<string | null>(null);  // the card whose completion effect is playing
@@ -289,7 +300,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
       if (kind === 'resize') actions.resizeEvent(id, d.minutes);
       else if (kind === 'hresize' && plan) actions.setHabitPlan(id, resizeHabit(plan, d.minutes));
       else if (!d.over) return;
-      else if (kind === 'task') actions.updateTask(id, { dueDate: d.over.day });
+      else if (kind === 'task') actions.updateTask(id, { dueDate: d.over.day, scheduledTime: d.over.time === undefined ? undefined : Math.max(0, Math.min(1425, snapMinutes(d.over.time))) });   // on the hour grid it gets a time of day too
       else if (kind === 'event' && event) {
         // one of a repeated series dragged to another day: ask which ones move (a new time alone moves just this one)
         if (event.series && d.over.day !== event.day) setAsk({ what: 'event', id, title: event.title, day: d.over.day, time: d.over.time });
@@ -385,7 +396,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
                   </div>
                 ))}
                 {plan.late.map(taskItem)}
-                {plan.tasks.map(taskItem)}
+                {plan.tasks.filter(x => x.scheduledTime == null).map(taskItem)}
                 {plan.habits.some(h => !h.plan && !hidden.includes(h.frequency)) && (
                   <div className="pl-group">
                     <button type="button" className="pl-group-head" aria-expanded={habitsOpen} onClick={toggleHabits}>
@@ -405,7 +416,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
             {Array.from({ length: to - from }, (_, i) => <span key={i} className="pl-hour" style={{ top: `calc(${i} * var(--hh))` }}>{String(from + i).padStart(2, '0')}</span>)}
           </div>
           {days.map(d => (
-            <div key={d} data-plday={d} className={`pl-grid-col ${d === today ? 'today' : ''} ${dropDay === d || (drag?.active && drag.over?.day === d && drag.over.time !== undefined) ? 'drop' : ''}`}
+            <div key={d} data-plday={d} data-from={from} data-hours={to - from} className={`pl-grid-col ${d === today ? 'today' : ''} ${dropDay === d || (drag?.active && drag.over?.day === d && drag.over.time !== undefined) ? 'drop' : ''}`}
               ref={el => { if (el) grids.current.set(d, el); else grids.current.delete(d); }}
               aria-label={t('plAddHere', { date: fmtDay(d, { day: 'numeric', month: 'long' }) })}
               onDoubleClick={ev => {
@@ -417,6 +428,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
               {layoutBlocks<Block>([
                 ...planner.events.filter(e => e.day === d && e.time != null).map((e): Block => ({ key: e.id, time: e.time!, length: eventLength(e), event: e })),
                 ...slots.get(d)!.filter(s => slotTime(s) != null).map((s): Block => ({ key: slotKey(s), time: slotTime(s)!, length: eventLength(s.habit.plan!), slot: s })),
+                ...timedTasks(d).map((x): Block => ({ key: x.id, time: x.scheduledTime!, length: x.estimatedDuration ?? DEFAULT_EVENT_MINUTES, task: x })),
               ], b => [b.time, b.time + b.length]).map(({ item: b, lane }) => {
                 const sizing = !!drag?.active && (drag.kind === 'resize' || drag.kind === 'hresize') && drag.id === b.key, minutes = sizing ? drag!.minutes : b.length;
                 const shift = Math.min(54, lane * 18);   // overlapping blocks cascade: each one starts a step to the right and runs to the edge, so even in a narrow column its title stays readable
@@ -424,15 +436,17 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
                   top: `calc(${(b.time - from * 60) / 60} * var(--hh))`, height: `calc(${minutes / 60} * var(--hh))`,
                   left: `${shift}%`, width: `${100 - shift}%`, zIndex: lane || undefined, ...moveStyle(b.key),
                 };
-                const title = b.event?.title ?? b.slot!.habit.title;
+                const title = b.event?.title ?? b.task?.title ?? b.slot!.habit.title;
                 let card: ReactNode;
-                if (b.event) { const e = b.event; card = eventCard(e, sizing ? whenOf(e, minutes) : landing(e)); } else card = habitCard(b.slot!, minutes);
+                if (b.event) { const e = b.event; card = eventCard(e, sizing ? whenOf(e, minutes) : landing(e)); }
+                else if (b.task) { const x = b.task; card = <TaskCard task={x} now={now} compact stay leaving={leaving === x.id} expanded={open === b.key} onToggle={() => setOpen(open === b.key ? null : b.key)} onEdit={() => onEditTask(x)} onComplete={() => tick(x.id, () => actions.completeTask(x.id))} />; }
+                else card = habitCard(b.slot!, minutes);
                 return (
-                  <div key={b.key} className={`pl-item timed can-drag ${open === b.key ? 'open' : ''} ${dragging(b.key) ? 'dragging' : ''} ${sizing ? 'sizing' : ''}`} style={style}
-                    onPointerDown={ev => (b.event ? press(ev, 'event', b.event.id) : press(ev, 'habit', b.slot!.habit.id, b.slot))}>
+                  <div key={b.key} className={`pl-item timed ${b.task?.completed ? '' : 'can-drag'} ${open === b.key ? 'open' : ''} ${dragging(b.key) ? 'dragging' : ''} ${sizing ? 'sizing' : ''}`} style={style}
+                    onPointerDown={ev => (b.event ? press(ev, 'event', b.event.id) : b.task ? (b.task.completed ? undefined : press(ev, 'task', b.task.id)) : press(ev, 'habit', b.slot!.habit.id, b.slot))}>
                     {grip(title)}{card}
-                    <span className="pl-size" role="img" aria-label={t('plResize', { title })} title={t('plResize', { title })}
-                      onPointerDown={ev => (b.event ? press(ev, 'resize', b.event.id) : press(ev, 'hresize', b.slot!.habit.id, b.slot))} />
+                    {!b.task && <span className="pl-size" role="img" aria-label={t('plResize', { title })} title={t('plResize', { title })}
+                      onPointerDown={ev => (b.event ? press(ev, 'resize', b.event.id) : press(ev, 'hresize', b.slot!.habit.id, b.slot))} />}
                   </div>
                 );
               })}
