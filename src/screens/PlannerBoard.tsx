@@ -142,7 +142,7 @@ type Ask = { what: 'event'; id: string; title: string; day: number; time: number
 interface Block { key: string; time: number; length: number; event?: PlanEvent; slot?: HabitSlot }
 
 interface Drag {
-  kind: 'task' | 'event' | 'habit' | 'resize' | 'hresize'; id: string;
+  kind: 'task' | 'event' | 'habit' | 'newhabit' | 'resize' | 'hresize'; id: string;
   dx: number; dy: number; active: boolean;
   /** move: where it would land (time undefined = the day's top lane) */
   over: { day: number; time: number | undefined } | null;
@@ -244,6 +244,9 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
         // one of a repeated series dragged to another day: ask which ones move (a new time alone moves just this one)
         if (event.series && d.over.day !== event.day) setAsk({ what: 'event', id, title: event.title, day: d.over.day, time: d.over.time });
         else actions.moveEvent(id, d.over.day, d.over.time);
+      } else if (kind === 'newhabit') {
+        // a habit that is not on the calendar yet, dropped on a day (and a time): it starts repeating from there
+        actions.setHabitPlan(id, placeHabit({ start: startOfDay(d.over.day) }, d.over.time));
       } else if (kind === 'habit' && slot && plan) {
         // a daily habit is on every day already; the others ask whether only this turn moves or all the future ones
         if (d.over.day !== slot.day && slot.habit.frequency !== 'DAILY') setAsk({ what: 'habit', id, title: slot.habit.title, ruleDay: slot.ruleDay, day: d.over.day, time: d.over.time });
@@ -334,7 +337,8 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
                 {plan.late.map(taskItem)}
                 {plan.tasks.map(taskItem)}
                 {plan.habits.filter(h => !h.plan).map(h => (
-                  <div key={h.id} className="pl-row pl-habit">
+                  <div key={h.id} className={`pl-row pl-habit can-drag ${dragging(h.id) ? 'dragging' : ''}`} style={moveStyle(h.id)} onPointerDown={ev => press(ev, 'newhabit', h.id)}>
+                    {grip(h.title)}
                     <PixelCheckbox checked={false} ariaLabel={t('plMarkDone', { title: h.title })} onChange={() => actions.completeHabit(h.id)} label="" />
                     <button type="button" className="pl-title" onClick={() => navigate(`/habits/${h.id}`)}>{h.title}</button>
                   </div>

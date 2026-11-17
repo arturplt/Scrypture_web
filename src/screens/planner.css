@@ -76,7 +76,7 @@
 /* a card on the board: its handle on the left, then the card */
 .pl-item { position: relative; display: flex; min-width: 0; user-select: none; -webkit-user-select: none; }
 .pl-item > .task { flex: 1; min-width: 0; }
-.pl-item.timed { position: absolute; box-sizing: border-box; padding: 0 calc(1 * var(--u)) calc(1 * var(--u)) 0; min-height: calc(26 * var(--u)); }
+.pl-item.timed { position: absolute; box-sizing: border-box; padding: 0 calc(1 * var(--u)) calc(1 * var(--u)) 0; min-height: calc(32 * var(--u)); }
 .pl-item.timed > .task { overflow: hidden; align-content: start; }
 .pl-item.timed > .task.fx-hop { overflow: visible; }
 .pl-item.timed.open { height: auto !important; z-index: 8 !important; }
@@ -94,7 +94,10 @@
 .pl-item.timed.open .pl-size { display: none; }
 
 /* the small card: thin border, small tick and title; a task's chips show once it is opened */
-.pl-board .task { --bw: 8; gap: calc(4 * var(--u)); }
+/* cards on the board: the frame is a backdrop drawn at full size (never below 1x, so a card is at least two corners tall) and the text sits over it with 2 units of padding */
+.pl-board .task { gap: calc(4 * var(--u)); border: 0; border-image: none; padding: calc(2 * var(--u)); min-height: calc(32 * var(--u)); align-content: center; }
+.pl-board .task::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; image-rendering: pixelated; border: solid transparent; border-width: calc(16 * var(--u)); border-image: var(--frame) 16 fill / calc(16 * var(--u)) / 0 var(--edge, stretch); }
+.pl-board .task.is-open { padding: calc(6 * var(--u)) calc(8 * var(--u)); }
 .pl-board .task-head { gap: calc(4 * var(--u)); align-items: center; }
 .pl-board .task-head .pcheck { display: flex; }
 .pl-board .task-title { font-size: var(--fs-xs); line-height: 1.5; padding: calc(2 * var(--u)) 0; }
@@ -131,3 +134,7 @@
 /* where a dragged shortlist to-do will land */
 .pl-short.drop-before { box-shadow: 0 calc(-3 * var(--u)) 0 var(--gold); }
 .pl-short.drop-after { box-shadow: 0 calc(3 * var(--u)) 0 var(--gold); }
+
+/* a habit that is not on the calendar yet can be dragged onto it */
+@media (pointer: fine) { .pl-habit.can-drag, .pl-habit.can-drag .pl-title { cursor: grab; } }
+.pl-habit.dragging { position: relative; z-index: 30; pointer-events: none; opacity: .92; filter: drop-shadow(0 calc(4 * var(--u)) 0 #0008); }
