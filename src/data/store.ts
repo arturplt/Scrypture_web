@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  MAX_CATEGORIES, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -11,12 +11,12 @@ export interface NewTask {
   description?: string; dueDate?: number; tags?: string[]; estimatedDuration?: number;
   /** extra core attributes the task trains (each +1 stat), besides its category */
   coreAttributes?: Category[];
-  /** id of its custom category */
-  group?: string;
+  /** ids of its custom categories */
+  groups?: string[];
   /** id of the Start Here suggestion it came from */
   origin?: string;
 }
-export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** id of its custom category */ group?: string }
+export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** ids of its custom categories */ groups?: string[] }
 
 export function createStore(kv: KV | null = browserKV(), clock: () => number = Date.now, genId: () => string = newId) {
   let state: AppState = loadState(kv, clock());
@@ -59,7 +59,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
         priority: input.priority, difficulty: input.difficulty, completed: false,
         experienceReward: calculateXP(input.priority, input.difficulty),
         statRewards: statRewards(input.coreAttributes ?? [], input.category),
-        dueDate: input.dueDate, tags: input.tags ?? [], group: input.group, estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
+        dueDate: input.dueDate, tags: input.tags ?? [], groups: input.groups?.length ? input.groups : undefined, estimatedDuration: input.estimatedDuration, completionCount: 0, origin: input.origin, createdAt: now, updatedAt: now,
       };
       set({ ...state, tasks: [task, ...state.tasks] });
       return task;
@@ -103,8 +103,8 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     /** Delete a category; its tasks and habits stay, just without one. */
     deleteCategory(id: string) {
       const now = clock();
-      set({ ...state, categories: state.categories.filter(c => c.id !== id), tasks: state.tasks.map(t => (t.group === id ? { ...t, group: undefined, updatedAt: now } : t)),
-        habits: state.habits.map(h => (h.group === id ? { ...h, group: undefined, updatedAt: now } : h)) });
+      set({ ...state, categories: state.categories.filter(c => c.id !== id), tasks: state.tasks.map(t => (t.groups?.includes(id) ? { ...t, groups: withoutGroup(t.groups, id), updatedAt: now } : t)),
+        habits: state.habits.map(h => (h.groups?.includes(id) ? { ...h, groups: withoutGroup(h.groups, id), updatedAt: now } : h)) });
     },
     deleteTask(id: string) { set({ ...state, tasks: state.tasks.filter(t => t.id !== id) }); },
     /** Complete a task: pays XP + stats, bumps counters, checks achievements, offers undo. No-op if it is already done. */
@@ -141,7 +141,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     // ---- habits
     addHabit(input: NewHabit): Habit {
       const now = clock();
-      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, group: input.group, createdAt: now, updatedAt: now };
+      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, groups: input.groups?.length ? input.groups : undefined, createdAt: now, updatedAt: now };
       set({ ...state, habits: [habit, ...state.habits] });
       return habit;
     },

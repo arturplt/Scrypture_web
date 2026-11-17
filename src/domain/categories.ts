@@ -39,5 +39,16 @@ export const categoryNameFree = (list: readonly CustomCategory[], name: string, 
   !!cleanCategoryName(name) && !list.some(c => c.id !== except && c.name.toLowerCase() === cleanCategoryName(name).toLowerCase());
 
 /** How many tasks and habits each category holds, in list order. */
-export const categoryCounts = (list: readonly CustomCategory[], tasks: readonly Pick<Task, 'group'>[], habits: readonly Pick<Habit, 'group'>[] = []) =>
-  list.map(c => ({ ...c, count: tasks.filter(t => t.group === c.id).length + habits.filter(h => h.group === c.id).length }));
+export const categoryCounts = (list: readonly CustomCategory[], tasks: readonly Pick<Task, 'groups'>[], habits: readonly Pick<Habit, 'groups'>[] = []) =>
+  list.map(c => ({ ...c, count: tasks.filter(t => t.groups?.includes(c.id)).length + habits.filter(h => h.groups?.includes(c.id)).length }));
+
+/** The ids of a saved item's categories: the list, or the single `group` older saves kept; repeats dropped. Empty = none. */
+export const groupsFrom = (raw: { groups?: unknown; group?: unknown }): string[] => {
+  const list = Array.isArray(raw.groups) ? raw.groups : typeof raw.group === 'string' ? [raw.group] : [];
+  return [...new Set(list.filter((g): g is string => typeof g === 'string'))].slice(0, MAX_CATEGORIES);
+};
+/** Drop one category from a list of ids (undefined when nothing is left, so the field is not saved). */
+export const withoutGroup = (groups: readonly string[] | undefined, id: string): string[] | undefined => {
+  const next = (groups ?? []).filter(g => g !== id);
+  return next.length ? next : undefined;
+};

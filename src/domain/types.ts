@@ -20,8 +20,8 @@ export interface Task {
   statRewards: StatRewards;
   dueDate?: number; // epoch ms
   tags: string[];
-  /** id of the custom category it belongs to (see categories.ts) */
-  group?: string;
+  /** ids of the custom categories it belongs to (see categories.ts) */
+  groups?: string[];
   estimatedDuration?: number; // minutes
   /** How many times it has been completed (a task can be unticked and completed again). */
   completionCount?: number;
@@ -44,8 +44,8 @@ export interface Habit {
   lastCompleted: number | null; // epoch ms
   description?: string;
   origin?: string;
-  /** id of the custom category it belongs to (see categories.ts) */
-  group?: string;
+  /** ids of the custom categories it belongs to (see categories.ts) */
+  groups?: string[];
   /** where it sits on the planner (unset = not planned): see habitplan.ts */
   plan?: import('./habitplan').HabitPlan;
   /** the days it was completed on (local midnights), oldest first */

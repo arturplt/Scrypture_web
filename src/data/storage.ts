@@ -1,6 +1,8 @@
 import { CURRENT_VERSION, defaultState, type AppState } from './state';
-import { sanitizeCategories, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
+import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
+/** Older saves kept one `group` per task or habit; now it is a list `groups` (left out when empty). */
+const withGroups = (x: any) => { const { group: _g, ...rest } = x; const groups = groupsFrom(x); return groups.length ? { ...rest, groups } : rest; };
 export const STORAGE_KEY = 'scrypture:state';
 
 /** Minimal key/value interface (localStorage-compatible) so tests can inject a fake. */
@@ -61,8 +63,8 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     exercise: sanitizeExerciseSave(s.exercise),
     planner: sanitizePlanner(s.planner),
     worlds: sanitizeWorlds(s.worlds),
-    tasks: (s.tasks ?? []).map((t: any) => (t && typeof t === 'object' ? { ...t, completionCount: t.completionCount ?? (t.completed ? 1 : 0), lastCompletedAt: t.lastCompletedAt ?? (t.completed ? t.updatedAt : undefined) } : t)),
-    habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, ...rest } = h; return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: s.chat ?? [], achievements,
+    tasks: (s.tasks ?? []).map((t: any) => (t && typeof t === 'object' ? { ...withGroups(t), completionCount: t.completionCount ?? (t.completed ? 1 : 0), lastCompletedAt: t.lastCompletedAt ?? (t.completed ? t.updatedAt : undefined) } : t)),
+    habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, ...rest } = withGroups(h); return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: s.chat ?? [], achievements,
     version: CURRENT_VERSION,
   };
 }

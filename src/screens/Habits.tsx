@@ -29,7 +29,8 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
   useEffect(() => { if (!burst) return; const id = setTimeout(() => setBurst(false), 1600); return () => clearTimeout(id); }, [burst]);
   // while the burst plays the card keeps its live colours; it turns into the stone "done" card once the effect has finished
   const shownDone = done && !burst;
-  const group = useAppState(st => (habit.group ? st.categories.find(c => c.id === habit.group) : undefined));   // shown as a chip in its own frame; the card itself follows the theme manager
+  const allCats = useAppState(st => st.categories);
+  const groups = allCats.filter(c => habit.groups?.includes(c.id));   // shown as a chip in its own frame; the card itself follows the theme manager
   const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.habit, 'app');
   const mainFrame = useAppState(st => st.settings.frameTheme);
   const cat = shownDone || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
@@ -64,7 +65,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
         <Chip>{t(habit.frequency.toLowerCase() as 'daily' | 'weekly' | 'monthly').toUpperCase()}</Chip>
         <Chip color={streak > 0 ? 'var(--success)' : 'var(--bg-3)'}>{t('streak').toUpperCase()} {streak}</Chip>
         <Chip color="var(--bg-3)">{t('best').toUpperCase()} {habit.bestStreak}</Chip>
-        {group && <CategoryChip category={group} />}
+        {groups.map(g => <CategoryChip key={g.id} category={g} />)}
       </div>
     </PixelFrame>
   );
@@ -114,7 +115,7 @@ export function Habits() {
       )}
       {/* Daily, weekly and monthly habits are kept apart; the chosen sort applies inside each group */}
       {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(f => {
-        const group = sortHabits(habits.filter(h => h.frequency === f && (!activeGroup || h.group === activeGroup)), sort, now);
+        const group = sortHabits(habits.filter(h => h.frequency === f && (!activeGroup || !!h.groups?.includes(activeGroup))), sort, now);
         if (!group.length) return null;
         return (
           <section key={f} className="list" aria-label={t(f.toLowerCase() as 'daily' | 'weekly' | 'monthly')}>

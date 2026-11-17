@@ -682,17 +682,28 @@ describe('custom categories', () => {
     expect(s.getState().categories).toEqual([{ id, name: 'Career', frame: 'gold' }, { id: other, name: 'Home', frame: 'blue_ornate' }]);
     expect(s.actions.updateCategory(other, { name: 'Career' })).toBe(false);
     expect(s.actions.updateCategory(other, { name: 'House', frame: 'red' })).toBe(true);
-    const task = s.actions.addTask({ title: 'CV', category: 'MIND', priority: 'LOW', difficulty: 1, group: id });
-    expect(s.getState().tasks[0].group).toBe(id);
-    s.actions.updateTask(task.id, { group: other });
-    expect(s.getState().tasks[0].group).toBe(other);
+    const task = s.actions.addTask({ title: 'CV', category: 'MIND', priority: 'LOW', difficulty: 1, groups: [id] });
+    expect(s.getState().tasks[0].groups).toEqual([id]);
+    s.actions.updateTask(task.id, { groups: [id, other] });
+    expect(s.getState().tasks[0].groups).toEqual([id, other]);   // several at once
     // it survives a reload
     const again = createStore(kv, () => t.now);
     expect(again.getState().categories.map(c => c.name)).toEqual(['Career', 'House']);
     s.actions.deleteCategory(other);
     expect(s.getState().categories).toHaveLength(1);
     expect(s.getState().tasks).toHaveLength(1);
-    expect(s.getState().tasks[0].group).toBeUndefined();
+    expect(s.getState().tasks[0].groups).toEqual([id]);          // only the deleted one goes
+    s.actions.deleteCategory(id);
+    expect(s.getState().tasks[0].groups).toBeUndefined();
+  });
+  it('old saves with one `group` become a list', () => {
+    const { kv, t } = make();
+    kv.setItem('scrypture:state', JSON.stringify({ version: 1, categories: [{ id: 'k', name: 'Home', frame: 'gold' }],
+      tasks: [{ id: 't1', title: 'x', category: 'MIND', priority: 'LOW', difficulty: 0, completed: false, experienceReward: 1, statRewards: { body: 0, mind: 1, soul: 0 }, tags: [], group: 'k', createdAt: 0, updatedAt: 0 }],
+      habits: [{ id: 'h1', title: 'y', category: 'BODY', frequency: 'DAILY', streak: 0, bestStreak: 0, lastCompleted: null, group: 'k', createdAt: 0, updatedAt: 0 }] }));
+    const st = createStore(kv, () => t.now).getState();
+    expect(st.tasks[0].groups).toEqual(['k']); expect('group' in st.tasks[0]).toBe(false);
+    expect(st.habits[0].groups).toEqual(['k']);
   });
   it('holds at most 12', () => {
     const { s } = make();
@@ -705,13 +716,13 @@ describe('custom categories on habits', () => {
   it('a habit can belong to a category; deleting the category frees it and counts both', () => {
     const { s } = make();
     const id = s.actions.addCategory('Health', 'green')!;
-    const h = s.actions.addHabit({ title: 'Walk', category: 'BODY', frequency: 'DAILY', group: id });
-    expect(s.getState().habits[0].group).toBe(id);
-    s.actions.updateHabit(h.id, { group: undefined });
-    expect(s.getState().habits[0].group).toBeUndefined();
-    s.actions.updateHabit(h.id, { group: id });
+    const h = s.actions.addHabit({ title: 'Walk', category: 'BODY', frequency: 'DAILY', groups: [id] });
+    expect(s.getState().habits[0].groups).toEqual([id]);
+    s.actions.updateHabit(h.id, { groups: undefined });
+    expect(s.getState().habits[0].groups).toBeUndefined();
+    s.actions.updateHabit(h.id, { groups: [id] });
     s.actions.deleteCategory(id);
     expect(s.getState().habits).toHaveLength(1);
-    expect(s.getState().habits[0].group).toBeUndefined();
+    expect(s.getState().habits[0].groups).toBeUndefined();
   });
 });

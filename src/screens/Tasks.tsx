@@ -34,7 +34,8 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
   const open = !task.completed;
   const [expanded, setExpanded] = useState(false);   // clicking the title shows the description
   const moreId = useId();
-  const group = useAppState(st => (task.group ? st.categories.find(c => c.id === task.group) : undefined));   // shown as a chip in its own frame; the card itself follows the theme manager
+  const cats = useAppState(st => st.categories);
+  const groups = cats.filter(c => task.groups?.includes(c.id));   // shown as a chip in its own frame; the card itself follows the theme manager
   const theme = task.completed ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.task, 'app');
   const urgency = open && !leaving ? urgencyOf(task, now) : 'none';
   // One rule per thing: the card is the Body/Mind/Soul colour, one light overlay over the whole card (border and inside) shows
@@ -74,7 +75,7 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
         {task.estimatedDuration != null && <Chip>{task.estimatedDuration}m</Chip>}
         <Chip color="#b6a432">{task.experienceReward} XP</Chip>
         {(task.completionCount ?? 0) >= 2 && <Chip color="var(--info)">×{task.completionCount}</Chip>}
-        {group && <CategoryChip category={group} />}
+        {groups.map(g => <CategoryChip key={g.id} category={g} />)}
         {task.tags.map(t => <Chip key={t} color="var(--bg-3)">#{t}</Chip>)}
       </div>
     </PixelFrame>

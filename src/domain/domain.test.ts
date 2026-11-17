@@ -404,8 +404,8 @@ describe('custom categories', () => {
     expect(categoryNameFree(list, '  ')).toBe(false);
   });
   it('filters tasks by category', () => {
-    const mk = (id: string, group?: string) => ({ id, title: id, category: 'MIND', priority: 'LOW', difficulty: 0, completed: false, experienceReward: 1, statRewards: { body: 0, mind: 1, soul: 0 }, tags: [], group, createdAt: 0, updatedAt: 0 }) as never;
-    const { open } = viewTasks([mk('x', 'a'), mk('y'), mk('z', 'b')], { category: 'ALL', sort: 'none', showCompleted: false, group: 'a' });
-    expect(open.map(t => t.id)).toEqual(['x']);
+    const mk = (id: string, ...groups: string[]) => ({ id, title: id, category: 'MIND', priority: 'LOW', difficulty: 0, completed: false, experienceReward: 1, statRewards: { body: 0, mind: 1, soul: 0 }, tags: [], groups: groups.length ? groups : undefined, createdAt: 0, updatedAt: 0 }) as never;
+    const { open } = viewTasks([mk('x', 'a'), mk('y'), mk('z', 'b'), mk('w', 'b', 'a')], { category: 'ALL', sort: 'none', showCompleted: false, group: 'a' });
+    expect(open.map(t => t.id)).toEqual(['x', 'w']);   // a task in several categories shows under each
   });
 });

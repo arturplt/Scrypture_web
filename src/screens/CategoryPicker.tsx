@@ -6,7 +6,7 @@ import { useT } from '../i18n/useT';
 import './categories.css';
 
 /** The category row of the task and habit forms: pick one (or none) and make a new one on the spot, with a name and a frame. */
-export function CategoryPicker({ value, onChange }: { value: string | undefined; onChange: (id: string | undefined) => void }) {
+export function CategoryPicker({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
   const t = useT();
   const cats = useAppState(s => s.categories);
   const [adding, setAdding] = useState(false);
@@ -16,13 +16,12 @@ export function CategoryPicker({ value, onChange }: { value: string | undefined;
   const add = () => {
     if (!free) return;
     const id = actions.addCategory(name, frame);
-    if (id) { onChange(id); setAdding(false); setName(''); }
+    if (id) { onChange([...value, id]); setAdding(false); setName(''); }
   };
   return (
     <div className="field">{t('customCategory')}
       <div className="row wrap" role="group" aria-label={t('customCategory')}>
-        <button type="button" className={`seg ${!value ? 'on' : ''}`} aria-pressed={!value} onClick={() => onChange(undefined)}>{t('noCustomCategory')}</button>
-        {cats.map(c => <button type="button" key={c.id} className={`seg ${value === c.id ? 'on' : ''}`} aria-pressed={value === c.id} onClick={() => onChange(c.id)}>{c.name}</button>)}
+        {cats.map(c => { const on = value.includes(c.id); return <button type="button" key={c.id} className={`seg ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => onChange(on ? value.filter(g => g !== c.id) : [...value, c.id])}>{c.name}</button>; })}
         {!adding && cats.length < MAX_CATEGORIES && <button type="button" className="seg" onClick={() => setAdding(true)}>+ {t('addCategory')}</button>}
       </div>
       {adding && (

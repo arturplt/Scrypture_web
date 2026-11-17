@@ -28,7 +28,7 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
   const [minutes, setMinutes] = useState(task?.estimatedDuration?.toString() ?? '');
   const [tags, setTags] = useState(task?.tags.join(', ') ?? '');
   const cats = useAppState(s => s.categories);
-  const [group, setGroup] = useState<string | undefined>(task?.group);
+  const [group, setGroup] = useState<string[]>(task?.groups ?? []);
   // extra attributes the task also trains (each +1 stat); an existing task's are what its stat rewards hold beyond its own category
   const [extra, setExtra] = useState<Category[]>(() => (task ? CATS.filter(c => (task.statRewards[c.toLowerCase() as 'body' | 'mind' | 'soul'] ?? 0) - (c === task.category ? 1 : 0) > 0 && c !== task.category) : []));
   const extras = extra.filter(c => c !== category);
@@ -47,7 +47,7 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
       dueDate: fromInput(due),
       estimatedDuration: minutes ? Math.max(1, parseInt(minutes, 10) || 0) || undefined : undefined,
       tags: [...new Set(tags.split(',').map(cleanTag).filter(Boolean))],
-      group: group && cats.some(c => c.id === group) ? group : undefined,
+      groups: group.filter(g => cats.some(c => c.id === g)),
     };
     if (task) actions.updateTask(task.id, fields); else actions.addTask(fields);
     onClose();

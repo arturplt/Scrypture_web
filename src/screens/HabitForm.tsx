@@ -18,15 +18,15 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
   const [frequency, setFrequency] = useState<Frequency>(habit?.frequency ?? 'DAILY');
   const [description, setDescription] = useState(habit?.description ?? '');
   const cats = useAppState(s => s.categories);
-  const [group, setGroup] = useState<string | undefined>(habit?.group);
+  const [group, setGroup] = useState<string[]>(habit?.groups ?? []);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const valid = title.trim().length > 0;
 
   function save() {
     if (!valid) return;
-    const groupId = group && cats.some(c => c.id === group) ? group : undefined;
-    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined, group: groupId });
-    else actions.addHabit({ title, category, frequency, description, group: groupId });
+    const groupIds = group.filter(g => cats.some(c => c.id === g));
+    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined, groups: groupIds });
+    else actions.addHabit({ title, category, frequency, description, groups: groupIds });
     onClose();
   }
 
