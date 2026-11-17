@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  MAX_CATEGORIES, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -390,6 +390,18 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     shortlistMove(taskId: string, by: -1 | 1) {
       const list = pruneShortlist(state.planner.shortlist, state.tasks, clock());
       set({ ...state, planner: { ...state.planner, shortlist: moveInList(list, taskId, by) } });
+    },
+    /** Drag and drop: put a to-do at this place in the shortlist. */
+    shortlistPlace(taskId: string, index: number) {
+      const list = pruneShortlist(state.planner.shortlist, state.tasks, clock());
+      set({ ...state, planner: { ...state.planner, shortlist: placeInList(list, taskId, index) } });
+    },
+    /** Drop a shortlist to-do on a day of the calendar: it gets that date and leaves the shortlist. */
+    shortlistToDay(taskId: string, day: number) {
+      const now = clock();
+      set({ ...state,
+        tasks: state.tasks.map(t => (t.id === taskId && !t.completed ? { ...t, dueDate: day, updatedAt: now } : t)),
+        planner: { ...state.planner, shortlist: pruneShortlist(state.planner.shortlist, state.tasks, now).filter(x => x !== taskId) } });
     },
     shortlistRemove(taskId: string) {
       set({ ...state, planner: { ...state.planner, shortlist: pruneShortlist(state.planner.shortlist, state.tasks, clock()).filter(x => x !== taskId) } });

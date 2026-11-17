@@ -336,6 +336,14 @@ export function moveInList<T>(list: readonly T[], item: T, by: -1 | 1): T[] {
   return out;
 }
 
+/** Put `item` at position `index` among the others (0 = first, list length - 1 = last); an unknown item or the same place leaves the list as it was. */
+export function placeInList<T>(list: readonly T[], item: T, index: number): T[] {
+  const i = list.indexOf(item);
+  if (i < 0) return [...list];
+  const rest = list.filter((_, k) => k !== i), at = Math.max(0, Math.min(rest.length, Math.round(index)));
+  return [...rest.slice(0, at), item, ...rest.slice(at)];
+}
+
 // ---- Bóbr's nudge on Home ----------------------------------------------------------------------------------------
 
 export type Nudge = { kind: 'now'; title: string } | { kind: 'soon'; title: string; minutes: number } | { kind: 'late'; n: number };

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boardDays, boardHours, eventLength, layoutDay, placeEvent, resizeEvent, snapMinutes,
   MAX_EVENTS, SHORTLIST_MAX, addDays, chatGreeting, chatOptions, chatReply, cleanEvent, dayPlan, eventsOn, fmtClock, initialFlow, initialStats, minutesOfDay, monthGrid, monthMarks,
-  bobrNudge, nextSteps, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
+  bobrNudge, nextSteps, placeInList, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
   type ChatContext, type ChatFlow, type Habit, type PlanData, type PlanEvent, type Task,
 } from './index';
 import { makeT } from '../i18n';
@@ -230,5 +230,15 @@ describe('the board', () => {
   it('the chosen span is saved, a broken one dropped', () => {
     expect(sanitizePlanner({ events: [], shortlist: [], span: 7 }).span).toBe(7);
     expect(sanitizePlanner({ events: [], shortlist: [], span: 4 })).toEqual({ events: [], shortlist: [] });
+  });
+});
+
+describe('placing in a list', () => {
+  it('puts an item at an index among the others', () => {
+    expect(placeInList(['a', 'b', 'c', 'd'], 'a', 2)).toEqual(['b', 'c', 'a', 'd']);
+    expect(placeInList(['a', 'b', 'c', 'd'], 'd', 0)).toEqual(['d', 'a', 'b', 'c']);
+    expect(placeInList(['a', 'b', 'c'], 'b', 9)).toEqual(['a', 'c', 'b']);
+    expect(placeInList(['a', 'b', 'c'], 'b', -3)).toEqual(['b', 'a', 'c']);
+    expect(placeInList(['a', 'b'], 'x', 0)).toEqual(['a', 'b']);
   });
 });

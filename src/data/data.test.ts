@@ -726,3 +726,17 @@ describe('custom categories on habits', () => {
     expect(s.getState().habits[0].groups).toBeUndefined();
   });
 });
+
+describe('shortlist drag and drop', () => {
+  it('places a to-do, and dropping on a day dates it and takes it off the list', () => {
+    const { s } = make();
+    const mk = (title: string) => s.actions.addTask({ title, category: 'MIND', priority: 'LOW', difficulty: 0 });
+    const [a, b, c] = [mk('a'), mk('b'), mk('c')];
+    for (const t of [a, b, c]) s.actions.shortlistAdd(t.id);
+    s.actions.shortlistPlace(c.id, 0);
+    expect(s.getState().planner.shortlist).toEqual([c.id, a.id, b.id]);
+    s.actions.shortlistToDay(a.id, day(5));
+    expect(s.getState().planner.shortlist).toEqual([c.id, b.id]);
+    expect(s.getState().tasks.find(t => t.id === a.id)!.dueDate).toBe(day(5));
+  });
+});

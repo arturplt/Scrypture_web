@@ -127,3 +127,7 @@
 .pl-done-date { font-size: var(--fs-xs); color: var(--gold); text-transform: capitalize; }
 .pl-done-date:focus-visible, .pl-done-habit:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(1 * var(--u)); }
 :root[data-layout='medium'] .planner .pl-cols, :root[data-layout='wide'] .planner .pl-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* where a dragged shortlist to-do will land */
+.pl-short.drop-before { box-shadow: 0 calc(-3 * var(--u)) 0 var(--gold); }
+.pl-short.drop-after { box-shadow: 0 calc(3 * var(--u)) 0 var(--gold); }

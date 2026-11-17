@@ -54,7 +54,7 @@ export function Planner() {
   const [picking, setPicking] = useState(false);
   const [habitDay, setHabitDay] = useState<number | null>(null);   // choosing a habit to put on this day
   const [habitForm, setHabitForm] = useState<Habit | 'new' | null>(null);
-  const [carry, setCarry] = useState<{ id: string; dx: number; dy: number; day: number | null } | null>(null);   // a shortlist to-do being dragged onto the board
+  const [carry, setCarry] = useState<{ id: string; dx: number; dy: number; day: number | null; /** where in the shortlist it would land */ slot: number | null } | null>(null);   // a shortlist to-do being dragged onto the board
   const [ticking, setTicking] = useState<string | null>(null);   // the shortlist to-do whose completion effect is playing
   const [todo, setTodo] = useState('');
   const [todoCat, setTodoCat] = useState<Category>('MIND');
@@ -87,7 +87,7 @@ export function Planner() {
     if (!target.closest('.pl-grip') && (ev.pointerType !== 'mouse' || target.closest('input, label, .pl-ib'))) return;
     const x0 = ev.clientX, y0 = ev.clientY, scroller = scrollerOf(ev.currentTarget), top0 = scroller.top();
     let px = x0, py = y0, active = false, raf = 0;
-    const show = () => setCarry({ id: x.id, dx: px - x0, dy: py - y0 + scroller.top() - top0, day: dayAtPoint(px, py) });
+    const show = () => setCarry({ id: x.id, dx: px - x0, dy: py - y0 + scroller.top() - top0, day: dayAtPoint(px, py), slot: slotAtPoint(px, py, x.id) });
     const loop = () => {
       const dir = py < 70 ? -1 : py > window.innerHeight - 70 ? 1 : 0;
       if (dir) { scroller.by(dir * 12); show(); }
@@ -106,14 +106,31 @@ export function Planner() {
       if (!active || e.type !== 'pointerup') return;
       swallowClick();
       const to = dayAtPoint(px, py);
-      if (to != null) actions.updateTask(x.id, { dueDate: to });
+      if (to != null) { actions.shortlistToDay(x.id, to); return; }   // moved onto the calendar: dated, and no longer on the shortlist
+      const slot = slotAtPoint(px, py, x.id);
+      if (slot != null) actions.shortlistPlace(x.id, slot);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
   }
 
+  /** Where a dragged to-do would land in the shortlist when the pointer is over it: its place among the other lines, else null. */
+  function slotAtPoint(px: number, py: number, id: string): number | null {
+    const box = document.querySelector('.pl-shortlist')?.getBoundingClientRect();
+    if (!box || px < box.left || px > box.right || py < box.top - 24 || py > box.bottom + 24) return null;
+    const rows = [...document.querySelectorAll<HTMLElement>('.pl-shortlist .pl-short')].filter(r => r.dataset.task !== id);
+    return rows.filter(r => { const b = r.getBoundingClientRect(); return b.top + b.height / 2 < py; }).length;
+  }
+
+  /** The line a dragged to-do would land before (or after, for the last place) gets a bar. */
+  const dropMark = (id: string) => {
+    if (!carry || carry.slot == null || carry.id === id) return '';
+    const others = short.filter(s => s.id !== carry.id), i = others.findIndex(s => s.id === id);
+    return i === carry.slot ? 'drop-before' : i === others.length - 1 && carry.slot >= others.length ? 'drop-after' : '';
+  };
+
   /** One line of the shortlist: handle, tick box, title (opens the task), what it is worth, and the button that takes it off. */
   const taskRow = (x: Task) => (
-    <div key={x.id} className={`pl-row pl-short ${x.completed ? 'done' : 'can-drag'} ${carry?.id === x.id ? 'dragging' : ''}`} onPointerDown={ev => grab(ev, x)}
+    <div key={x.id} data-task={x.id} className={`pl-row pl-short ${x.completed ? 'done' : 'can-drag'} ${carry?.id === x.id ? 'dragging' : ''} ${dropMark(x.id)}`} onPointerDown={ev => grab(ev, x)}
       style={{ ...(carry?.id === x.id ? { transform: `translate(${Math.round(carry.dx)}px, ${Math.round(carry.dy)}px)` } : {}), ...(ticking === x.id ? fxVars('task', x.experienceReward) : {}) } as CSSProperties}>
       {!x.completed && <span className="pl-grip" role="img" aria-label={t('plMove', { title: x.title })} title={t('plMove', { title: x.title })} />}
       <span className="fx-anchor">
@@ -124,10 +141,6 @@ export function Planner() {
       {isOverdue(x, now) ? <Chip color="var(--error)" border="#a04848">{t('late')} {fmtShort(x.dueDate!, locale)}</Chip>
         : x.dueDate != null && startOfDay(x.dueDate) !== today ? <Chip color="var(--border-2)">{fmtShort(x.dueDate, locale)}</Chip> : null}
       <Chip color="#b6a432">{x.experienceReward} XP</Chip>
-      {!x.completed && short.length > 1 && <>
-        <button type="button" className="pl-ib" aria-label={`${t('plUp')}: ${x.title}`} title={t('plUp')} disabled={short[0].id === x.id} onPointerDown={e => e.stopPropagation()} onClick={() => actions.shortlistMove(x.id, -1)}>^</button>
-        <button type="button" className="pl-ib" aria-label={`${t('plDown')}: ${x.title}`} title={t('plDown')} disabled={short[short.length - 1].id === x.id} onPointerDown={e => e.stopPropagation()} onClick={() => actions.shortlistMove(x.id, 1)}>v</button>
-      </>}
       <button type="button" className="pl-ib" aria-label={`${t('plRemove')}: ${x.title}`} title={t('plRemove')} onClick={() => actions.shortlistRemove(x.id)}><Icon name="symbol_cross" size={16} /></button>
     </div>
   );
