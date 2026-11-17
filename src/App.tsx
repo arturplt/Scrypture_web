@@ -20,6 +20,7 @@ import { Exercise } from './screens/Exercise';
 import { MindMaps } from './screens/MindMaps';
 import { MindMapEditor } from './screens/MindMapEditor';
 import { Notes } from './screens/Notes';
+import { EmoticonManager } from './screens/EmoticonManager';
 import { Worlds } from './screens/Worlds';
 import { WorldMap } from './screens/WorldMap';
 import { RockGame } from './screens/RockGame';
@@ -69,6 +70,7 @@ function Screen({ route }: { route: string }) {
   if (route === '/apps/exercise') return <Exercise />;
   if (route === '/apps/mindmap') return <MindMaps />;
   if (route.startsWith('/apps/mindmap/')) return <MindMapEditor id={route.slice('/apps/mindmap/'.length)} />;
+  if (route === '/apps/emoticons') return <EmoticonManager />;
   if (route === '/apps/notes') return <Notes />;
   if (route.startsWith('/apps/notes/')) return <Notes id={route.slice('/apps/notes/'.length)} />;
   if (route === '/games/paperplane') return <Worlds />;

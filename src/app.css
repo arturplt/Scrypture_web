@@ -618,3 +618,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .pen-row .pen-slots-left { left: calc(4 * var(--u)); }
 .pen-row .pen-slots-right { right: calc(4 * var(--u)); }
 .pen-row > .pen-hit, .pen-row > .pen { grid-column: 2; }   /* the floating slots leave the grid, so keep Bóbr in the middle column */
+
+/* faces with characters Press Start 2P lacks: let the system font draw them */
+.fancy-face { font-family: system-ui, 'Noto Sans', 'Noto Sans Symbols 2', 'Noto Sans Malayalam', 'Noto Sans Batak', sans-serif; font-size: calc(var(--fs-sm) * 1.4); line-height: 1.4; }
+.emoticon-text.fancy-face { font-size: var(--fs-sm); line-height: 1; }   /* a flourish keeps the bubble's size */

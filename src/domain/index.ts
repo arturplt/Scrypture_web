@@ -5,6 +5,7 @@ export * from './habits';
 export * from './achievements';
 export * from './progress';
 export * from './bobr';
+export * from './emoticons';
 export * from './tasks';
 export * from './categories';
 export * from './chat';
