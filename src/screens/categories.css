@@ -5,5 +5,7 @@
 .cat-pick:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
 .cat-row { min-height: calc(32 * var(--u)); }
 .cat-new { display: grid; gap: calc(8 * var(--u)); margin-top: calc(6 * var(--u)); }
-.pf.cat-chip { display: inline-flex; align-items: center; padding: 0 calc(4 * var(--u)); min-height: calc(14 * var(--u)); font-size: var(--fs-xs); line-height: 1.3; }
-.pf.cat-chip.light { color: #2a2418; text-shadow: none; }
+.cat-chip { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: calc(32 * var(--u)); min-height: calc(32 * var(--u)); padding: 0 calc(8 * var(--u)); font-size: var(--fs-xs); vertical-align: middle; }
+.pf.cat-chip-bg { position: absolute; inset: 0; padding: 0; pointer-events: none; }
+.cat-chip-text { position: relative; line-height: 1.2; white-space: nowrap; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
+.cat-chip.light .cat-chip-text { color: #2a2418; text-shadow: none; }
