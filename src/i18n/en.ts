@@ -402,6 +402,7 @@ export const en = {
   "estimatedMinutes": "Estimated minutes",
   "optional": "optional",
   "tagsPlaceholder": "comma, separated",
+  "plToggleHabits": "Show or hide {freq} habits",
   "plAskTimeText": "'{title}' repeats. Move only this one to {time}, or all of them?",
   "plAskAllOfThem": "All of them",
   "plHabitsGroup": "Habits ({n})",

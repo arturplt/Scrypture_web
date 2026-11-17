@@ -403,6 +403,7 @@ export const pl: Record<Key, string> = {
   "estimatedMinutes": "Szacowane minuty",
   "optional": "opcjonalnie",
   "tagsPlaceholder": "oddzielone przecinkami",
+  "plToggleHabits": "Pokaż lub ukryj nawyki: {freq}",
   "plAskTimeText": "'{title}' się powtarza. Przenieść tylko to wystąpienie na {time}, czy wszystkie?",
   "plAskAllOfThem": "Wszystkie",
   "plHabitsGroup": "Nawyki ({n})",

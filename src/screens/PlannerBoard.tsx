@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import {
   DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, resizeEvent, resizeHabit, slotDone, slotTime, startOfDay,
-  type Habit, type HabitSlot, type PlanEvent, type PlannerSave, type Span, type Task,
+  type Frequency, type Habit, type HabitSlot, type PlanEvent, type PlannerSave, type Span, type Task,
 } from '../domain';
 import { actions, useAppState, useUndo } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
@@ -194,7 +194,10 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   // the habits not on the calendar yet are a folded group (long lists), remembered on this device
   const [habitsOpen, setHabitsOpen] = useState(() => { try { return localStorage.getItem('scrypture:plhabits') === '1'; } catch { return false; } });
   const toggleHabits = () => setHabitsOpen(v => { try { localStorage.setItem('scrypture:plhabits', v ? '0' : '1'); } catch { /* private mode */ } return !v; });
-  const slots = new Map(days.map(d => [d, habitsOn(habits, d)]));   // the planned habits of each shown day
+  // habits can be hidden by how often they repeat, to keep a busy board readable (remembered on this device)
+  const [hidden, setHidden] = useState<Frequency[]>(() => { try { const v = JSON.parse(localStorage.getItem('scrypture:plhidefreq') ?? '[]'); return Array.isArray(v) ? v.filter((f): f is Frequency => ['DAILY', 'WEEKLY', 'MONTHLY'].includes(f)) : []; } catch { return []; } });
+  const toggleFreq = (f: Frequency) => setHidden(h => { const next = h.includes(f) ? h.filter(x => x !== f) : [...h, f]; try { localStorage.setItem('scrypture:plhidefreq', JSON.stringify(next)); } catch { /* private mode */ } return next; });
+  const slots = new Map(days.map(d => [d, habitsOn(habits.filter(h => !hidden.includes(h.frequency)), d)]));   // the planned habits of each shown day
   const habitSpans = [...slots.values()].flat().filter(s => slotTime(s) != null).map(s => [slotTime(s)!, slotTime(s)! + eventLength(s.habit.plan!)] as [number, number]);
   const [from, to] = allHours ? [0, 24] : boardHours(planner.events, days, days.includes(today) ? nowMin : undefined, habitSpans);
   const [open, setOpen] = useState<string | null>(null);        // the activity whose card is opened
@@ -344,6 +347,10 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
       <div className="pl-bar">
         <div className="row wrap" role="group" aria-label={t('planner')}>
           {SPANS.map(n => <button type="button" key={n} className={`seg ${span === n ? 'on' : ''}`} aria-pressed={span === n} onClick={() => actions.setPlannerSpan(n)}>{t(SPAN_KEY[n])}</button>)}
+          <span className="muted small">{t('chatHabits')}</span>
+          {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(f => (
+            <button type="button" key={f} className={`seg ${hidden.includes(f) ? '' : 'on'}`} aria-pressed={!hidden.includes(f)} title={t('plToggleHabits', { freq: t(FREQ_KEY[f]) })} onClick={() => toggleFreq(f)}>{t(FREQ_KEY[f])}</button>
+          ))}
           <button type="button" className={`seg ${allHours ? 'on' : ''}`} aria-pressed={allHours} aria-label={t('plAllHoursAria')} title={t('plAllHoursAria')} onClick={() => setAllHours(v => !v)}>{t('plAllHours')}</button>
         </div>
         <div className="row pl-bar-end">
@@ -379,13 +386,13 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
                 ))}
                 {plan.late.map(taskItem)}
                 {plan.tasks.map(taskItem)}
-                {plan.habits.some(h => !h.plan) && (
+                {plan.habits.some(h => !h.plan && !hidden.includes(h.frequency)) && (
                   <div className="pl-group">
                     <button type="button" className="pl-group-head" aria-expanded={habitsOpen} onClick={toggleHabits}>
-                      <span>{t('plHabitsGroup', { n: plan.habits.filter(h => !h.plan).length })}</span>
+                      <span>{t('plHabitsGroup', { n: plan.habits.filter(h => !h.plan && !hidden.includes(h.frequency)).length })}</span>
                       <img className="chev" src={`/assets/raw/${habitsOpen ? 'arrow_stone_up' : 'arrow_stone_down'}.png`} alt="" />
                     </button>
-                    {habitsOpen && plan.habits.filter(h => !h.plan).map(h => (
+                    {habitsOpen && plan.habits.filter(h => !h.plan && !hidden.includes(h.frequency)).map(h => (
                       <LooseHabit key={h.id} habit={h} className={`pl-item can-drag ${dragging(h.id) ? 'dragging' : ''}`} style={moveStyle(h.id)} onPointerDown={ev => press(ev, 'newhabit', h.id)} grip={grip(h.title)} />
                     ))}
                   </div>

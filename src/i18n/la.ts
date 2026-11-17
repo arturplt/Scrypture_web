@@ -403,6 +403,7 @@ export const la: Record<Key, string> = {
   "estimatedMinutes": "Minutae aestimatae",
   "optional": "optionale",
   "tagsPlaceholder": "commatibus separata",
+  "plToggleHabits": "Ostende vel cela consuetudines {freq}",
   "plAskTimeText": "'{title}' repetitur. Move hoc solum ad {time}, an omnia?",
   "plAskAllOfThem": "Omnia",
   "plHabitsGroup": "Consuetudines ({n})",
