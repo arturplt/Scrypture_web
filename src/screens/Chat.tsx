@@ -44,6 +44,7 @@ export function Chat() {
     const idea = r.addStarterId && STARTER_TASKS.find(s => s.id === r.addStarterId);
     if (idea) actions.addTask(starterTaskInput(idea, t));
     setFlow(r.flow);
+    if (r.go) navigate(r.go);
     setMsgs(m => [...m, { id: next.current++, fromBobr: false, text }, { id: next.current++, fromBobr: true, text: r.reply }]);
   }
   function clear() { setFlow(initialFlow()); setMsgs([{ id: next.current++, fromBobr: true, text: chatGreeting(ctx) }]); }

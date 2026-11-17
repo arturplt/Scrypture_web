@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatGreeting, ideaDifficulty, STARTER_TASKS, HUNGER_FULL_MS, chatOptions, chatReply, initialFlow, seedAchievements, initialStats, MOTIVATION_COUNT, type ChatContext, type ChatFlow, type Task } from './index';
+import { GUIDE, chatGreeting, ideaDifficulty, STARTER_TASKS, HUNGER_FULL_MS, chatOptions, chatReply, initialFlow, seedAchievements, initialStats, MOTIVATION_COUNT, type ChatContext, type ChatFlow, type Task } from './index';
 import { makeT } from '../i18n';
 
 const mk = (id: string, o: Partial<Task> = {}): Task => ({
@@ -19,7 +19,7 @@ function walk(c: ChatContext, picks: string[]) {
 
 describe('chat options', () => {
   it('main menu depends on context', () => {
-    expect(ids(ctx())).toEqual(['next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'motivation_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
+    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'motivation_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
     const full = ctx({ tasks: [mk('a')], habits: [{ id: 'h', title: 'h', category: 'BODY', frequency: 'DAILY', streak: 0, bestStreak: 0, lastCompleted: null, createdAt: 0, updatedAt: 0 }] });
     expect(ids(full)).toContain('tasks_ask'); expect(ids(full)).toContain('habits_ask');
   });
@@ -27,6 +27,23 @@ describe('chat options', () => {
     const c = ctx();
     const opts = chatOptions(c, chatReply('achievements_ask', c, initialFlow()).flow);
     expect(opts.map(o => o.text)).toEqual(['In Progress (0)', 'Completed (0)', 'Locked (11)', 'Not Started (11)', 'Go Back']);
+  });
+});
+
+describe('guide', () => {
+  it('lists every feature, reads one, and offers to open it', () => {
+    const c = ctx();
+    const open = chatReply('guide_ask', c, initialFlow());
+    expect(open.flow.mode).toBe('guide');
+    expect(ids(c, open.flow)).toEqual([...GUIDE.map(g => `guide_${g.id}`), 'go_back']);
+    const tasks = chatReply('guide_tasks', c, open.flow);
+    expect(tasks.reply).toContain('quick task');
+    expect(tasks.flow.guideId).toBe('tasks');
+    expect(ids(c, tasks.flow)[0]).toBe('guide_go');
+    expect(ids(c, tasks.flow)).not.toContain('guide_tasks');
+    expect(chatReply('guide_go', c, tasks.flow).go).toBe('/tasks');
+    expect(ids(c, chatReply('guide_chat', c, open.flow).flow)).not.toContain('guide_go');
+    expect(chatReply('go_back', c, tasks.flow).flow.mode).toBe('main');
   });
 });
 

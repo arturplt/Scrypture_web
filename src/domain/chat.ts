@@ -17,7 +17,9 @@ export interface ChatContext { stats: UserStats; tasks: Task[]; habits: Habit[];
   /** Bóbr himself and what is in the bag (left out = a content Bóbr and an empty bag) */
   bobr?: BobrVitals & { feedings: number; trades?: number; treatUntil?: number; mischiefUntil?: number }; inventory?: Readonly<Record<string, number>> }
 export interface ChatFlow {
-  mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
+  mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea' | 'guide';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
+  /** guide: the topic being read (an id from GUIDE) */
+  guideId?: string;
   /** idea: the suggestion on offer (a Start Here id); `previous` holds the ones already offered */
   ideaId?: string;
   /** next: the thing on offer (a task, habit or activity id); `previous` holds what was already offered */
@@ -42,6 +44,27 @@ export const MOTIVATION_COUNT = MOTIVATION_KEYS.length;
 export const FACT_COUNT = 10, BERRY_THANKS_COUNT = 3;
 const MOOD_KEY: Record<Emotion, Key> = { HAPPY: 'chatMoodHappy', NEUTRAL: 'chatMoodNeutral', SLEEPY: 'chatMoodSleepy', EXCITED: 'chatMoodExcited', HUNGRY: 'chatMoodHungry', MISCHIEVOUS: 'chatMoodNeutral', SAD: 'chatMoodSad' };
 const STAT_KEY: Record<Category, Key> = { BODY: 'body', MIND: 'mind', SOUL: 'soul' };
+
+// ---- the guide: what every part of the app does ---------------------------------------------------
+/** One topic per feature: its button, its explanation, and the screen it lives on (none = nothing to open). */
+export const GUIDE: readonly { id: string; name: Key; text: Key; path?: string }[] = [
+  { id: 'chat', name: 'chatGuideNameChat', text: 'chatGuideChat' },
+  { id: 'levels', name: 'chatGuideNameLevels', text: 'chatGuideLevels', path: '/' },
+  { id: 'tasks', name: 'chatGuideNameTasks', text: 'chatGuideTasks', path: '/tasks' },
+  { id: 'habits', name: 'chatGuideNameHabits', text: 'chatGuideHabits', path: '/habits' },
+  { id: 'plan', name: 'chatGuideNamePlan', text: 'chatGuidePlan', path: '/plan' },
+  { id: 'start', name: 'chatGuideNameStart', text: 'chatGuideStart', path: '/start' },
+  { id: 'trophies', name: 'chatGuideNameTrophies', text: 'chatGuideTrophies', path: '/achievements' },
+  { id: 'home', name: 'chatGuideNameHome', text: 'chatGuideHome', path: '/' },
+  { id: 'games', name: 'chatGuideNameGames', text: 'chatGuideGames', path: '/games' },
+  { id: 'notes', name: 'chatGuideNameNotes', text: 'chatGuideNotes', path: '/apps/notes' },
+  { id: 'mindmap', name: 'chatGuideNameMindmap', text: 'chatGuideMindmap', path: '/apps/mindmap' },
+  { id: 'pixelite', name: 'chatGuideNamePixelite', text: 'chatGuidePixelite', path: '/apps/pixelite' },
+  { id: 'sanctuary', name: 'chatGuideNameSanctuary', text: 'chatGuideSanctuary', path: '/apps/sanctuary' },
+  { id: 'exercise', name: 'chatGuideNameExercise', text: 'chatGuideExercise', path: '/apps/exercise' },
+  { id: 'settings', name: 'chatGuideNameSettings', text: 'chatGuideSettings', path: '/settings' },
+  { id: 'theme', name: 'chatGuideNameTheme', text: 'chatGuideTheme', path: '/theme' },
+];
 
 // ---- Bóbr himself --------------------------------------------------------------------------------
 const have = (c: ChatContext, item: string) => c.inventory?.[item] ?? 0;
@@ -157,6 +180,10 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
     return opts([...(idea ? [['idea_add', t('chatIdeaAdd')], ['idea_other', t('chatIdeaOther')],
       ...(idea.difficulty > 0 ? [['idea_easier', t('chatIdeaEasier')]] : []), ...(idea.difficulty < 9 ? [['idea_harder', t('chatIdeaHarder')]] : [])] as [string, string][] : []), ['go_back', t('chatGoBack')]]);
   }
+  if (f.mode === 'guide') {
+    const here = GUIDE.find(g => g.id === f.guideId);
+    return opts([...(here?.path ? [['guide_go', t('chatGuideGo', { name: t(here.name) })] as [string, string]] : []), ...GUIDE.filter(g => g.id !== f.guideId).map(g => [`guide_${g.id}`, t(g.name)] as [string, string]), ['go_back', t('chatGoBack')]]);
+  }
   if (f.mode === 'bobr') {
     const list: [string, string][] = [];
     if (have(c, 'berry')) list.push(['feed_berry', t('chatGiveBerry', { n: have(c, 'berry') })]);
@@ -172,7 +199,7 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
       ['achievements_back', t('chatGoBack')],
     ]);
   }
-  const list: [string, string][] = [['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['motivation_ask', t('chatMotivateMe')], ['stats_ask', t('chatMyStats')]];
+  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['motivation_ask', t('chatMotivateMe')], ['stats_ask', t('chatMyStats')]];
   if (c.tasks.length) list.push(['tasks_ask', t('chatMyTasks')]);
   if (c.tasks.some(x => (x.completionCount ?? 0) > 0)) list.push(['favourite_ask', t('chatFavouriteAsk')]);
   if (c.habits.length) list.push(['habits_ask', t('chatMyHabits')]);
@@ -217,6 +244,8 @@ export interface ChatResult {
   reply: string; flow: ChatFlow; completeTaskId?: string; completeHabitId?: string; doneEventId?: string;
   /** what the chat screen must do: feed Bóbr this, or add this Start Here suggestion to the tasks */
   feed?: 'berry' | 'hay'; addStarterId?: string;
+  /** open this screen (the guide's "take me there") */
+  go?: string;
 }
 export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => number = Math.random): ChatResult {
   const { t, stats } = c;
@@ -227,6 +256,11 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
   const ach = (a: Achievement) => achievementText(t, a);
 
   switch (id) {
+    case 'guide_ask': return same(t('chatGuideIntro'), { ...initialFlow(), mode: 'guide' });
+    case 'guide_go': {
+      const g = GUIDE.find(x => x.id === f.guideId);
+      return g?.path ? { reply: t('chatGuideGoing', { name: t(g.name) }), flow: f, go: g.path } : same(WHAT_TO_DO, initialFlow());
+    }
     case 'today_ask': return same(todayText(c));
     case 'next_ask': return offerNext(c, initialFlow());
     case 'next_skip': return offerNext(c, f);
@@ -353,6 +387,10 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
       if (!r.taskId) return same(`${t('chatNoMoreTasks')}\n\n${t('chatAllTasksSuggested')}`);
       return same(r.message, { ...f, step: 4, suggestedTaskId: r.taskId, rerolls: f.rerolls + 1, previous: [...f.previous, r.taskId] });
     }
+  }
+  if (id.startsWith('guide_')) {
+    const g = GUIDE.find(x => `guide_${x.id}` === id);
+    if (g) return same(t(g.text), { ...initialFlow(), mode: 'guide', guideId: g.id });
   }
   if (id in FEELINGS) return same(t('chatHowMuchTime'), { ...f, step: 2, feeling: id });
   if (id in TIMES) return same(t('chatWillYouDoIt'), { ...f, step: 3, time: id });
