@@ -145,3 +145,7 @@
 .pl-item.timed:not(.open) > .task > :not(.task-head) { display: none; }
 .pl-item.timed:not(.open) > .task > .task-head { flex: 1; min-width: 0; }
 .pl-board .pcheck { min-height: calc(24 * var(--u)); }   /* the tick's tap area must fit in a short block */
+
+/* the title of a closed block stays on one line (PlannerBoard shrinks its text to fit, then cuts it with an ellipsis) */
+.pl-item.timed:not(.open) .task-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; }
+.pl-item.timed:not(.open) .task-head > .task-title { flex: 1 1 0; }

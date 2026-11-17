@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import {
   DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, resizeEvent, resizeHabit, slotDone, startOfDay,
   type Habit, type HabitSlot, type PlanEvent, type PlannerSave, type Span, type Task,
@@ -177,6 +177,23 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const [ask, setAsk] = useState<Ask | null>(null);
   const grids = useRef(new Map<number, HTMLElement>());         // each day's hour grid, to turn a pointer position into a day and a time
   const stopDrag = useRef<(() => void) | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** Closed blocks keep their title on one line: in a narrow column the text steps down in whole pixels (never blurred) before it is cut with "...". */
+  const fitTitles = () => {
+    for (const el of scrollRef.current?.querySelectorAll<HTMLElement>('.pl-item.timed:not(.open) .task-title') ?? []) {
+      el.style.fontSize = '';
+      const base = parseFloat(getComputedStyle(el).fontSize), floor = Math.max(4, Math.round(base * 0.6));
+      for (let size = Math.floor(base); el.scrollWidth > el.clientWidth && size > floor; size--) el.style.fontSize = `${size - 1}px`;
+    }
+  };
+  useLayoutEffect(() => { if (!drag?.active) fitTitles(); });   // after every change that is not a drag in flight
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => fitTitles());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => () => stopDrag.current?.(), []);
 
   const data = { events: planner.events, shortlist: planner.shortlist, tasks, habits };
@@ -310,7 +327,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
         </div>
       </div>
 
-      <div className="pl-scroll">
+      <div className="pl-scroll" ref={scrollRef}>
         <div className={`pl-days ${drag?.active ? 'is-dragging' : ''}`} style={{ '--n': span, '--hours': to - from } as CSSProperties}>
           <div className="pl-corner" />
           {days.map(d => (
