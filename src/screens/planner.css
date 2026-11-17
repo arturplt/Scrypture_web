@@ -159,3 +159,8 @@
 .pl-loose { grid-template-columns: minmax(0, 1fr); }
 .pl-loose .task-head { min-width: 0; }
 .pl-group-head > span { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* every day's lane is exactly as wide as its column: what is in it shrinks (and wraps) instead of pushing the column wider */
+.pl-lane { grid-template-columns: minmax(0, 1fr); }
+.pl-lane > * { min-width: 0; }
+.pl-lane .task, .pl-lane .pl-item > .task { min-width: 0; max-width: 100%; }
