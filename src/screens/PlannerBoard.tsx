@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import {
-  DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, resizeEvent, resizeHabit, slotDone, startOfDay,
+  DEFAULT_SPAN, SNAP_MINUTES, SOON_MINUTES, SPANS, addDays, boardDays, boardHours, dayPlan, effectiveStreak, eventEnd, eventLength, fmtClock, habitsOn, layoutBlocks, minutesOfDay, placeEvent, placeHabit, resizeEvent, resizeHabit, slotDone, slotTime, startOfDay,
   type Habit, type HabitSlot, type PlanEvent, type PlannerSave, type Span, type Task,
 } from '../domain';
 import { actions, useAppState, useUndo } from '../data/hooks';
@@ -82,6 +82,27 @@ function EventCard({ event: e, onNow, expanded, leaving, label, onToggle, onTick
   );
 }
 
+/** A habit that is not on the calendar yet, as a small habit card (tick, title on one line); it can be dragged onto the grid. */
+function LooseHabit({ habit: h, className, style, onPointerDown, grip }: { habit: Habit; className: string; style: CSSProperties; onPointerDown: (ev: RPointerEvent<HTMLElement>) => void; grip: ReactNode }) {
+  const { t } = useI18n();
+  const el = useAppState(s => s.settings.elements);
+  const mainFrame = useAppState(st => st.settings.frameTheme);
+  const theme = frameOr(el.habit, 'app');
+  const cat = resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[h.category];
+  const tinted = useTintedFrame(theme, cat, cat);
+  return (
+    <div className={className} style={style} onPointerDown={onPointerDown}>
+      {grip}
+      <PixelFrame theme={theme} scale={1} style={tinted ? ({ '--frame': tinted } as CSSProperties) : undefined} className="task habit compact pl-loose">
+        <div className="task-head">
+          <span className="fx-anchor"><PixelCheckbox checked={false} ariaLabel={t('plMarkDone', { title: h.title })} onChange={() => actions.completeHabit(h.id)} label="" /></span>
+          <button type="button" className="task-title" onClick={() => navigate(`/habits/${h.id}`)}>{h.title}</button>
+        </div>
+      </PixelFrame>
+    </div>
+  );
+}
+
 /**
  * One turn of a planned habit. The habit card of the Habits screen in small: its Body / Mind / Soul colour, the cyan stars and
  * the hop when ticked, the streak. It can only be ticked on the day itself; on other days it shows whether that turn was done.
@@ -136,7 +157,9 @@ function HabitSlotCard({ slot, now, expanded, label, onToggle, onEdit }: { slot:
 }
 
 /** A repeating thing was dragged to another day: which ones should move? */
-type Ask = { what: 'event'; id: string; title: string; day: number; time: number | undefined } | { what: 'habit'; id: string; title: string; ruleDay: number; day: number; time: number | undefined };
+type Ask = { what: 'event'; id: string; title: string; day: number; time: number | undefined } | { what: 'habit'; id: string; title: string; ruleDay: number; day: number; time: number | undefined }
+  /** a repeated habit dragged to another time on its own day */
+  | { what: 'habittime'; id: string; title: string; ruleDay: number; day: number; time: number | undefined };
 
 /** A block on a day's hour grid: an activity with a time, or a turn of a planned habit that has one. */
 interface Block { key: string; time: number; length: number; event?: PlanEvent; slot?: HabitSlot }
@@ -168,8 +191,11 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const today = startOfDay(now), nowMin = minutesOfDay(now);
   const days = boardDays(day, span);
   const [allHours, setAllHours] = useState(false);
+  // the habits not on the calendar yet are a folded group (long lists), remembered on this device
+  const [habitsOpen, setHabitsOpen] = useState(() => { try { return localStorage.getItem('scrypture:plhabits') === '1'; } catch { return false; } });
+  const toggleHabits = () => setHabitsOpen(v => { try { localStorage.setItem('scrypture:plhabits', v ? '0' : '1'); } catch { /* private mode */ } return !v; });
   const slots = new Map(days.map(d => [d, habitsOn(habits, d)]));   // the planned habits of each shown day
-  const habitSpans = [...slots.values()].flat().filter(s => s.habit.plan!.time != null).map(s => [s.habit.plan!.time!, s.habit.plan!.time! + eventLength(s.habit.plan!)] as [number, number]);
+  const habitSpans = [...slots.values()].flat().filter(s => slotTime(s) != null).map(s => [slotTime(s)!, slotTime(s)! + eventLength(s.habit.plan!)] as [number, number]);
   const [from, to] = allHours ? [0, 24] : boardHours(planner.events, days, days.includes(today) ? nowMin : undefined, habitSpans);
   const [open, setOpen] = useState<string | null>(null);        // the activity whose card is opened
   const [leaving, setLeaving] = useState<string | null>(null);  // the card whose completion effect is playing
@@ -180,7 +206,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Closed blocks keep their title on one line: in a narrow column the text steps down in whole pixels (never blurred) before it is cut with "...". */
   const fitTitles = () => {
-    for (const el of scrollRef.current?.querySelectorAll<HTMLElement>('.pl-item.timed:not(.open) .task-title') ?? []) {
+    for (const el of scrollRef.current?.querySelectorAll<HTMLElement>('.pl-item.timed:not(.open) .task-title, .pl-loose .task-title, .pl-group-head > span') ?? []) {
       el.style.fontSize = '';
       const base = parseFloat(getComputedStyle(el).fontSize), floor = Math.max(4, Math.round(base * 0.6));
       for (let size = Math.floor(base); el.scrollWidth > el.clientWidth && size > floor; size--) el.style.fontSize = `${size - 1}px`;
@@ -266,19 +292,15 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
         actions.setHabitPlan(id, placeHabit({ start: startOfDay(d.over.day) }, d.over.time));
       } else if (kind === 'habit' && slot && plan) {
         // a daily habit is on every day already; the others ask whether only this turn moves or all the future ones
+        const newTime = d.over.time === undefined ? undefined : placeHabit(plan, d.over.time).time;
         if (d.over.day !== slot.day && slot.habit.frequency !== 'DAILY') setAsk({ what: 'habit', id, title: slot.habit.title, ruleDay: slot.ruleDay, day: d.over.day, time: d.over.time });
-        else setHabitTime(id, d.over.time);
+        else if (newTime !== slotTime(slot)) setAsk({ what: 'habittime', id, title: slot.habit.title, ruleDay: slot.ruleDay, day: slot.day, time: d.over.time });   // it repeats: this one only, or all of them?
       }
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
     stopDrag.current = () => end();
   }
 
-  /** A habit's time of day belongs to its whole series. */
-  const setHabitTime = (id: string, time: number | undefined) => {
-    const plan = habits.find(h => h.id === id)?.plan, next = plan && placeHabit(plan, time);
-    if (plan && next && next.time !== plan.time) actions.setHabitPlan(id, next);
-  };
   const dragging = (id: string) => (drag?.active && drag.id === id && drag.kind !== 'resize' && drag.kind !== 'hresize' ? drag : null);
   const moveStyle = (id: string): CSSProperties => { const d = dragging(id); return d ? { transform: `translate(${Math.round(d.dx)}px, ${Math.round(d.dy)}px)` } : {}; };
   const grip = (title: string) => <span className="pl-grip" role="img" aria-label={t('plMove', { title })} title={t('plMove', { title })} />;
@@ -298,8 +320,8 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
   );
   const slotKey = (s: HabitSlot) => `${s.habit.id}@${s.ruleDay}`;
   const habitWhen = (s: HabitSlot, minutes = eventLength(s.habit.plan!)) => {
-    const d = dragging(slotKey(s)), plan = d?.over ? placeHabit(s.habit.plan!, d.over.time) : s.habit.plan!;
-    return plan.time == null ? null : `${fmtClock(plan.time)}–${fmtClock((plan.time + minutes) % 1440)}`;
+    const d = dragging(slotKey(s)), time = d?.over ? placeHabit(s.habit.plan!, d.over.time).time : slotTime(s);
+    return time == null ? null : `${fmtClock(time)}–${fmtClock((time + minutes) % 1440)}`;
   };
   const habitCard = (s: HabitSlot, minutes?: number) => (
     <HabitSlotCard slot={s} now={now} label={habitWhen(s, minutes)} expanded={open === slotKey(s)} onToggle={() => setOpen(open === slotKey(s) ? null : slotKey(s))} onEdit={() => onEditHabit(s.habit)} />
@@ -341,7 +363,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
             const plan = dayPlan(data, d, now), loose = plan.events.filter(e => e.time == null);
             return (
               <div key={d} data-plday={d} className={`pl-lane ${dropDay === d || (drag?.active && drag.over?.day === d && drag.over.time === undefined) ? 'drop' : ''}`}>
-                {slots.get(d)!.filter(s => s.habit.plan!.time == null).map(s => (
+                {slots.get(d)!.filter(s => slotTime(s) == null).map(s => (
                   <div key={slotKey(s)} className={`pl-item can-drag ${dragging(slotKey(s)) ? 'dragging' : ''}`} style={moveStyle(slotKey(s))} onPointerDown={ev => press(ev, 'habit', s.habit.id, s)}>
                     {grip(s.habit.title)}{habitCard(s)}
                   </div>
@@ -353,13 +375,17 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
                 ))}
                 {plan.late.map(taskItem)}
                 {plan.tasks.map(taskItem)}
-                {plan.habits.filter(h => !h.plan).map(h => (
-                  <div key={h.id} className={`pl-row pl-habit can-drag ${dragging(h.id) ? 'dragging' : ''}`} style={moveStyle(h.id)} onPointerDown={ev => press(ev, 'newhabit', h.id)}>
-                    {grip(h.title)}
-                    <PixelCheckbox checked={false} ariaLabel={t('plMarkDone', { title: h.title })} onChange={() => actions.completeHabit(h.id)} label="" />
-                    <button type="button" className="pl-title" onClick={() => navigate(`/habits/${h.id}`)}>{h.title}</button>
+                {plan.habits.some(h => !h.plan) && (
+                  <div className="pl-group">
+                    <button type="button" className="pl-group-head" aria-expanded={habitsOpen} onClick={toggleHabits}>
+                      <span>{t('plHabitsGroup', { n: plan.habits.filter(h => !h.plan).length })}</span>
+                      <img className="chev" src={`/assets/raw/${habitsOpen ? 'arrow_stone_up' : 'arrow_stone_down'}.png`} alt="" />
+                    </button>
+                    {habitsOpen && plan.habits.filter(h => !h.plan).map(h => (
+                      <LooseHabit key={h.id} habit={h} className={`pl-item can-drag ${dragging(h.id) ? 'dragging' : ''}`} style={moveStyle(h.id)} onPointerDown={ev => press(ev, 'newhabit', h.id)} grip={grip(h.title)} />
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             );
           })}
@@ -379,7 +405,7 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
               {d === today && nowMin >= from * 60 && nowMin < to * 60 && <i className="pl-nowline" style={{ top: `calc(${(nowMin - from * 60) / 60} * var(--hh))` }} />}
               {layoutBlocks<Block>([
                 ...planner.events.filter(e => e.day === d && e.time != null).map((e): Block => ({ key: e.id, time: e.time!, length: eventLength(e), event: e })),
-                ...slots.get(d)!.filter(s => s.habit.plan!.time != null).map((s): Block => ({ key: slotKey(s), time: s.habit.plan!.time!, length: eventLength(s.habit.plan!), slot: s })),
+                ...slots.get(d)!.filter(s => slotTime(s) != null).map((s): Block => ({ key: slotKey(s), time: slotTime(s)!, length: eventLength(s.habit.plan!), slot: s })),
               ], b => [b.time, b.time + b.length]).map(({ item: b, lane }) => {
                 const sizing = !!drag?.active && (drag.kind === 'resize' || drag.kind === 'hresize') && drag.id === b.key, minutes = sizing ? drag!.minutes : b.length;
                 const shift = Math.min(54, lane * 18);   // overlapping blocks cascade: each one starts a step to the right and runs to the edge, so even in a narrow column its title stays readable
@@ -407,13 +433,14 @@ export function PlannerBoard({ day, onDay, tasks, habits, planner, now, dropDay 
 
       <Modal open={!!ask} onClose={() => setAsk(null)} title={t('plAskTitle')} theme="app">
         {ask && <>
-          <p className="pl-ask">{t('plAskText', { title: ask.title, date: fmtDay(ask.day, { weekday: 'long', day: 'numeric', month: 'long' }) })}</p>
+          <p className="pl-ask">{ask.what === 'habittime' ? t('plAskTimeText', { title: ask.title, time: ask.time == null ? t('plAnyTime') : fmtClock(placeHabit({ start: 0 }, ask.time).time ?? 0) }) : t('plAskText', { title: ask.title, date: fmtDay(ask.day, { weekday: 'long', day: 'numeric', month: 'long' }) })}</p>
           <div className="row wrap">
             {(['one', 'all'] as const).map(scope => (
               <PixelButton key={scope} scale={1} onClick={() => {
-                if (ask.what === 'event') actions.moveEvent(ask.id, ask.day, ask.time, scope); else { setHabitTime(ask.id, ask.time); actions.moveHabit(ask.id, ask.ruleDay, ask.day, scope); }
+                if (ask.what === 'event') actions.moveEvent(ask.id, ask.day, ask.time, scope);
+                else { actions.setHabitSlotTime(ask.id, ask.ruleDay, ask.time, scope); if (ask.what === 'habit') actions.moveHabit(ask.id, ask.ruleDay, ask.day, scope); }
                 setAsk(null);
-              }}>{t(scope === 'one' ? 'plAskOne' : 'plAskAll')}</PixelButton>
+              }}>{t(scope === 'one' ? 'plAskOne' : ask.what === 'habittime' ? 'plAskAllOfThem' : 'plAskAll')}</PixelButton>
             ))}
             <PixelButton scale={1} variant="red" onClick={() => setAsk(null)}>{t('cancel')}</PixelButton>
           </div>

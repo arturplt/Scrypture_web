@@ -18,6 +18,8 @@ export interface HabitPlan {
   time?: number;
   /** how long it takes, in minutes */
   minutes?: number;
+  /** occurrences with a time of their own (the day the rule gives -> minutes after midnight, or -1 for "any time"); the others use `time` */
+  times?: Record<string, number>;
   /** occurrences moved on their own: the day the rule gives -> the day it is shown on instead */
   moved?: Record<string, number>;
 }
@@ -34,6 +36,27 @@ export function isRuleDay(frequency: Frequency, start: number, day: number): boo
   if (frequency === 'WEEKLY') return n % 7 === 0;
   const d = new Date(day);
   return d.getDate() === Math.min(new Date(start).getDate(), monthLength(d));
+}
+
+/** The time of day of one occurrence: its own if it has one, else the series' (undefined = any time that day). */
+export function slotTime(s: HabitSlot): number | undefined {
+  const p = s.habit.plan!, own = p.times?.[String(s.ruleDay)];
+  return own === undefined ? p.time : own < 0 ? undefined : own;
+}
+/**
+ * A plan with a new time of day: for one occurrence only (`one`, which then has a time of its own), or for the whole series
+ * (`all`, which also drops every time of its own). `time` undefined = any time that day.
+ */
+export function setSlotTime(plan: HabitPlan, ruleDay: number, time: number | undefined, scope: 'one' | 'all'): HabitPlan {
+  const snap = (t: number) => Math.max(0, Math.min(1440 - (plan.minutes ?? 30), Math.round(t / 15) * 15));   // quarter hours, as on the board
+  if (scope === 'all') { const { times: _t, time: _o, ...rest } = plan; return time === undefined ? rest : { ...rest, time: snap(time) }; }
+  const snapped = time === undefined ? -1 : snap(time);
+  const entries = Object.entries(plan.times ?? {}).filter(([k]) => Number(k) !== ruleDay);
+  if (snapped !== (plan.time ?? -1)) entries.push([String(ruleDay), snapped]);   // the same as the series needs no entry
+  const out: HabitPlan = { ...plan };
+  delete out.times;
+  if (entries.length) out.times = Object.fromEntries(entries.sort((a, b) => Number(a[0]) - Number(b[0])).slice(-HABIT_MOVED_MAX));
+  return out;
 }
 
 /** The days a series of `n` occurrences falls on, starting at `day` (what a repeated activity is made of). */
@@ -68,7 +91,7 @@ export function habitSlot(habit: Habit, day: number): HabitSlot | null {
 /** The planned habits of a day: the ones without a time first, then by time, then by name. */
 export function habitsOn(habits: readonly Habit[], day: number): HabitSlot[] {
   return habits.map(h => habitSlot(h, day)).filter((s): s is HabitSlot => !!s)
-    .sort((a, b) => (a.habit.plan!.time ?? -1) - (b.habit.plan!.time ?? -1) || a.habit.title.localeCompare(b.habit.title));
+    .sort((a, b) => (slotTime(a) ?? -1) - (slotTime(b) ?? -1) || a.habit.title.localeCompare(b.habit.title));
 }
 /**
  * Was this occurrence done? A daily one on its day; a weekly one on any day of the week around it (three days either
@@ -120,6 +143,8 @@ export function sanitizeHabitExtras(h: { plan?: unknown; log?: unknown }): { pla
     if (num(p.minutes) && p.minutes >= 1 && p.minutes <= 1440) plan.minutes = Math.round(p.minutes);
     const moved = p.moved && typeof p.moved === 'object' ? Object.entries(p.moved as Record<string, unknown>).filter(([k, v]) => Number.isFinite(Number(k)) && num(v)) : [];
     if (moved.length) plan.moved = Object.fromEntries(moved.slice(-HABIT_MOVED_MAX).map(([k, v]) => [k, startOfDay(v as number)]));
+    const times = p.times && typeof p.times === 'object' ? Object.entries(p.times as Record<string, unknown>).filter(([k, v]) => Number.isFinite(Number(k)) && num(v) && (v === -1 || (v >= 0 && v <= 1439))) : [];
+    if (times.length) plan.times = Object.fromEntries(times.slice(-HABIT_MOVED_MAX).map(([k, v]) => [k, Math.round(v as number)]));
     out.plan = plan;
   }
   return out;

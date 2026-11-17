@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  MAX_CATEGORIES, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -383,6 +383,11 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, habits: state.habits.map(h => { if (h.id !== id) return h; const { plan: _old, ...rest } = h; return plan ? { ...rest, plan, updatedAt: clock() } : { ...rest, updatedAt: clock() }; }) });
     },
     /** Move one occurrence of a planned habit to another day: just that one, or it and all the future ones. */
+    /** The time of day of a planned habit: for one occurrence only, or the whole series. */
+    setHabitSlotTime(id: string, ruleDay: number, time: number | undefined, scope: 'one' | 'all') {
+      const h = state.habits.find(x => x.id === id);
+      if (h?.plan) actions.setHabitPlan(id, setSlotTime(h.plan, ruleDay, time, scope));
+    },
     moveHabit(id: string, ruleDay: number, toDay: number, scope: 'one' | 'all') {
       const h = state.habits.find(x => x.id === id);
       if (h?.plan) actions.setHabitPlan(id, moveHabit(h.plan, ruleDay, toDay, scope));

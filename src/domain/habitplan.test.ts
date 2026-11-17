@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayPlan, habitHistory, habitLog, habitSlot, habitsOn, isRuleDay, logWith, moveHabit, repeatDays, sanitizeHabitExtras, slotDone, type Habit, type HabitPlan } from './index';
+import { dayPlan, habitHistory, habitLog, habitSlot, habitsOn, isRuleDay, logWith, moveHabit, repeatDays, sanitizeHabitExtras, slotDone, slotTime, setSlotTime, type Habit, type HabitPlan } from './index';
 
 const D = (n: number, m = 0) => new Date(2026, m, n).getTime();   // January 2026: the 5th is a Monday
 const habit = (o: Partial<Habit> = {}): Habit => ({ id: 'h', title: 'h', category: 'BODY', frequency: 'WEEKLY', streak: 0, bestStreak: 0, lastCompleted: null, createdAt: 0, updatedAt: 0, ...o });
@@ -66,5 +66,33 @@ describe('the log of completed habits', () => {
     expect(sanitizeHabitExtras({ plan: { start: D(5) + 77, time: 600.4, minutes: 0, moved: { [D(12)]: D(14) + 5, x: 1, [D(19)]: 'no' } }, log: [D(2), 'x', D(1) + 9, D(2)] }))
       .toEqual({ plan: { start: D(5), time: 600, moved: { [D(12)]: D(14) } }, log: [D(1), D(2)] });
     expect(sanitizeHabitExtras({ plan: 'junk', log: 7 })).toEqual({});
+  });
+});
+
+describe('the time of one occurrence', () => {
+  const plan: HabitPlan = { start: D(5), time: 480, minutes: 30 };
+  const h = habit({ frequency: 'DAILY', plan });
+  const slot = (d: number) => habitSlot(h, D(d))!;
+  it('one turn gets a time of its own, the rest keep the series time', () => {
+    const one = setSlotTime(plan, D(6), 600, 'one');
+    expect(one).toMatchObject({ time: 480, times: { [String(D(6))]: 600 } });
+    const hh = habit({ frequency: 'DAILY', plan: one });
+    expect(slotTime(habitSlot(hh, D(6))!)).toBe(600);
+    expect(slotTime(habitSlot(hh, D(7))!)).toBe(480);
+    expect(slotTime(slot(6))).toBe(480);
+  });
+  it('a turn can have no time, and putting it back to the series time removes its entry', () => {
+    const none = setSlotTime(plan, D(6), undefined, 'one');
+    expect(slotTime(habitSlot(habit({ frequency: 'DAILY', plan: none }), D(6))!)).toBeUndefined();
+    expect(setSlotTime(none, D(6), 480, 'one').times).toBeUndefined();
+  });
+  it('all of them sets the series time and drops the times of their own; times snap to quarter hours', () => {
+    const mixed = setSlotTime(plan, D(6), 600, 'one');
+    expect(setSlotTime(mixed, D(7), 727, 'all')).toEqual({ start: D(5), time: 720, minutes: 30 });
+    expect(setSlotTime(mixed, D(7), undefined, 'all')).toEqual({ start: D(5), minutes: 30 });
+  });
+  it('a bad saved times map is cleaned', () => {
+    const out = sanitizeHabitExtras({ plan: { start: D(5), times: { [String(D(6))]: 600, x: 5, [String(D(7))]: 99999, [String(D(8))]: -1 } } });
+    expect(out.plan?.times).toEqual({ [String(D(6))]: 600, [String(D(8))]: -1 });
   });
 });

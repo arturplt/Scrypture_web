@@ -149,3 +149,13 @@
 /* the title of a closed block stays on one line (PlannerBoard shrinks its text to fit, then cuts it with an ellipsis) */
 .pl-item.timed:not(.open) .task-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; }
 .pl-item.timed:not(.open) .task-head > .task-title { flex: 1 1 0; }
+
+/* habits not on the calendar yet: a folded group of one-line habit cards */
+.pl-group { display: grid; gap: calc(2 * var(--u)); }
+.pl-group-head { display: flex; align-items: center; justify-content: space-between; gap: calc(4 * var(--u)); padding: calc(4 * var(--u)) calc(6 * var(--u)); background: var(--bg-3); border: calc(2 * var(--u)) solid var(--border-2); color: var(--text); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-align: left; }
+.pl-group-head .chev { width: calc(16 * var(--u)); height: calc(16 * var(--u)); image-rendering: pixelated; }
+.pl-group-head:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.pl-loose .task-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; flex: 1 1 0; }
+.pl-loose { grid-template-columns: minmax(0, 1fr); }
+.pl-loose .task-head { min-width: 0; }
+.pl-group-head > span { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
