@@ -77,7 +77,8 @@
 .pl-item { position: relative; display: flex; min-width: 0; user-select: none; -webkit-user-select: none; }
 .pl-item > .task { flex: 1; min-width: 0; }
 .pl-item.timed { position: absolute; box-sizing: border-box; padding: 0 calc(1 * var(--u)) calc(1 * var(--u)) 0; min-height: calc(32 * var(--u)); }
-.pl-item.timed > .task { overflow: hidden; align-content: start; }
+.pl-item.timed > .task { overflow: hidden; align-content: center; }   /* the title sits in the middle of the block */
+.pl-item.timed.open > .task { align-content: start; }
 .pl-item.timed > .task.fx-hop { overflow: visible; }
 .pl-item.timed.open { height: auto !important; z-index: 8 !important; }
 .pl-item.timed.open > .task { overflow: visible; }
@@ -138,3 +139,9 @@
 /* a habit that is not on the calendar yet can be dragged onto it */
 @media (pointer: fine) { .pl-habit.can-drag, .pl-habit.can-drag .pl-title { cursor: grab; } }
 .pl-habit.dragging { position: relative; z-index: 30; pointer-events: none; opacity: .92; filter: drop-shadow(0 calc(4 * var(--u)) 0 #0008); }
+
+/* a closed block on the grid shows just its title, in the middle (the time is where it sits; open it for the rest) */
+.pl-item.timed:not(.open) > .task { display: flex; align-items: center; }
+.pl-item.timed:not(.open) > .task > :not(.task-head) { display: none; }
+.pl-item.timed:not(.open) > .task > .task-head { flex: 1; min-width: 0; }
+.pl-board .pcheck { min-height: calc(24 * var(--u)); }   /* the tick's tap area must fit in a short block */
