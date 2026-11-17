@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { categoryFrameId, completedToday, effectiveStreak, sortHabits, type Habit, type HabitSort } from '../domain';
+import { completedToday, effectiveStreak, sortHabits, type Habit, type HabitSort } from '../domain';
 import type { Key } from '../i18n';
 import { actions, useAppState, useUndo } from '../data/hooks';
 import { useNow } from '../hooks';
@@ -9,6 +9,7 @@ import { PixelButton } from '../ui/PixelButton';
 import { Chip, Icon, PixelCheckbox } from '../ui/misc';
 import { HabitForm } from './HabitForm';
 import { CategoryManager } from './CategoryManager';
+import { CategoryChip } from '../ui/CategoryChip';
 import { useI18n, useT } from '../i18n/useT';
 import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
 import { CATEGORY_TINT } from '../ui/colors';
@@ -28,10 +29,10 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
   useEffect(() => { if (!burst) return; const id = setTimeout(() => setBurst(false), 1600); return () => clearTimeout(id); }, [burst]);
   // while the burst plays the card keeps its live colours; it turns into the stone "done" card once the effect has finished
   const shownDone = done && !burst;
-  const group = useAppState(st => (habit.group ? st.categories.find(c => c.id === habit.group) : undefined));   // its own category frame wins over the default card
-  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(categoryFrameId(group.frame), 'app') : frameOr(el.habit, 'app');
+  const group = useAppState(st => (habit.group ? st.categories.find(c => c.id === habit.group) : undefined));   // shown as a chip in its own frame; the card itself follows the theme manager
+  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.habit, 'app');
   const mainFrame = useAppState(st => st.settings.frameTheme);
-  const cat = shownDone || !!group || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
+  const cat = shownDone || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
   const tinted = useTintedFrame(theme, cat, cat);   // the whole card takes its Body/Mind/Soul colour
   const undo = useUndo();
   const canUndo = !!undo && 'habitId' in undo && undo.habitId === habit.id;   // within 10 s of ticking it
@@ -63,7 +64,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
         <Chip>{t(habit.frequency.toLowerCase() as 'daily' | 'weekly' | 'monthly').toUpperCase()}</Chip>
         <Chip color={streak > 0 ? 'var(--success)' : 'var(--bg-3)'}>{t('streak').toUpperCase()} {streak}</Chip>
         <Chip color="var(--bg-3)">{t('best').toUpperCase()} {habit.bestStreak}</Chip>
-        {group && <Chip color="var(--bg-3)">{group.name}</Chip>}
+        {group && <CategoryChip category={group} />}
       </div>
     </PixelFrame>
   );

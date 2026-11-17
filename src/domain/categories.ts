@@ -13,8 +13,8 @@ export const CATEGORY_FRAMES: readonly string[] = [
   'blue_purple', 'grey_gun', 'grey_stone_chiseld', 'stone_block', 'mossy_stone_pixel_frame', 'red_gold', 'gold_thick', 'red_thick', 'bronze',
   'blue', 'green', 'orange', 'gold', 'red',
 ];
-/** The frame id a card or swatch draws: the sprite as drawn (not stretched or repeated), so the pixel art shows. */
-export const categoryFrameId = (frame: string) => `${frame}:stretch:clean:16`;
+/** The frame id a chip or swatch draws: the sprite as drawn (not stretched or repeated), so the pixel art shows. */
+export const categoryFrameId = (frame: string, corner: 8 | 16 = 16) => `${frame}:stretch:clean:${corner}`;
 export const DEFAULT_CATEGORY_FRAME = 'blue_ornate';
 
 export const cleanCategoryName = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, MAX_CATEGORY_NAME);

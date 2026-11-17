@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { categoryFrameId, isOverdue, quickPresets, tagCounts, urgencyOf, viewTasks, type Category, type Task, type TaskSort } from '../domain';
+import { isOverdue, quickPresets, tagCounts, urgencyOf, viewTasks, type Category, type Task, type TaskSort } from '../domain';
 import { actions, useAppState } from '../data/hooks';
 import { useNow } from '../hooks';
 import { PixelFrame } from '../ui/PixelFrame';
@@ -9,6 +9,7 @@ import { DIFFICULTY_COLORS, PRIORITY_COLORS } from '../ui/colors';
 import { TaskForm } from './TaskForm';
 import { TagManager } from './TagManager';
 import { CategoryManager } from './CategoryManager';
+import { CategoryChip } from '../ui/CategoryChip';
 import { FirstTaskTutorial } from '../ui/FirstTaskTutorial';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
@@ -33,15 +34,15 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
   const open = !task.completed;
   const [expanded, setExpanded] = useState(false);   // clicking the title shows the description
   const moreId = useId();
-  const group = useAppState(st => (task.group ? st.categories.find(c => c.id === task.group) : undefined));   // its own category frame wins over the default card
-  const theme = task.completed ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(categoryFrameId(group.frame), 'app') : frameOr(el.task, 'app');
+  const group = useAppState(st => (task.group ? st.categories.find(c => c.id === task.group) : undefined));   // shown as a chip in its own frame; the card itself follows the theme manager
+  const theme = task.completed ? frameOr(el.done, 'grey_stone_chiseld') : frameOr(el.task, 'app');
   const urgency = open && !leaving ? urgencyOf(task, now) : 'none';
   // One rule per thing: the card is the Body/Mind/Soul colour, one light overlay over the whole card (border and inside) shows
   // difficulty (green easy -> red hard), and urgency is shown only by the blinking "!" gem in the corner, so the colours never stack into muddy mixes.
   // A colour variant chosen for the frame wins over the category colour (otherwise the tint would paint over it): then only the
   // light difficulty overlay is added.
   const mainFrame = useAppState(st => st.settings.frameTheme);
-  const variant = (!task.completed && !!group) || resolveFrame(theme, mainFrame, '', '').hue !== 0;
+  const variant = resolveFrame(theme, mainFrame, '', '').hue !== 0;
   const cat = open && !variant ? CATEGORY_TINT[task.category] : null;
   const diff = difficultyTint(task.difficulty);
   const tinted = useTintedFrame(theme, cat, variant && open ? diff : cat, open ? (variant
@@ -73,7 +74,7 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
         {task.estimatedDuration != null && <Chip>{task.estimatedDuration}m</Chip>}
         <Chip color="#b6a432">{task.experienceReward} XP</Chip>
         {(task.completionCount ?? 0) >= 2 && <Chip color="var(--info)">×{task.completionCount}</Chip>}
-        {group && <Chip color={group.frame === 'gold' ? '#b6a432' : 'var(--bg-3)'}>{group.name}</Chip>}
+        {group && <CategoryChip category={group} />}
         {task.tags.map(t => <Chip key={t} color="var(--bg-3)">#{t}</Chip>)}
       </div>
     </PixelFrame>
