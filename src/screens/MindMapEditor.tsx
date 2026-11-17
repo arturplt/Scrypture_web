@@ -22,7 +22,7 @@ const UNDO_LIMIT = 50, DRAG_START = 5, DOUBLE_TAP_MS = 400;
 /** Text being typed is shown at least this big (px), zooming in if needed. */
 const TYPE_MIN_PX = 12;
 /** A box frame: plain edges and centre, and a border half as wide as the sprite's (8 units), so small boxes are not mostly border. */
-const frameOf = (theme: string) => `${theme}:stretch:clean:8`;
+const frameOf = (theme: string) => `${theme}:stretch:clean:16`;
 
 type Sel = { node: string } | { link: string } | null;
 /** Typing straight into a box. `before` is the map to go back to (for a new box: the map without it). */

@@ -17,6 +17,9 @@
 .pf.mm-node { position: absolute; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); padding: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
   font-size: calc(8 * var(--u)); line-height: calc(10 * var(--u)); white-space: pre; color: var(--text); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
+.pf.mm-node { border: 0; border-image: none; isolation: isolate; }
+/* the frame is a backdrop drawn at full size (never below 1x); the text sits over it, so box sizes do not depend on the border */
+.pf.mm-node::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; image-rendering: pixelated; border: solid transparent; border-width: calc(16 * var(--u)); border-image: var(--frame) 16 fill / calc(16 * var(--u)) / 0 var(--edge, stretch); }
 .pf.mm-node.light { color: #2a2418; text-shadow: none; }
 .mm-node.on, .mm-node:focus-visible { outline: calc(2 * var(--u)) solid #ffd54f; outline-offset: calc(1 * var(--u)); }
 .mm-node.src { outline: calc(2 * var(--u)) dashed #ffd54f; outline-offset: calc(1 * var(--u)); }
