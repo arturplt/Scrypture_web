@@ -20,15 +20,12 @@ export function Slot({ id, n, as: Tag = 'span', glow = Tag === 'button', ...rest
   );
 }
 
-export function Inventory({ emotion, now, frame = 'app' }: { emotion: Emotion; now: number; frame?: string }) {
+/** The whole inventory: all item slots (tap hay or a berry to feed him) and the hunger hint. */
+export function Inventory({ emotion, frame = 'app' }: { emotion: Emotion; frame?: string }) {
   const t = useT();
   const inv = useAppState(s => s.inventory);
   const hungry = emotion === 'HUNGRY';
   const hay = inv.hay ?? 0, berry = inv.berry ?? 0;
-  const deal = tradeFor(now);
-  const can = willTrade(emotion);
-  const have = (inv[deal.request] ?? 0) >= 1;
-
   return (
     <PixelFrame theme={frameOr(frame, 'app')} scale={1} className="card">
       <div className="inv">
@@ -39,12 +36,22 @@ export function Inventory({ emotion, now, frame = 'app' }: { emotion: Emotion; n
           : <Slot key={id} id={id} n={inv[id] ?? 0} />)}
       </div>
       {hungry && <div className="small" style={{ color: 'var(--body)' }}>{hay > 0 ? t('hungryTapHay') : berry > 0 ? t('hungryTapBerry') : t('hungryCollectHay')}</div>}
-      <div className="trade">
-        {can ? (<>
-          <PixelButton scale={1} disabled={!have} onClick={() => actions.trade()}>{t('trade')}</PixelButton>
-          <Slot id={deal.request} n={1} /><span>→</span><Slot id={deal.offer} n={1} />
-        </>) : <span className="small muted">{t('noTradeMood')}</span>}
-      </div>
     </PixelFrame>
   );
+}
+
+type Deal = ReturnType<typeof tradeFor>;
+
+/** Today's trade slot beside Bóbr: what he asks for on his left, what he gives on his right. Nothing while he is not in the mood. */
+export function TradeSlot({ emotion, deal, side }: { emotion: Emotion; deal: Deal; side: 'left' | 'right' }) {
+  if (!willTrade(emotion)) return <div className="pen-slots" />;
+  return <div className="pen-slots"><Slot id={side === 'left' ? deal.request : deal.offer} n={1} /></div>;
+}
+
+/** The trade button, laid over the pen's bottom border (shown while the trade is open: tap Bóbr to open or close it). */
+export function TradeBar({ deal }: { deal: Deal }) {
+  const t = useT();
+  const inv = useAppState(s => s.inventory);
+  const have = (inv[deal.request] ?? 0) >= 1;
+  return <div className="trade-bar"><span className="trade-arrow" aria-hidden>→</span><PixelButton scale={1} disabled={!have} onClick={() => actions.trade()}>{t('trade')}</PixelButton></div>;
 }

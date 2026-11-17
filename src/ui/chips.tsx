@@ -59,7 +59,7 @@ export function useCatChipStyle(cat: 'all' | 'body' | 'mind' | 'soul'): string {
 }
 
 /** A filter chip with its own style (the category row on the Tasks screen). */
-export function ChipButton({ cat, on, onClick, children }: { cat: 'all' | 'body' | 'mind' | 'soul'; on: boolean; onClick: () => void; children: React.ReactNode }) {
+export function ChipButton({ cat, on, onClick, children, big = false, ariaLabel }: { cat: 'all' | 'body' | 'mind' | 'soul'; big?: boolean; ariaLabel?: string; on: boolean; onClick: () => void; children: React.ReactNode }) {
   const vars = useChipVars(useCatChipStyle(cat));
-  return <button className={`seg ${on ? 'on' : ''}`} style={vars} aria-pressed={on} onClick={onClick}>{children}</button>;
+  return <button className={`seg ${big ? 'cat-big' : ''} ${on ? 'on' : ''}`} style={big ? { ...vars, '--chip-scale': 4 } as React.CSSProperties : vars} aria-pressed={on} aria-label={ariaLabel} onClick={onClick}>{children}</button>;
 }

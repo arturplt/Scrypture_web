@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { completedToday, effectiveStreak, sortHabits, type Habit, type HabitSort } from '../domain';
+import { completedToday, effectiveStreak, sortHabits, type Category, type Habit, type HabitSort } from '../domain';
 import type { Key } from '../i18n';
 import { actions, useAppState, useUndo } from '../data/hooks';
 import { useNow } from '../hooks';
@@ -9,6 +9,7 @@ import { PixelButton } from '../ui/PixelButton';
 import { Chip, Icon, PixelCheckbox } from '../ui/misc';
 import { HabitForm } from './HabitForm';
 import { CategoryManager } from './CategoryManager';
+import { Dropdown } from '../ui/Dropdown';
 import { CategoryChip } from '../ui/CategoryChip';
 import { useI18n, useT } from '../i18n/useT';
 import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
@@ -71,6 +72,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
   );
 }
 
+const CATS: [Category, Key][] = [['BODY', 'body'], ['MIND', 'mind'], ['SOUL', 'soul']];
 const SORTS: [HabitSort, Key][] = [['newest', 'sortNew'], ['streak', 'sortStreak'], ['open', 'sortOpenFirst'], ['name', 'sortName']];
 
 export function Habits() {
@@ -80,6 +82,7 @@ export function Habits() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [sort, setSort] = useState<HabitSort>('newest');
+  const [category, setCategory] = useState<Category | 'ALL'>('ALL');
   const cats = useAppState(s => s.categories);
   const [pick, setPick] = useState<string | null>(null);
   const [managingCats, setManagingCats] = useState(false);
@@ -89,33 +92,33 @@ export function Habits() {
 
   return (
     <div className="screen" ref={flip.ref}>
-      <div className="row between">
-        <h1 className="title">{t('chatHabits')}</h1>
-        <PixelButton scale={1} onClick={() => setCreating(true)}>{t('newButton')}</PixelButton>
-      </div>
       {habits.length > 0 && <div className="muted small">{t('doneTodayCount', { done: doneToday, total: habits.length })}</div>}
       {habits.length === 0 && (
         <PixelFrame theme="app" scale={1} className="card"><p className="muted">{t('createFirstHabit')}</p><div className="row"><PixelButton scale={1} onClick={() => navigate('/start')}>{t('startHere')}</PixelButton></div></PixelFrame>
       )}
-      {habits.length > 1 && (
-        <div className="row wrap" role="group" aria-label={t('sort')}>
-          <span className="muted small">{t('sort')}</span>
-          {SORTS.map(([k, label]) => (
-            <button key={k} className={`seg ${sort === k ? 'on' : ''}`} aria-pressed={sort === k} onClick={() => setSort(k)}>{t(label)}</button>
-          ))}
-        </div>
-      )}
       {(cats.length > 0 || habits.length > 0) && (
         <div className="row wrap" role="group" aria-label={t('customCategory')}>
-          <span className="muted small">{t('customCategory')}</span>
-          {cats.length > 0 && <button className={`seg ${!activeGroup ? 'on' : ''}`} aria-pressed={!activeGroup} onClick={() => setPick(null)}>{t('allTags')}</button>}
-          {cats.map(c => <button key={c.id} className={`seg ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setPick(activeGroup === c.id ? null : c.id)}>{c.name}</button>)}
           <button className="seg" onClick={() => setManagingCats(true)}>{t('manageCategories')}</button>
+          {cats.map(c => <button key={c.id} type="button" className={`cat-filter ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setPick(activeGroup === c.id ? null : c.id)}><CategoryChip category={c} /></button>)}
+        </div>
+      )}
+      {habits.length > 0 && (
+        <div className="row" role="group" aria-label={t('categoryFilter')} style={{ flexWrap: 'nowrap' }}>
+          {CATS.map(([c, k]) => (
+            <button key={c} type="button" className="cat-icon" aria-pressed={category === c} aria-label={t(k).toUpperCase()} onClick={() => setCategory(category === c ? 'ALL' : c)}><Icon name={`${c.toLowerCase()}_${category === c ? 'active' : 'inactive'}`} size={48} alt="" /></button>
+          ))}
+          {habits.length > 1 && (
+            <Dropdown ariaLabel={t('sort')} label={t(SORTS.find(([k]) => k === sort)![1])}>
+              {close => SORTS.filter(([k]) => k !== sort).map(([k, label]) => (
+                <button key={k} type="button" role="option" aria-selected={false} className="seg" onClick={() => { setSort(k); close(); }}>{t(label)}</button>
+              ))}
+            </Dropdown>
+          )}
         </div>
       )}
       {/* Daily, weekly and monthly habits are kept apart; the chosen sort applies inside each group */}
       {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(f => {
-        const group = sortHabits(habits.filter(h => h.frequency === f && (!activeGroup || !!h.groups?.includes(activeGroup))), sort, now);
+        const group = sortHabits(habits.filter(h => h.frequency === f && (category === 'ALL' || h.category === category) && (!activeGroup || !!h.groups?.includes(activeGroup))), sort, now);
         if (!group.length) return null;
         return (
           <section key={f} className="list" aria-label={t(f.toLowerCase() as 'daily' | 'weekly' | 'monthly')}>
@@ -124,6 +127,9 @@ export function Habits() {
           </section>
         );
       })}
+      <div className="fab-wrap">
+        <PixelButton scale={1} className="fab-add" aria-label={t('newButton')} onClick={() => setCreating(true)}>+</PixelButton>
+      </div>
       {managingCats && <CategoryManager onClose={() => setManagingCats(false)} />}
       {creating && <HabitForm onClose={() => setCreating(false)} />}
       {editing && <HabitForm habit={editing} onClose={() => setEditing(null)} />}

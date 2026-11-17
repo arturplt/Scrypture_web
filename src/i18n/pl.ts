@@ -384,6 +384,7 @@ export const pl: Record<Key, string> = {
   "hungryCollectHay": "Bóbr jest głodny! Zbierz trochę siana.",
   "trade": "Handel",
   "noTradeMood": "Bóbr nie ma ochoty na handel.",
+  "noTradeMoodPop": "Bóbr nie ma nastroju na handel!",
   "feedAria": "Nakarm Bóbra sianem",
   "newButton": "+ Nowe",
   "all": "WSZYSTKO",

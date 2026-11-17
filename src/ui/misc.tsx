@@ -56,11 +56,11 @@ export function StatBox({ stat, value, frame = 'app', onLongPress, tip }: { stat
   const hold = useLongPress(onLongPress);
   const tipFrame = useAppState(s => s.settings.elements.tip);
   return (
-    <PixelFrame theme={frameOr(frame, 'app')} scale={1} className={`statbox stat-${stat} ${onLongPress ? 'holdable' : ''}`} {...hold}>
+    <div className={`statbox stat-${stat} ${onLongPress ? 'holdable' : ''}`} {...hold}>
       <img className="stat-icon" src={rawUrl(`${stat}_active`)} alt={stat} />
-      <div className="stat-val">{value}</div>
+      <PixelFrame theme={frameOr(frame, 'app')} scale={1} className="stat-num"><div className="stat-val">{value}</div></PixelFrame>
       {tip && <span className="tip" role="tooltip"><PixelFrame as="span" theme={backdropFrame(tipFrame)} scale={1} className="tip-bg" aria-hidden /><span className="tip-text">{tip}</span></span>}
-    </PixelFrame>
+    </div>
   );
 }
 

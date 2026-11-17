@@ -4,7 +4,9 @@
   border: solid transparent;
   /* --k = border slice in sprite pixels (16 = the whole tile); buttons set a smaller one for a thinner border.
      --bw = how wide the border is drawn, in units (default: as wide as the slice, i.e. Normal in Theme manager). */
-  border-width: calc(var(--bw, var(--k, 16)) * var(--u) * var(--s));
+  /* the layout border (what pushes content inwards) never grows past 16: a bigger corner size is drawn wider (border-image-width) over the padding
+     instead, so inner containers keep the same minimal spacing at every scale and the content simply overlays the frame art. */
+  border-width: calc(min(var(--bw, var(--k, 16)), 16) * var(--u) * var(--s));
   border-image: var(--frame) var(--k, 16) fill / calc(var(--bw, var(--k, 16)) * var(--u) * var(--s)) / 0 var(--edge, stretch);
   image-rendering: pixelated;
   padding: calc(var(--space) * 2);

@@ -12,6 +12,8 @@
 .plate { text-transform: uppercase; background: #0c0b08; color: #ffb000; padding: calc(3 * var(--u)) calc(6 * var(--u)); border: calc(2 * var(--u)) solid #000; box-shadow: inset 0 0 0 calc(1 * var(--u)) #3a3220; text-shadow: 0 0 calc(3 * var(--u)) #ff9a00aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .plate.dim { color: #d09000; }
 .plate.lv { color: #7dff9a; text-shadow: 0 0 calc(3 * var(--u)) #3cff6a99; margin-left: auto; }
+.plate.clock { color: #7dff9a; text-shadow: 0 0 calc(3 * var(--u)) #3cff6a99; }
+.device-top { margin-top: calc(-6 * var(--u)); }   /* the strip sits up in the case's top edge */
 .leds { display: flex; gap: calc(5 * var(--u)); padding-right: calc(2 * var(--u)); }
 .led { display: block; width: calc(6 * var(--u)); height: calc(6 * var(--u)); background: #26272a; border: calc(1 * var(--u)) solid #000; box-shadow: inset calc(1 * var(--u)) calc(1 * var(--u)) 0 #0006; }
 .led.on { background: #4cff6a; box-shadow: 0 0 calc(4 * var(--u)) #4cff6a88, inset calc(1 * var(--u)) calc(1 * var(--u)) 0 #fff6; }
@@ -40,9 +42,9 @@
 :root[data-device] .undo-bar { bottom: calc(var(--nav-h, 64px) + 28 * var(--u)); }
 
 /* a smaller key row: plain stretched frame (see FrameDensity), icons at their native 1x size, slimmer tab outlines */
-:root[data-device] .nav-frame { padding: calc(2 * var(--u)); gap: calc(2 * var(--u)); }
-:root[data-device] .nav-frame:not([data-active='plate']) .nav-btn { border-width: calc(3 * var(--u)); min-height: calc(26 * var(--u)); }
-:root[data-device] .nav-frame[data-active='plate'][data-labels='icons'] .nav-btn { width: calc(34 * var(--u)); height: calc(34 * var(--u)); }
+:root[data-device] .nav-frame { border-width: calc(6 * var(--u) * var(--s, 1)); padding: 0; gap: calc(2 * var(--u)); }
+:root[data-device] .nav-frame:not([data-active='plate']) .nav-btn { border-width: calc(3 * var(--u)); min-height: calc(34 * var(--u)); }
+:root[data-device] .nav-frame[data-active='plate'][data-labels='icons'] .nav-btn { width: calc(46 * var(--u)); height: calc(40 * var(--u)); }
 
 /* phone: the case runs to the very edge of the screen (only the notch / home-bar safe areas are kept) and its frame is minimal */
 :root[data-device][data-layout='compact'] .app { max-width: none; padding: 0; }
@@ -64,3 +66,6 @@
 /* phone: less room wasted around the screens (the case itself already hugs the edges) */
 :root[data-device][data-layout='compact'] .content { padding: calc(6 * var(--u)); }
 :root:not([data-device])[data-layout='compact'] .content { padding-left: calc(8 * var(--u)); padding-right: calc(8 * var(--u)); padding-top: calc(8 * var(--u)); }
+
+/* the outer case: a thin layout border (its art is still drawn at the chosen size, over the screen's edge). Set directly, not as an inherited variable, so the frames inside keep theirs. */
+.pf.device-case { border-width: calc(8 * var(--u) * var(--s, 1)); }

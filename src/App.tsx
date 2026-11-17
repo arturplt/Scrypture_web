@@ -1,5 +1,5 @@
 import { useRoute, navigate } from './router';
-import { Icon } from './ui/misc';
+import { Chip, Icon } from './ui/misc';
 import { PixelFrame } from './ui/PixelFrame';
 import { Dashboard } from './screens/Dashboard';
 import { TaskDetail } from './screens/TaskDetail';
@@ -44,6 +44,7 @@ import { DeviceShell } from './ui/DeviceShell';
 import { FrameDensity } from './ui/PixelFrame';
 import { useNavPreview } from './ui/navPreview';
 import { NAV_DEFS, isActivePath } from './ui/navItems';
+import { useNavBadges } from './ui/navBadges';
 import { LIGHT_FRAMES, frameOr, resolveFrame, splitFrame } from './ui/themes';
 import type { Key } from './i18n';
 import './app.css';
@@ -88,6 +89,7 @@ export function App() {
   const chips = useAppState(s => s.settings.chips);
   const chipStyle = useChipVars(chips);
   const nav = useAppState(s => s.settings.nav);
+  const badges = useNavBadges();
   const plate = usePlateAttrs(nav.plate);
   const mainFrame = useAppState(s => s.settings.frameTheme);
   const navFrame = frameOr(nav.frame, 'wood_steel');
@@ -161,7 +163,8 @@ export function App() {
             const active = isActivePath(route, d.path);
             return (
               <button key={d.id} className={`nav-btn ${active ? 'active' : ''}`} onClick={() => navigate(d.path)} aria-label={t(d.label)} aria-current={active ? 'page' : undefined}>
-                <Icon name={d.icon} size={device ? Math.round(d.size / 2) : d.size} />
+                <Icon name={d.icon} size={device ? Math.round(d.size * 0.75) : d.size} />
+                {badges[d.path] && <span className="menu-badge"><Chip color="#b6a432">{badges[d.path]}</Chip></span>}
                 {nav.labels === 'both' && <span className="nav-label">{t(d.label)}</span>}
               </button>
             );

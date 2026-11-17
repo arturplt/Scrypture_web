@@ -1,13 +1,17 @@
 import { bobrNudge, todaySummary, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, MAX_LEVEL } from '../domain';
 import { useAppState } from '../data/hooks';
 import { useNow } from '../hooks';
+import { useEffect, useState } from 'react';
+import { tradeFor, willTrade } from '../domain';
+import { useNavBadges } from '../ui/navBadges';
+import { NAV_DEFS } from '../ui/navItems';
 import { useT } from '../i18n/useT';
 import { navigate } from '../router';
 import { FrameDensity, PixelFrame } from '../ui/PixelFrame';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { Chip, Icon, StatBox } from '../ui/misc';
 import { BobrPen } from '../ui/BobrPen';
-import { Inventory } from '../ui/Inventory';
+import { Inventory, TradeBar, TradeSlot } from '../ui/Inventory';
 import { frameOr } from '../ui/themes';
 
 /** Home as a game menu: every piece of information and every destination sits in its own frame. */
@@ -29,24 +33,26 @@ export function Dashboard() {
   const emotion = emotionNow(bobr, now);
   const left = xpForNextLevel(stats.level, stats.totalExperiencePoints);
 
-  const openTasks = tasks.filter(x => !x.completed).length;
-  const habitsToDo = habits.filter(h => !completedToday(h, now)).length;
-  const unlocked = achievements.filter(a => a.unlocked).length;
-  const planned = todaySummary({ ...planner, tasks, habits }, now).total;   // activities and to-dos still open today
+  const [noMood, setNoMood] = useState(false);   // a pop-up that fades on its own when he refuses
+  useEffect(() => { if (!noMood) return; const id = setTimeout(() => setNoMood(false), 1800); return () => clearTimeout(id); }, [noMood]);
+  const [trading, setTrading] = useState(false);   // tapping Bóbr opens / closes the trade (slots, arrow, button)
+  const deal = tradeFor(now);
+  const badges = useNavBadges();
+  const navItems = useAppState(s => s.settings.nav.items);
+  const inNav = new Set(NAV_DEFS.filter(d => navItems.includes(d.id)).map(d => d.path));   // what the nav bar already shows is not repeated here
   const nudge = bobrNudge({ ...planner, tasks, habits }, now);
   const nudgeText = !nudge ? '' : nudge.kind === 'now' ? t('nudgeNow', { title: nudge.title }) : nudge.kind === 'soon' ? t('nudgeSoon', { title: nudge.title, n: nudge.minutes }) : t('nudgeLate', { n: nudge.n });
   /** The menu: destination, sprite, label and an optional counter badge. */
   const menu = [
-    { path: '/tasks', icon: 'task', label: t('chatTasks'), badge: openTasks ? String(openTasks) : null },
-    { path: '/habits', icon: 'habit', label: t('chatHabits'), badge: habitsToDo ? String(habitsToDo) : null },
-    { path: '/plan', icon: 'box_checked', label: t('planner'), badge: planned ? String(planned) : null },
+    { path: '/tasks', icon: 'task', label: t('chatTasks'), badge: badges['/tasks'] ?? null },
+    { path: '/habits', icon: 'habit', label: t('chatHabits'), badge: badges['/habits'] ?? null },
+    { path: '/plan', icon: 'box_checked', label: t('planner'), badge: badges['/plan'] ?? null },
     { path: '/start', icon: 'target', label: t('startHere'), badge: null },
-    { path: '/chat', icon: 'chat_bubble_blue', label: t('chatButton'), badge: null },
     { path: '/games', icon: 'joystick_knob', label: t('games'), badge: null },
-    { path: '/achievements', icon: 'achievement_gold', label: t('trophies'), badge: String(unlocked) },
+    { path: '/achievements', icon: 'achievement_gold', label: t('trophies'), badge: badges['/achievements'] ?? null },
     { path: '/apps', icon: 'pencil_yellow', label: t('apps'), badge: null },
     { path: '/settings', icon: 'rearrange', label: t('settings'), badge: null },
-  ];
+  ].filter(m => !inNav.has(m.path));
 
   return (
     <FrameDensity.Provider value="slim">
@@ -67,13 +73,22 @@ export function Dashboard() {
           <StatBox stat="soul" value={stats.soul} frame={el.dashSoul} onLongPress={() => navigate('/apps/notes')} tip={t('holdSoulTip')} />
         </div>
 
-        <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card"><BobrPen stage={bobrStage(stats.level)} emotion={emotion} /></PixelFrame>
+        <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card">
+          <div className="pen-row">
+            {trading ? <TradeSlot emotion={emotion} deal={deal} side="left" /> : <div className="pen-slots" />}
+            <BobrPen stage={bobrStage(stats.level)} emotion={emotion} onBobr={() => (willTrade(emotion) ? setTrading(v => !v) : (setTrading(false), setNoMood(true)))} bobrLabel={t('trade')} bobrOn={trading} onChat={() => navigate('/chat')} chatLabel={t('chatButton')} />
+            {trading ? <TradeSlot emotion={emotion} deal={deal} side="right" /> : <div className="pen-slots" />}
+          </div>
+          {trading && willTrade(emotion) && <TradeBar deal={deal} />}
+          {noMood && <div className="mood-pop" role="status">{t('noTradeMoodPop')}</div>}
+        </PixelFrame>
         {nudge && <PixelFrame as="button" theme={fr(el.dashNudge)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
 
         <div className="needs">
           <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span>{t('hunger').toUpperCase()}</span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>
           <PixelFrame theme={fr(el.dashHappiness)} scale={1} className="card"><div className="meter"><span>{t('happiness').toUpperCase()}</span><PixelProgressBar value={happiness} max={1} look={bars.happiness} scale={1} label={t('happiness')} /></div></PixelFrame>
         </div>
+        <Inventory emotion={emotion} frame={el.dashInventory} />
       </div>
 
       <div className="col col-b">
@@ -86,7 +101,6 @@ export function Dashboard() {
             </PixelFrame>
           ))}
         </nav>
-        <Inventory emotion={emotion} now={now} frame={el.dashInventory} />
       </div>
     </div>
     </FrameDensity.Provider>

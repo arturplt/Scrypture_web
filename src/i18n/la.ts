@@ -384,6 +384,7 @@ export const la: Record<Key, string> = {
   "hungryCollectHay": "Bóbr esurit! Collige faenum.",
   "trade": "Merx",
   "noTradeMood": "Bóbr mercaturam hodie non vult.",
+  "noTradeMoodPop": "Bóbr hodie mercari non vult!",
   "feedAria": "Bóbrum faeno pasce",
   "newButton": "+ Novum",
   "all": "OMNIA",

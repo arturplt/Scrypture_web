@@ -383,6 +383,7 @@ export const en = {
   "hungryCollectHay": "Bóbr is hungry! Collect some hay.",
   "trade": "Trade",
   "noTradeMood": "Bóbr is not in the mood to trade.",
+  "noTradeMoodPop": "Bóbr is not in the mood to trade!",
   "feedAria": "Feed Bóbr with hay",
   "newButton": "+ New",
   "all": "ALL",

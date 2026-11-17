@@ -17,7 +17,7 @@ import { PRIORITY_KEY, type Key } from '../i18n';
 import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
 import { CATEGORY_TINT, URGENCY_TINT, difficultyTint } from '../ui/colors';
 import { useTintedFrame } from '../ui/tintFrame';
-import { ChipButton } from '../ui/chips';
+import { Dropdown } from '../ui/Dropdown';
 import { Sparkles, fxDuration, fxVars, prefersReducedMotion, useFlip } from '../ui/CompleteFx';
 
 const fmtDate = (ms: number, locale: string) => new Date(ms).toLocaleDateString(locale, { day: 'numeric', month: 'short' });
@@ -83,7 +83,7 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
   );
 }
 
-const CATS: [Category | 'ALL', Key][] = [['ALL', 'all'], ['BODY', 'body'], ['MIND', 'mind'], ['SOUL', 'soul']];
+const CATS: [Category, Key][] = [['BODY', 'body'], ['MIND', 'mind'], ['SOUL', 'soul']];
 const SORTS: [TaskSort, Key][] = [['newest', 'sortNew'], ['due', 'sortDue'], ['priority', 'sortPrio'], ['difficulty', 'sortDiff'], ['created', 'sortCreatedDate'], ['none', 'noSort']];
 
 export function Tasks() {
@@ -95,6 +95,7 @@ export function Tasks() {
   const [sort, setSort] = useState<TaskSort>('newest');
   const [tag, setTag] = useState<string | null>(null);
   const [quick, setQuick] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
   const [managing, setManaging] = useState(false);
   const [group, setGroup] = useState<string | null>(null);
   const [managingCats, setManagingCats] = useState(false);
@@ -115,39 +116,24 @@ export function Tasks() {
   const tags = tagCounts(tasks);
   const activeTag = tag && tags.some(x => x.tag === tag) ? tag : null;   // a tag that no longer exists filters nothing
   const presets = quickPresets(tasks).filter(p => !tasks.some(x => !x.completed && x.title.trim().toLowerCase() === p.title.trim().toLowerCase()));   // not while the same chore is already open
+  const quickList = presets.filter(p => p.title.toLowerCase().includes(quick.trim().toLowerCase()));   // the presets drop down under the box, narrowed by what is typed
   const { open, done } = viewTasks(tasks, { category, sort, showCompleted, tag: activeTag, group: activeGroup });
   const doneCount = tasks.filter(x => x.completed).length;
 
   return (
     <div className="screen" ref={flip.ref}>
-      <div className="row between">
-        <h1 className="title">{t('chatTasks')}</h1>
-        <PixelButton scale={1} onClick={() => setEditing('new')}>{t('newButton')}</PixelButton>
-      </div>
-
-      <div className="row wrap" role="group" aria-label={t('categoryFilter')}>
-        {CATS.map(([c, k]) => (
-          <ChipButton key={c} cat={c.toLowerCase() as 'all' | 'body' | 'mind' | 'soul'} on={category === c} onClick={() => setCategory(c)}>{c === 'ALL' ? t(k) : t(k).toUpperCase()}</ChipButton>
-        ))}
-      </div>
-      <div className="row wrap" role="group" aria-label={t('sort')}>
-        <span className="muted small">{t('sort')}</span>
-        {SORTS.map(([k, label]) => (
-          <button key={k} className={`seg ${sort === k ? 'on' : ''}`} aria-pressed={sort === k} onClick={() => setSort(k)}>{t(label)}</button>
-        ))}
-      </div>
 
       <form className="row wrap" onSubmit={e => { e.preventDefault(); const v = quick.trim(); if (!v) return; actions.addTask({ title: v.slice(0, 80), category: category === 'ALL' ? 'BODY' : category, priority: 'MEDIUM', difficulty: 2, ...(activeTag ? { tags: [activeTag] } : {}) }); setQuick(''); }}>
-        <input value={quick} maxLength={80} onChange={e => setQuick(e.target.value)} placeholder={t('quickAddPlaceholder')} aria-label={t('quickAdd')} style={{ flex: 1, minWidth: 0 }} />
+        <div className="dd" style={{ flex: 1, minWidth: 0 }}>
+          <input value={quick} maxLength={80} onChange={e => setQuick(e.target.value)} onFocus={() => setQuickOpen(true)} onBlur={() => setQuickOpen(false)} placeholder={t('quickAddPlaceholder')} aria-label={t('quickAdd')} style={{ width: '100%', boxSizing: 'border-box' }} />
+          {quickOpen && quickList.length > 0 && (
+            <div className="dd-list" role="listbox" aria-label={t('quickPresets')} style={{ width: '100%', maxWidth: 'none' }}>
+              {quickList.map(p => <button key={p.title} type="button" role="option" aria-selected={false} className="seg" title={`×${p.count}`} onMouseDown={e => e.preventDefault()} onClick={() => { actions.addTask({ title: p.title, category: p.category, priority: p.priority, difficulty: p.difficulty, tags: p.tags }); setQuick(''); setQuickOpen(false); }}>+ {p.title}</button>)}
+            </div>
+          )}
+        </div>
         <button type="submit" className="seg on" disabled={!quick.trim()}>{t('quickAdd')}</button>
       </form>
-      {presets.length > 0 && (
-        <div className="row wrap" role="group" aria-label={t('quickPresets')}>
-          <span className="muted small">{t('quickPresets')}</span>
-          {presets.map(p => <button key={p.title} className="seg" title={`×${p.count}`} onClick={() => actions.addTask({ title: p.title, category: p.category, priority: p.priority, difficulty: p.difficulty, tags: p.tags })}>+ {p.title}</button>)}
-        </div>
-      )}
-
       {tags.length > 0 && (
         <div className="row wrap" role="group" aria-label={t('tagFilter')}>
           <span className="muted small">{t('tagFilter')}</span>
@@ -158,10 +144,8 @@ export function Tasks() {
       )}
 
       <div className="row wrap" role="group" aria-label={t('customCategory')}>
-        <span className="muted small">{t('customCategory')}</span>
-        {cats.length > 0 && <button className={`seg ${!activeGroup ? 'on' : ''}`} aria-pressed={!activeGroup} onClick={() => setGroup(null)}>{t('allTags')}</button>}
-        {cats.map(c => <button key={c.id} className={`seg ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setGroup(activeGroup === c.id ? null : c.id)}>{c.name}</button>)}
         <button className="seg" onClick={() => setManagingCats(true)}>{t('manageCategories')}</button>
+        {cats.map(c => <button key={c.id} type="button" className={`cat-filter ${activeGroup === c.id ? 'on' : ''}`} aria-pressed={activeGroup === c.id} onClick={() => setGroup(activeGroup === c.id ? null : c.id)}><CategoryChip category={c} /></button>)}
       </div>
 
       {open.length === 0 && (
@@ -170,6 +154,16 @@ export function Tasks() {
           {tasks.length === 0 && <div className="row"><PixelButton scale={1} onClick={() => navigate('/start')}>{t('startHere')}</PixelButton></div>}
         </PixelFrame>
       )}
+      <div className="row" role="group" aria-label={t('categoryFilter')} style={{ flexWrap: 'nowrap' }}>
+        {CATS.map(([c, k]) => (
+          <button key={c} type="button" className="cat-icon" aria-pressed={category === c} aria-label={t(k).toUpperCase()} onClick={() => setCategory(category === c ? 'ALL' : c)}><Icon name={`${c.toLowerCase()}_${category === c ? 'active' : 'inactive'}`} size={48} alt="" /></button>
+        ))}
+      <Dropdown ariaLabel={t('sort')} label={t(SORTS.find(([k]) => k === sort)![1])}>
+        {close => SORTS.filter(([k]) => k !== sort).map(([k, label]) => (
+          <button key={k} type="button" role="option" aria-selected={false} className="seg" onClick={() => { setSort(k); close(); }}>{t(label)}</button>
+        ))}
+      </Dropdown>
+      </div>
       <div className="list cards">
         {open.map(x => <TaskCard key={x.id} task={x} now={now} onEdit={() => setEditing(x)} onComplete={() => complete(x)} leaving={leaving === x.id} />)}
       </div>
@@ -181,6 +175,9 @@ export function Tasks() {
         {done.map(x => <TaskCard key={x.id} task={x} now={now} onEdit={() => {}} onComplete={() => {}} leaving={false} />)}
       </div>
 
+      <div className="fab-wrap">
+        <PixelButton scale={1} className="fab-add" aria-label={t('newButton')} onClick={() => setEditing('new')}>+</PixelButton>
+      </div>
       {!tutorialSeen && tasks.length === 0 && !editing && <FirstTaskTutorial />}
       {managingCats && <CategoryManager onClose={() => setManagingCats(false)} />}
       {managing && <TagManager onClose={() => setManaging(false)} />}

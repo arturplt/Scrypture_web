@@ -35,12 +35,15 @@ function useSpawns() {
   return { items, collect };
 }
 
-export function BobrPen({ stage, emotion }: { stage: BobrStage; emotion: Emotion }) {
+export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn }: { /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
   const { items, collect } = useSpawns();
   const { px } = useUi();
   return (
     <div className="pen">
-      <BobrView stage={stage} emotion={emotion} />
+      {onBobr
+        ? <div className="pen-hit" role="button" tabIndex={0} aria-label={bobrLabel} aria-pressed={bobrOn} onClick={onBobr} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBobr(); } }}><BobrView stage={stage} emotion={emotion} /></div>
+        : <BobrView stage={stage} emotion={emotion} />}
+      {onChat && <button type="button" className="pen-chat" aria-label={chatLabel} title={chatLabel} onClick={onChat}><img className="pixel" src="/assets/raw/chat_bubble_blue.png" width={px(36)} alt="" /></button>}
       {items.map(it => (
         <button key={it.id} className="spawn" aria-label={`Collect ${it.itemId}`}
           style={{ transform: `translate(calc(-50% + ${px(it.x)}px), calc(-50% + ${px(it.y)}px))` }} onClick={() => collect(it)}>

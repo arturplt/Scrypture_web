@@ -10,7 +10,9 @@
 .card { display: grid; gap: calc(8 * var(--u)); }
 .meter { display: grid; gap: calc(4 * var(--u)); font-size: var(--fs-xs); }
 .bobr { display: grid; justify-items: center; gap: calc(4 * var(--u)); }
-.emoticon { min-height: calc(20 * var(--u) * var(--font-scale)); font-size: var(--fs-sm); color: var(--gold); }
+.emoticon { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: calc(48 * var(--u)); min-height: calc(32 * var(--u)); padding: 0 calc(8 * var(--u)); font-size: var(--fs-sm); color: var(--gold); margin: 0 auto; box-sizing: border-box; }   /* the frame is a backdrop; the text overlays it, centred */
+.pf.emoticon-bg { position: absolute; inset: 0; padding: 0; pointer-events: none; }
+.emoticon-text { position: relative; line-height: 1; white-space: nowrap; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000a; }
 .bobr-img { max-width: 100%; height: auto; }
 
 .nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; padding: 0 calc(16 * var(--u)) calc(8 * var(--u) + env(safe-area-inset-bottom)); pointer-events: none; }
@@ -434,7 +436,7 @@ textarea { resize: vertical; }
 :root[data-device] .dash { height: 100%; min-height: 0; gap: calc(8 * var(--u)); grid-template-rows: auto auto minmax(var(--pen-min), 1fr) auto auto auto; }
 :root[data-device][data-layout='medium'] .dash, :root[data-device][data-layout='wide'] .dash { grid-template-rows: minmax(0, 1fr); align-items: stretch; }   /* the columns must fill the screen height */
 :root[data-device][data-layout='medium'] .dash > .col, :root[data-device][data-layout='wide'] .dash > .col { display: grid; gap: calc(8 * var(--u)); min-height: 0; align-content: stretch; }
-:root[data-device][data-layout='medium'] .col-a, :root[data-device][data-layout='wide'] .col-a { grid-template-rows: auto auto minmax(var(--pen-min), 1fr) auto; }
+:root[data-device][data-layout='medium'] .col-a, :root[data-device][data-layout='wide'] .col-a { grid-template-rows: auto auto minmax(var(--pen-min), 1fr) auto auto; }
 :root[data-device][data-layout='medium'] .col-b, :root[data-device][data-layout='wide'] .col-b { grid-template-rows: minmax(min-content, 1fr) auto; }
 :root[data-device] .dash .pen-card { min-height: var(--pen-min); display: grid; grid-template-rows: minmax(0, 1fr); }
 :root[data-device] .dash .pen { height: 100%; min-height: 0; }
@@ -456,7 +458,7 @@ textarea { resize: vertical; }
 /* phone, tighter still: one-line level row, stat boxes with the icon beside the number, no hint lines under the inventory */
 :root[data-device][data-layout='compact'] .dash .card .row.between { flex-wrap: nowrap; gap: calc(4 * var(--u)); }
 :root[data-device][data-layout='compact'] .dash .card .row.between > span { min-width: 0; white-space: nowrap; font-size: calc(var(--fs-xs) * .9); }
-:root[data-device][data-layout='compact'] .dash .statbox { display: flex; align-items: center; justify-content: center; gap: calc(4 * var(--u)); }
+:root[data-device][data-layout='compact'] .dash .statbox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(2 * var(--u)); }   /* the number sits under the icon */
 :root[data-device][data-layout='compact'] .dash .stat-icon { margin: 0; }
 :root[data-device][data-layout='compact'] .dash .stat-val { margin-top: 0; }
 :root[data-device][data-layout='compact'] .dash .inv ~ .small { display: none; }
@@ -504,3 +506,58 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .pf.slot-bg { position: absolute; inset: 0; padding: 0; pointer-events: none; }
 .slot.slot-frame img, .slot.slot-frame .slot-n { position: relative; }
 .slot.slot-frame .slot-n { position: absolute; }
+
+/* Tasks screen: dropdown chips, big square add button, large category chips */
+.dd { position: relative; display: inline-block; }
+.dd-list { position: absolute; top: 100%; left: 0; z-index: 9; display: grid; gap: calc(2 * var(--u)); min-width: 100%; width: max-content; max-width: calc(260 * var(--u)); max-height: calc(280 * var(--u)); overflow-y: auto; padding-top: calc(2 * var(--u)); }
+.dd-list .seg { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fab-wrap { position: sticky; bottom: calc(var(--nav-clear) - 8 * var(--u)); z-index: 8; height: 0; justify-self: end; pointer-events: none; }   /* sticks above the nav bar (inside the case on the device) */
+.fab-add { position: absolute; right: 0; bottom: 0; pointer-events: auto; width: calc(56 * var(--u)); height: calc(56 * var(--u)); min-width: 0; min-height: 0; padding: 0; font-size: calc(24 * var(--u)); display: grid; place-items: center; }
+.seg.cat-big { min-height: calc(64 * var(--u)); }
+.cat-icon { background: none; border: 0; padding: calc(2 * var(--u)); cursor: pointer; line-height: 0; -webkit-tap-highlight-color: transparent; }
+.cat-icon:hover { filter: brightness(1.15); }
+.cat-icon:active { transform: translateY(calc(1 * var(--u))); }
+.cat-icon:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(1 * var(--u)); }
+.cat-icon { flex: 1 1 0; min-width: 0; display: grid; place-items: center; }
+.cat-icon .icon { width: 100%; height: auto; max-height: calc(80 * var(--u)); object-fit: contain; }
+.cat-filter { font: inherit; color: var(--text); background: none; border: 0; padding: calc(2 * var(--u)); cursor: pointer; line-height: 0; opacity: .6; -webkit-tap-highlight-color: transparent; }
+.cat-filter.on { opacity: 1; }
+.cat-filter:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(1 * var(--u)); }
+.nav-btn .menu-badge { left: 50%; right: auto; top: calc(-2 * var(--u)); transform: translateX(calc(4 * var(--u))); }   /* the counter sits on the icon's corner, not the wide key's */
+.statbox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }   /* the sprite stands bare; only the number has a frame */
+.stats3 .statbox { padding: 0; }
+.stat-num.pf { min-width: calc(40 * var(--u)); padding: 0 calc(2 * var(--u)); }
+.stat-num .stat-val { margin-top: 0; }
+.pen-chat { position: absolute; top: calc(6 * var(--u)); right: calc(6 * var(--u)); z-index: 3; background: none; border: 0; padding: 0; line-height: 0; cursor: pointer; animation: pen-chat-bob 2s steps(2) infinite; }
+.pen-chat:hover { filter: brightness(1.2); }
+@keyframes pen-chat-bob { 50% { transform: translateY(calc(-3 * var(--u))); } }
+@media (prefers-reduced-motion: reduce) { .pen-chat { animation: none; } }
+
+/* Bóbr's pen: inventory slots stand left and right of him, the trade bar is right below */
+.pen-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: calc(4 * var(--u)); padding: calc(4 * var(--u)); min-height: 0; }
+.pen-slots { display: grid; gap: calc(6 * var(--u)); align-content: center; }
+.pen-slots .slot { width: calc(44 * var(--u)); height: calc(44 * var(--u)); }
+.trade-bar { position: absolute; z-index: 4; left: 50%; top: calc(100% + min(var(--bw, 16), 16) * var(--u) * var(--s, 1) / 2); transform: translate(-50%, -50%); }   /* centred on the pen's bottom border */
+.pen-card { position: relative; overflow: visible; }
+.pen-card .pen-row { overflow: hidden; }
+.mood-pop { position: absolute; z-index: 5; left: 50%; bottom: calc(12 * var(--u)); transform: translateX(-50%); width: max-content; max-width: calc(100% - 24 * var(--u)); text-align: center; background: var(--bg-3); color: var(--gold); border: calc(2 * var(--u)) solid var(--gold); padding: calc(6 * var(--u)) calc(10 * var(--u)); font-size: var(--fs-xs); pointer-events: none; animation: mood-fade 1.8s steps(6) forwards; }
+@keyframes mood-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.trade-bar .trade { justify-content: center; min-height: 0; }
+:root[data-device] .dash .pen-card { grid-template-rows: minmax(0, 1fr) auto; }
+:root[data-device] .dash .pen-row { height: 100%; }
+
+.pen-hit { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pen-hit:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(-2 * var(--u)); }
+:root[data-device] .dash .pen-hit { height: 100%; min-height: 0; }
+
+/* the emoticon (and the trade arrow under it) overlays the pen, 4 units from its top, taking no layout space */
+.pen-card .pen-row { align-items: stretch; padding-top: 0; }
+.pen-card .pen { align-self: stretch; display: grid; align-content: center; }   /* the pen fills the card's height, so the overlay anchors to the card's top */
+.bobr-top { position: absolute; z-index: 2; top: calc(-0.5 * min(var(--bw, 16), 16) * var(--u)); left: 50%; transform: translateX(-50%); height: 0; display: grid; justify-items: center; gap: calc(2 * var(--u)); pointer-events: none; }   /* centred on the pen's top border, like the trade button on the bottom one */
+.bobr-top .emoticon { transform: translateY(-50%); }
+.pen-card .pen-row { overflow: visible; clip-path: inset(calc(-40 * var(--u)) 0 0 0); }   /* sides and bottom still clip; the top lets the emoticon straddle the border */
+
+/* the trade arrow sits right above the Trade button and sways side to side (left slot -> right slot) */
+.trade-arrow { position: absolute; left: 50%; bottom: calc(100% + 2 * var(--u)); color: var(--gold); font-size: var(--fs-md); line-height: 1; transform: translateX(-50%); animation: arrow-sway 1s steps(4) infinite alternate; pointer-events: none; }
+@keyframes arrow-sway { from { transform: translateX(calc(-50% - 6 * var(--u))); } to { transform: translateX(calc(-50% + 6 * var(--u))); } }
+@media (prefers-reduced-motion: reduce) { .trade-arrow { animation: none; } }
