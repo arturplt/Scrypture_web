@@ -1,7 +1,7 @@
 /* Own on-screen keyboard: no panel frame, the keys are the 9-slice buttons (Theme manager > keyboard keys), as big as the screen allows. */
 .kb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; display: grid; gap: calc(2 * var(--u, 1px)); padding: calc(2 * var(--u, 1px)); padding-bottom: calc(2 * var(--u, 1px) + env(safe-area-inset-bottom)); background: var(--bg-3, #1b1d12); border-top: calc(2 * var(--u, 1px)) solid rgba(0, 0, 0, .5); touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 .kb-row { display: flex; gap: calc(2 * var(--u, 1px)); }
-.kb-key.pb { flex: 1 1 0; min-width: 0; padding: 0; height: clamp(34px, 5.8dvh, 50px); min-height: 0; justify-content: center; font-size: var(--fs-xs, 10px); }
+.kb-key.pb { flex: 1 1 0; min-width: 0; padding: 0; height: clamp(34px, 5.8dvh, 50px); min-height: 0; display: flex; align-items: center; justify-content: center; font-size: var(--fs-xs, 10px); }
 .kb-key.on { filter: brightness(1.4); }
 /* Held letter: its variants pop up above the key. */
 .kb-key.pb { position: relative; overflow: visible; }
@@ -18,3 +18,5 @@
 @media (prefers-reduced-motion: reduce) { .kb:not(.kb-mini) { animation: none; } }
 /* The page scrolls clear of the keyboard instead of being covered by it. */
 html[style*='--kb-h'] body { padding-bottom: var(--kb-h); }
+.kb-enter { transform: scaleX(-1); margin: auto; flex: none; width: clamp(16px, 3dvh, 24px); height: auto; display: block; }
+.kb-icon { margin: auto; flex: none; width: clamp(14px, 2.6dvh, 20px); height: auto; display: block; }

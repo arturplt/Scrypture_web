@@ -6,6 +6,22 @@ import { backspace, closeKeyboard, enter, startKeyboard, toggleSystemKeyboard, t
 import './keyboard.css';
 
 const LETTERS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+/** Enter: an arrow down, then right, drawn on a pixel grid so it stays crisp at any size. */
+const EnterArrow = () => (
+  <svg viewBox="0 0 11 9" className="kb-enter" shapeRendering="crispEdges" aria-hidden fill="currentColor">
+    <rect x="1" y="0" width="2" height="6" /><rect x="1" y="4" width="7" height="2" />
+    <rect x="8" y="2" width="1" height="6" /><rect x="9" y="3" width="1" height="4" /><rect x="10" y="4" width="1" height="2" />
+  </svg>
+);
+
+/** Shift: a pixel arrow up; caps lock adds a bar under it. */
+const ShiftArrow = ({ caps }: { caps: boolean }) => (
+  <svg viewBox="0 0 9 9" className="kb-icon" shapeRendering="crispEdges" aria-hidden fill="currentColor">
+    <rect x="4" y="0" width="1" height="1" /><rect x="3" y="1" width="3" height="1" /><rect x="2" y="2" width="5" height="1" /><rect x="1" y="3" width="7" height="1" />
+    <rect x="3" y="4" width="3" height={caps ? 3 : 4} />{caps && <rect x="2" y="8" width="5" height="1" />}
+  </svg>
+);
+
 /** Hold a letter for its Polish variants. */
 const ALTS: Record<string, string[]> = { a: ['ą'], c: ['ć'], e: ['ę'], l: ['ł'], n: ['ń'], o: ['ó'], s: ['ś'], z: ['ź', 'ż'] };
 const SYMBOLS = ['1234567890', '-/:;()&@"', '.,?!\'#%+='];
@@ -100,7 +116,7 @@ export function Keyboard() {
     <div ref={panel} className="kb" data-kb>
       {rows.map((row, i) => (
         <div key={i} className="kb-row">
-          {i === 2 && !symbols && <Key fn wide={1.5} on={shift !== 'off'} label="shift" onPress={() => setShift(s => s === 'off' ? 'once' : s === 'once' ? 'caps' : 'off')}>{shift === 'caps' ? '⇪' : '⇧'}</Key>}
+          {i === 2 && !symbols && <Key fn wide={1.5} on={shift !== 'off'} label="shift" onPress={() => setShift(s => s === 'off' ? 'once' : s === 'once' ? 'caps' : 'off')}><ShiftArrow caps={shift === 'caps'} /></Key>}
           {[...row].map(c => <Key key={c} onPress={() => put(c)} alts={symbols ? undefined : ALTS[c]} onAlt={a => put(a)}>{symbols ? c : upper ? c.toUpperCase() : c}</Key>)}
           {i === 2 && <Key fn wide={1.5} repeat label="backspace" onPress={backspace}>⌫</Key>}
         </div>
@@ -109,7 +125,7 @@ export function Keyboard() {
         <Key fn wide={1.5} onPress={() => setSymbols(s => !s)}>{symbols ? 'ABC' : '123'}</Key>
         <Key fn tap wide={1} label={t('kbSystem')} onPress={toggleSystemKeyboard}>⌨</Key>
         <Key wide={4} label="space" onPress={() => typeText(' ')}>{' '}</Key>
-        <Key fn wide={1.5} label="enter" onPress={enter}>↵</Key>
+        <Key fn wide={1.5} label="enter" onPress={enter}><EnterArrow /></Key>
         <Key fn wide={1} label="close" onPress={closeKeyboard}>▼</Key>
       </div>
     </div>
