@@ -1,4 +1,3 @@
-import { NODE_THEMES } from './mindmap';
 import type { Habit, Task } from './types';
 
 /**
@@ -7,9 +6,16 @@ import type { Habit, Task } from './types';
  */
 export interface CustomCategory { id: string; name: string; frame: string }
 export const MAX_CATEGORIES = 12, MAX_CATEGORY_NAME = 16;
-/** The frames a category can use: the same set as mind-map boxes. */
-export const CATEGORY_FRAMES: readonly string[] = NODE_THEMES;
-export const DEFAULT_CATEGORY_FRAME = 'blue';
+/** The frames a category can use: the pixel-art frames that read well on a card. */
+export const CATEGORY_FRAMES: readonly string[] = [
+  // with ornate borders first, then the plain colours
+  'blue_ornate', 'green_ornate', 'gold_ornate', 'green_gold_ornamental', 'wood_gold_gem', 'wood_steel', 'wood_tiger', 'tech', 'space', 'blue_steel', 'blue_turq',
+  'blue_purple', 'grey_gun', 'grey_stone_chiseld', 'stone_block', 'mossy_stone_pixel_frame', 'red_gold', 'gold_thick', 'red_thick', 'bronze',
+  'blue', 'green', 'orange', 'gold', 'red',
+];
+/** The frame id a card or swatch draws: the sprite as drawn (not stretched or repeated), so the pixel art shows. */
+export const categoryFrameId = (frame: string) => `${frame}:stretch:clean:16`;
+export const DEFAULT_CATEGORY_FRAME = 'blue_ornate';
 
 export const cleanCategoryName = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, MAX_CATEGORY_NAME);
 export const isCategoryFrame = (f: unknown): f is string => typeof f === 'string' && CATEGORY_FRAMES.includes(f);

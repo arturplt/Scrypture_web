@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CATEGORY_FRAMES, DEFAULT_CATEGORY_FRAME, MAX_CATEGORIES, MAX_CATEGORY_NAME, categoryCounts, categoryNameFree } from '../domain';
+import { CATEGORY_FRAMES, categoryFrameId, DEFAULT_CATEGORY_FRAME, MAX_CATEGORIES, MAX_CATEGORY_NAME, categoryCounts, categoryNameFree } from '../domain';
 import { actions, useAppState } from '../data/hooks';
 import { Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
@@ -31,7 +31,7 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
       <div className="list">
         {rows.map(c => editing === c.id ? null : (
           <div key={c.id} className="row between wrap cat-row">
-            <span className="row"><PixelFrame theme={c.frame} scale={1} className="cat-swatch" /><span>{c.name} <span className="muted small">({c.count})</span></span></span>
+            <span className="row"><PixelFrame theme={categoryFrameId(c.frame)} scale={1} className="cat-swatch" /><span>{c.name} <span className="muted small">({c.count})</span></span></span>
             {confirm === c.id
               ? <span className="row"><button type="button" className="seg on" onClick={() => { actions.deleteCategory(c.id); setConfirm(null); }}>{t('confirmDeleteCategory')}</button><button type="button" className="seg" onClick={() => setConfirm(null)}>{t('cancel')}</button></span>
               : <span className="row"><button type="button" className="seg" onClick={() => start(c.id, c.name, c.frame)}>{t('edit')}</button><button type="button" className="seg" onClick={() => setConfirm(c.id)}>{t('delete')}</button></span>}
@@ -45,7 +45,7 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
           </label>
           <div className="field">{t('categoryFrame')}
             <div className="cat-frames" role="group" aria-label={t('categoryFrame')}>
-              {CATEGORY_FRAMES.map(f => <PixelFrame key={f} as="button" theme={f} scale={1} className={`cat-pick ${frame === f ? 'on' : ''}`} aria-pressed={frame === f} aria-label={f.replace(/_/g, ' ')} onClick={e => { e.preventDefault(); setFrame(f); }} />)}
+              {CATEGORY_FRAMES.map(f => <PixelFrame key={f} as="button" theme={categoryFrameId(f)} scale={1} className={`cat-pick ${frame === f ? 'on' : ''}`} aria-pressed={frame === f} aria-label={f.replace(/_/g, ' ')} onClick={e => { e.preventDefault(); setFrame(f); }} />)}
             </div>
           </div>
           {(error || (name.trim() && !free)) && <p className="small" role="alert">{t('categoryNameTaken')}</p>}

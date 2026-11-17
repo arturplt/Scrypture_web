@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CATEGORY_FRAMES, DEFAULT_CATEGORY_FRAME, MAX_CATEGORIES, MAX_CATEGORY_NAME, categoryNameFree } from '../domain';
+import { CATEGORY_FRAMES, categoryFrameId, DEFAULT_CATEGORY_FRAME, MAX_CATEGORIES, MAX_CATEGORY_NAME, categoryNameFree } from '../domain';
 import { actions, useAppState } from '../data/hooks';
 import { PixelFrame } from '../ui/PixelFrame';
 import { useT } from '../i18n/useT';
@@ -30,7 +30,7 @@ export function CategoryPicker({ value, onChange }: { value: string | undefined;
           <input value={name} maxLength={MAX_CATEGORY_NAME} aria-label={t('categoryName')} placeholder={t('categoryName')} autoFocus
             onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
           <div className="cat-frames" role="group" aria-label={t('categoryFrame')}>
-            {CATEGORY_FRAMES.map(f => <PixelFrame key={f} as="button" theme={f} scale={1} className={`cat-pick ${frame === f ? 'on' : ''}`} aria-pressed={frame === f} aria-label={f.replace(/_/g, ' ')} onClick={e => { e.preventDefault(); setFrame(f); }} />)}
+            {CATEGORY_FRAMES.map(f => <PixelFrame key={f} as="button" theme={categoryFrameId(f)} scale={1} className={`cat-pick ${frame === f ? 'on' : ''}`} aria-pressed={frame === f} aria-label={f.replace(/_/g, ' ')} onClick={e => { e.preventDefault(); setFrame(f); }} />)}
           </div>
           {name.trim() && !free && <p className="small" role="alert">{t('categoryNameTaken')}</p>}
           <div className="row">

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { completedToday, effectiveStreak, sortHabits, type Habit, type HabitSort } from '../domain';
+import { categoryFrameId, completedToday, effectiveStreak, sortHabits, type Habit, type HabitSort } from '../domain';
 import type { Key } from '../i18n';
 import { actions, useAppState, useUndo } from '../data/hooks';
 import { useNow } from '../hooks';
@@ -29,7 +29,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
   // while the burst plays the card keeps its live colours; it turns into the stone "done" card once the effect has finished
   const shownDone = done && !burst;
   const group = useAppState(st => (habit.group ? st.categories.find(c => c.id === habit.group) : undefined));   // its own category frame wins over the default card
-  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(group.frame, 'app') : frameOr(el.habit, 'app');
+  const theme = shownDone ? frameOr(el.done, 'grey_stone_chiseld') : group ? frameOr(categoryFrameId(group.frame), 'app') : frameOr(el.habit, 'app');
   const mainFrame = useAppState(st => st.settings.frameTheme);
   const cat = shownDone || !!group || resolveFrame(theme, mainFrame, '', '').hue !== 0 ? null : CATEGORY_TINT[habit.category];   // a chosen colour variant wins over the category colour
   const tinted = useTintedFrame(theme, cat, cat);   // the whole card takes its Body/Mind/Soul colour

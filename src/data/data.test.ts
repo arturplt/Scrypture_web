@@ -679,7 +679,7 @@ describe('custom categories', () => {
     expect(s.actions.addCategory('career', 'red')).toBeNull();   // same name
     expect(s.actions.addCategory('  ', 'red')).toBeNull();
     const other = s.actions.addCategory('Home', 'nonsense')!;
-    expect(s.getState().categories).toEqual([{ id, name: 'Career', frame: 'gold' }, { id: other, name: 'Home', frame: 'blue' }]);
+    expect(s.getState().categories).toEqual([{ id, name: 'Career', frame: 'gold' }, { id: other, name: 'Home', frame: 'blue_ornate' }]);
     expect(s.actions.updateCategory(other, { name: 'Career' })).toBe(false);
     expect(s.actions.updateCategory(other, { name: 'House', frame: 'red' })).toBe(true);
     const task = s.actions.addTask({ title: 'CV', category: 'MIND', priority: 'LOW', difficulty: 1, group: id });

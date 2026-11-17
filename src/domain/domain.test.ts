@@ -393,7 +393,7 @@ describe('weekly and monthly habits count periods, not days', () => {
 describe('custom categories', () => {
   it('keeps good ones, drops junk and duplicates, fixes the frame', () => {
     const list = sanitizeCategories([{ id: 'a', name: '  Career ', frame: 'gold' }, { id: 'b', name: 'career', frame: 'red' }, { id: 'a', name: 'Home', frame: 'red' }, { id: 'c', name: 'Home', frame: 'nope' }, { name: 'x' }, null, { id: 'd', name: '   ' }]);
-    expect(list).toEqual([{ id: 'a', name: 'Career', frame: 'gold' }, { id: 'c', name: 'Home', frame: 'blue' }]);
+    expect(list).toEqual([{ id: 'a', name: 'Career', frame: 'gold' }, { id: 'c', name: 'Home', frame: 'blue_ornate' }]);
     expect(sanitizeCategories('nope')).toEqual([]);
     expect(sanitizeCategories(Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, name: `n${i}`, frame: 'red' })))).toHaveLength(12);
   });
