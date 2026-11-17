@@ -493,3 +493,8 @@ textarea { resize: vertical; }
 
 /* Bóbr's nudge on Home */
 .nudge { text-align: left; font-size: var(--fs-xs); line-height: 1.6; cursor: pointer; }
+
+/* elements feel solid: no text selection, long-press callouts or dragged pictures; only text fields stay selectable */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-select: text; }
+img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
