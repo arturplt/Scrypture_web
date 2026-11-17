@@ -53,7 +53,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
       </div>
       <div id={moreId} className={`task-more ${expanded ? 'open' : ''}`} aria-hidden={!expanded}>
         <div className="task-more-in">
-          <Icon name={`${habit.category.toLowerCase()}_active`} size={16} alt={habit.category} />
+          <Icon name={`${habit.category.toLowerCase()}_active`} size={32} alt={habit.category} />
           <div className="task-desc-col">
             <p className={habit.description ? 'task-desc' : 'task-desc muted'}>{habit.description || t('noDescription')}</p>
             <p className="task-desc muted">{t('lastDone', { date: habit.lastCompleted ? new Date(habit.lastCompleted).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }) : t('never') })}</p>

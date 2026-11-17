@@ -63,7 +63,7 @@ export function TaskCard({ task, now, onEdit, onComplete, leaving, compact = fal
       </div>
       <div id={moreId} className={`task-more ${expanded ? 'open' : ''}`} aria-hidden={!expanded}>
         <div className="task-more-in">
-          <Icon name={`${task.category.toLowerCase()}_active`} size={16} alt={task.category} />
+          <Icon name={`${task.category.toLowerCase()}_active`} size={32} alt={task.category} />
           <p className={task.description ? 'task-desc' : 'task-desc muted'}>{task.description || t('noDescription')}</p>
           <button type="button" className="task-edit" aria-label={t('taskDetails')} tabIndex={expanded ? 0 : -1} onClick={() => navigate(`/tasks/${task.id}`)}><Icon name="target" size={16} /></button>
           {open && <button type="button" className="task-edit" aria-label={t('edit')} tabIndex={expanded ? 0 : -1} onClick={onEdit}><Icon name="pencil_yellow" size={16} /></button>}
