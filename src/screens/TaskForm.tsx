@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DIFFICULTY_XP, PRIORITY_XP, benchmarkFor, cleanTag, fmtMinutes, type Category, type Priority, type Task } from '../domain';
 import { actions, useAppState } from '../data/hooks';
+import { CategoryPicker } from './CategoryPicker';
 import { frameOr } from '../ui/themes';
 import { Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
@@ -107,14 +108,7 @@ export function TaskForm({ task, dueDate, onClose }: { task?: Task; dueDate?: nu
         <label className="field">{t('estimatedMinutes')}
           <input inputMode="numeric" value={minutes} onChange={e => setMinutes(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('optional')} />
         </label>
-        {cats.length > 0 && (
-          <div className="field">{t('customCategory')}
-            <div className="row wrap" role="group" aria-label={t('customCategory')}>
-              <button type="button" className={`seg ${!group ? 'on' : ''}`} aria-pressed={!group} onClick={() => setGroup(undefined)}>{t('noCustomCategory')}</button>
-              {cats.map(c => <button type="button" key={c.id} className={`seg ${group === c.id ? 'on' : ''}`} aria-pressed={group === c.id} onClick={() => setGroup(c.id)}>{c.name}</button>)}
-            </div>
-          </div>
-        )}
+        <CategoryPicker value={group} onChange={setGroup} />
         <label className="field">{t('tags')}
           <input value={tags} onChange={e => setTags(e.target.value)} placeholder={t('tagsPlaceholder')} />
         </label>

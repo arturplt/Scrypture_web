@@ -4,3 +4,4 @@
 .cat-pick.on { outline: calc(2 * var(--u)) solid #ffd54f; outline-offset: calc(1 * var(--u)); }
 .cat-pick:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
 .cat-row { min-height: calc(32 * var(--u)); }
+.cat-new { display: grid; gap: calc(8 * var(--u)); margin-top: calc(6 * var(--u)); }

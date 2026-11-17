@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Category, Frequency, Habit } from '../domain';
 import { actions, useAppState } from '../data/hooks';
+import { CategoryPicker } from './CategoryPicker';
 import { frameOr } from '../ui/themes';
 import { Icon, Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
@@ -52,14 +53,7 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
               ))}
             </div>
           </div>
-          {cats.length > 0 && (
-            <div className="field">{t('customCategory')}
-              <div className="row wrap" role="group" aria-label={t('customCategory')}>
-                <button type="button" className={`seg ${!group ? 'on' : ''}`} aria-pressed={!group} onClick={() => setGroup(undefined)}>{t('noCustomCategory')}</button>
-                {cats.map(c => <button type="button" key={c.id} className={`seg ${group === c.id ? 'on' : ''}`} aria-pressed={group === c.id} onClick={() => setGroup(c.id)}>{c.name}</button>)}
-              </div>
-            </div>
-          )}
+          <CategoryPicker value={group} onChange={setGroup} />
           <label className="field">{t('description')}
             <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} />
           </label>
