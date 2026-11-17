@@ -11,6 +11,7 @@ import { FrameDensity, PixelFrame } from '../ui/PixelFrame';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { Chip, Icon, StatBox } from '../ui/misc';
 import { BobrPen } from '../ui/BobrPen';
+import { PenScene } from '../ui/PenScene';
 import { Inventory, TradeBar, TradeSlot } from '../ui/Inventory';
 import { frameOr } from '../ui/themes';
 
@@ -74,6 +75,7 @@ export function Dashboard() {
         </div>
 
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card">
+          <PenScene />
           <div className="pen-row">
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="left" /> : <div className="pen-slots" />}
             <BobrPen stage={bobrStage(stats.level)} emotion={emotion} onBobr={() => (willTrade(emotion) ? setTrading(v => !v) : (setTrading(false), setNoMood(true)))} bobrLabel={t('trade')} bobrOn={trading} onChat={() => navigate('/chat')} chatLabel={t('chatButton')} />

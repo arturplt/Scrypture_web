@@ -555,9 +555,49 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .pen-card .pen { align-self: stretch; display: grid; align-content: center; }   /* the pen fills the card's height, so the overlay anchors to the card's top */
 .bobr-top { position: absolute; z-index: 2; top: calc(-0.5 * min(var(--bw, 16), 16) * var(--u)); left: 50%; transform: translateX(-50%); height: 0; display: grid; justify-items: center; gap: calc(2 * var(--u)); pointer-events: none; }   /* centred on the pen's top border, like the trade button on the bottom one */
 .bobr-top .emoticon { transform: translateY(-50%); }
-.pen-card .pen-row { overflow: visible; clip-path: inset(calc(-40 * var(--u)) 0 0 0); }   /* sides and bottom still clip; the top lets the emoticon straddle the border */
+.pen-card .pen-row { overflow: visible; clip-path: inset(calc(-40 * var(--u)) 0 calc(-32 * var(--u)) 0); }   /* sides and bottom still clip; the top lets the emoticon straddle the border */
 
 /* the trade arrow sits right above the Trade button and sways side to side (left slot -> right slot) */
 .trade-arrow { position: absolute; left: 50%; bottom: calc(100% + 2 * var(--u)); color: var(--gold); font-size: var(--fs-md); line-height: 1; transform: translateX(-50%); animation: arrow-sway 1s steps(4) infinite alternate; pointer-events: none; }
 @keyframes arrow-sway { from { transform: translateX(calc(-50% - 6 * var(--u))); } to { transform: translateX(calc(-50% + 6 * var(--u))); } }
 @media (prefers-reduced-motion: reduce) { .trade-arrow { animation: none; } }
+
+/* ---- the pen's scenery: sky, then clouds, mountains and trees sliding past at different speeds (see PenScene.tsx) ---- */
+.scene { position: absolute; inset: calc(5 * var(--u) - min(var(--bw, 16), 16) * var(--u) * var(--s, 1));   /* out over the frame's plain fill, 5 units short of its outer edge: just inside the frame's drawn outline, which is 5 sprite pixels thick */ z-index: 0; overflow: hidden; pointer-events: none; background: linear-gradient(#5b7fc4, #c9b3a6 78%); }
+.pen-card .pen-row { position: relative; z-index: 1; }
+.scene-layer { position: absolute; left: 0; right: 0; bottom: 0; overflow: hidden; }
+.scene-track { display: flex; width: max-content; height: 100%; will-change: transform; }
+.scene-track img { height: 100%; width: auto; flex: none; image-rendering: pixelated; }
+.scene-track img[data-flip] { transform: scaleX(-1); }
+.scene-cirrus { top: 0; height: 34%; opacity: 0.55; }   /* high and far: faint, thin, the slowest */
+.scene-strato { top: 6%; height: 42%; opacity: 0.7; }
+.scene-clouds { top: 10%; height: 60%; opacity: 0.85; }
+.scene-mountains { height: 100%; bottom: 7%; opacity: 0.9; }
+.scene-trees { height: 85%; bottom: -13.5%; }   /* the picture has an empty strip under its grass: lowered so the grass meets the ground */
+.scene-ground { position: absolute; left: 0; right: 0; bottom: 0; height: calc(3 * var(--u)); background: #2f4a12; }   /* the sky must not show under the grass */
+/* pollen and leaves drifting through the scene (over the trees, under Bóbr) */
+.scene-fx { position: absolute; inset: 0; overflow: hidden; }
+.scene-fx img { position: absolute; display: block; animation-timing-function: steps(24); animation-iteration-count: infinite; }
+.pollen { height: auto; animation-name: pollen-float; }
+@keyframes pollen-float {
+  0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 0.9; }
+  50% { transform: translate(calc(var(--sway) * var(--u)), calc(-40 * var(--u))); }
+  85% { opacity: 0.9; } 100% { transform: translate(calc(var(--sway) * -0.4 * var(--u)), calc(-90 * var(--u))); opacity: 0; }
+}
+.leaf { top: -6%; height: auto; animation-name: leaf-fall; }
+@keyframes leaf-fall {
+  0% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(calc(var(--sway) * var(--u)), 25cqh) rotate(90deg); }
+  50% { transform: translate(calc(var(--sway) * -0.5 * var(--u)), 55cqh) rotate(200deg); } 75% { transform: translate(calc(var(--sway) * 0.8 * var(--u)), 80cqh) rotate(290deg); }
+  100% { transform: translate(0, 110cqh) rotate(380deg); }
+}
+.scene { container-type: size; }
+@media (prefers-reduced-motion: reduce) { .scene-fx { display: none; } }
+/* Bóbr: hops while he walks (turned the way he goes), looks left and right when he stops; items lie on the ground and slide with it */
+.pen .bobr-img { scale: var(--face, 1) 1; translate: 0 calc(28 * var(--u)); }   /* standing on the ground line */
+.pen[data-face='-1'] { --face: -1; }
+.pen[data-act='walk'] .bobr-img { animation: bobr-step 0.4s steps(2) infinite; }
+.pen[data-act='pick'] .bobr-img { animation: bobr-step 0.25s steps(2) 2; }
+@keyframes bobr-step { 50% { translate: 0 calc(25 * var(--u)); } }
+.spawn.ground { top: auto; bottom: calc(-26 * var(--u)); animation: none; }
+.spawn.ground img { animation: bob 1s steps(2) infinite; }
+@media (prefers-reduced-motion: reduce) { .pen .bobr-img, .spawn.ground img { animation: none !important; } }
