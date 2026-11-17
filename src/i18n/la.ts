@@ -1279,6 +1279,7 @@ export const la: Record<Key, string> = {
   "chatMoodHungry": "Venter mihi murmurat...\nValde esurio.",
   "chatMoodSad": "Paulum solus sum.\nMane paulisper, vel opus mecum fac?",
   "chatFedTimes": "Pastus: {n} vicibus",
+  "chatTradedTimes": "Commutatum: {n} vicibus",
   "chatHungryHaveBerry": "Bacam in sacco habes. Licetne?",
   "chatHungryHaveHay": "Faenum in sacco habes. Id edam!",
   "chatHungryNoFood": "Saccus vacuus est. Faenum circa me domi collige, vel bacas foris in mundo carpe.",

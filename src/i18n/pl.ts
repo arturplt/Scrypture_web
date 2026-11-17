@@ -1279,6 +1279,7 @@ export const pl: Record<Key, string> = {
   "chatMoodHungry": "Burczy mi w brzuchu...\nJestem bardzo głodny.",
   "chatMoodSad": "Trochę mi smutno.\nZostań chwilę albo zrób ze mną zadanie?",
   "chatFedTimes": "Karmiony: {n} razy",
+  "chatTradedTimes": "Wymieniono: {n} razy",
   "chatHungryHaveBerry": "Masz w torbie jagodę. Mogę?",
   "chatHungryHaveHay": "Masz w torbie siano. Zjadłbym!",
   "chatHungryNoFood": "Torba jest pusta. Zbierz siano wokół mnie w domu albo nazbieraj jagód w świecie.",

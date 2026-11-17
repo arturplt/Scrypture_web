@@ -1278,6 +1278,7 @@ export const en = {
   "chatMoodHungry": "My tummy is rumbling...\nI'm really hungry.",
   "chatMoodSad": "I'm a bit lonely.\nStay a while, or do a task with me?",
   "chatFedTimes": "Fed: {n} times",
+  "chatTradedTimes": "Traded: {n} times",
   "chatHungryHaveBerry": "You have a berry in the bag. May I?",
   "chatHungryHaveHay": "You have hay in the bag. I would eat that!",
   "chatHungryNoFood": "The bag is empty. Collect hay around me at home, or pick berries out in the world.",

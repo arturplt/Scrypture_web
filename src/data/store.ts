@@ -209,7 +209,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if ((state.inventory[t.request] ?? 0) < 1) return false;
       set({ ...state,
         inventory: { ...state.inventory, [t.request]: state.inventory[t.request] - 1, [t.offer]: (state.inventory[t.offer] ?? 0) + 1 },
-        bobr: { ...b, happiness: Math.min(1, happiness + 0.2), happinessAt: now } });
+        bobr: { ...b, happiness: Math.min(1, happiness + 0.2), happinessAt: now, trades: (b.trades ?? 0) + 1 } });
       return true;
     },
     /** Pay the stone it costs to play again. Returns false (and takes nothing) when there is not enough. */

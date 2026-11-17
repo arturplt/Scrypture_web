@@ -15,7 +15,7 @@ export interface ChatContext { stats: UserStats; tasks: Task[]; habits: Habit[];
   /** the planner's activities and shortlist (left out = none) */
   events?: readonly PlanEvent[]; shortlist?: readonly string[];
   /** Bóbr himself and what is in the bag (left out = a content Bóbr and an empty bag) */
-  bobr?: BobrVitals & { feedings: number; treatUntil?: number; mischiefUntil?: number }; inventory?: Readonly<Record<string, number>> }
+  bobr?: BobrVitals & { feedings: number; trades?: number; treatUntil?: number; mischiefUntil?: number }; inventory?: Readonly<Record<string, number>> }
 export interface ChatFlow {
   mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
   /** idea: the suggestion on offer (a Start Here id); `previous` holds the ones already offered */
@@ -51,7 +51,7 @@ function moodText(c: ChatContext): string {
   let m = t(MOOD_KEY[mood]);
   if (c.bobr) {
     const pct = (n: number) => Math.round(n * 100);
-    m += `\n\n${t('hunger')}: ${pct(hungerAt(c.bobr.lastInteraction, c.now))}%\n${t('happiness')}: ${pct(happinessNow(c.bobr, c.now))}%\n${t('chatFedTimes', { n: c.bobr.feedings })}`;
+    m += `\n\n${t('hunger')}: ${pct(hungerAt(c.bobr.lastInteraction, c.now))}%\n${t('happiness')}: ${pct(happinessNow(c.bobr, c.now))}%\n${t('chatFedTimes', { n: c.bobr.feedings })}\n${t('chatTradedTimes', { n: c.bobr.trades ?? 0 })}`;
   }
   if (mood === 'HUNGRY') m += `\n\n${t(have(c, 'berry') ? 'chatHungryHaveBerry' : have(c, 'hay') ? 'chatHungryHaveHay' : 'chatHungryNoFood')}`;
   return m;
