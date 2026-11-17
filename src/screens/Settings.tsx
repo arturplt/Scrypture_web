@@ -24,6 +24,7 @@ export function Settings() {
   const crt = useAppState(s => s.settings.crt);
   const volume = useAppState(s => s.settings.volume);
   const reduceMotion = useAppState(s => !!s.settings.reduceMotion);
+  const highContrast = useAppState(s => !!s.settings.highContrast);
   const wantFullscreen = useAppState(s => s.settings.fullscreen);
   const fs = useFullscreen();
   // enterFullscreen() must start inside the tap, so it is called before anything async
@@ -115,6 +116,11 @@ export function Settings() {
 
       <section className="list">
         <h2 className="subtitle">{t('accessibility')}</h2>
+        <div className="field">{t('highContrast')}
+          <div className="row wrap" role="group" aria-label={t('highContrast')}>
+            {[false, true].map(v => <button key={String(v)} className={`seg ${highContrast === v ? 'on' : ''}`} aria-pressed={highContrast === v} onClick={() => actions.setSettings({ highContrast: v })}>{v ? t('motionOn') : t('crtOff')}</button>)}
+          </div>
+        </div>
         <div className="field">{t('reduceMotion')}
           <div className="row wrap" role="group" aria-label={t('reduceMotion')}>
             {[false, true].map(v => <button key={String(v)} className={`seg ${reduceMotion === v ? 'on' : ''}`} aria-pressed={reduceMotion === v} onClick={() => actions.setSettings({ reduceMotion: v })}>{v ? t('motionOn') : t('crtOff')}</button>)}

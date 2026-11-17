@@ -92,6 +92,7 @@ export function App() {
   const navPreview = useNavPreview();   // a screen showing its result in the bar (Pixelite)
   const level = useAppState(st => st.stats.level);
   const reduceMotion = useAppState(st => !!st.settings.reduceMotion);
+  const highContrast = useAppState(st => !!st.settings.highContrast);
   const { ui, layout, rail: railWanted } = useUi();
   const rail = railWanted && !device;   // inside the device case the navigation is always the bottom row of keys
   // before paint, so the first frame already has the right scale and layout
@@ -103,9 +104,10 @@ export function App() {
     root.dataset.navlabels = nav.labels;
     for (const [k, v] of Object.entries(chipStyle)) root.style.setProperty(k, String(v));
     if (reduceMotion) root.dataset.motion = 'reduce'; else delete root.dataset.motion;
+    if (highContrast) root.dataset.contrast = 'high'; else delete root.dataset.contrast;
     if (rail) root.dataset.rail = ''; else delete root.dataset.rail;
     if (device) root.dataset.device = ''; else delete root.dataset.device;
-  }, [textScale, ui, layout, rail, device, chipStyle, nav.labels, reduceMotion]);
+  }, [textScale, ui, layout, rail, device, chipStyle, nav.labels, reduceMotion, highContrast]);
   // the wide dark rows in Settings use the big box sprite; build its repeating version once
   useEffect(() => { boxSprite('/assets/raw/box_large.png', 3).then(sp => { for (const [k, v] of Object.entries(boxVars('pick', sp))) document.documentElement.style.setProperty(k, v); }, () => {}); }, []);
   useEffect(() => { document.documentElement.lang = lang.toLowerCase(); }, [lang]);

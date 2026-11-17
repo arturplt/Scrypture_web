@@ -5,6 +5,7 @@ import { useT } from '../i18n/useT';
 import { navigate } from '../router';
 import { FrameDensity, PixelFrame } from '../ui/PixelFrame';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
+import { useState } from 'react';
 import { Chip, Icon, StatBox } from '../ui/misc';
 import { BobrPen } from '../ui/BobrPen';
 import { Inventory } from '../ui/Inventory';
@@ -23,6 +24,9 @@ export function Dashboard() {
   const planner = useAppState(s => s.planner);
   const now = useNow(1000);
   const t = useT();
+  // a hint about holding Body and Mind, until the first time one of them is held (remembered on this device)
+  const [seenHold, setSeenHold] = useState(() => { try { return localStorage.getItem('scrypture:holdhint') === '1'; } catch { return false; } });
+  const held = (path: string) => () => { try { localStorage.setItem('scrypture:holdhint', '1'); } catch { /* private mode */ } setSeenHold(true); navigate(path); };
 
   const hunger = hungerAt(bobr.lastInteraction, now);
   const happiness = happinessNow(bobr, now);
@@ -62,11 +66,12 @@ export function Dashboard() {
         </PixelFrame>
 
         <div className="stats3">
-          <StatBox stat="body" value={stats.body} frame={el.dashBody} onLongPress={() => navigate('/apps/exercise')} />
-          <StatBox stat="mind" value={stats.mind} frame={el.dashMind} onLongPress={() => navigate('/apps/mindmap')} />
+          <StatBox stat="body" value={stats.body} frame={el.dashBody} onLongPress={held('/apps/exercise')} />
+          <StatBox stat="mind" value={stats.mind} frame={el.dashMind} onLongPress={held('/apps/mindmap')} />
           <StatBox stat="soul" value={stats.soul} frame={el.dashSoul} />
         </div>
 
+        {!seenHold && <div className="muted small hold-hint">{t('holdHint')}</div>}
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card"><BobrPen stage={bobrStage(stats.level)} emotion={emotion} /></PixelFrame>
         {nudge && <PixelFrame as="button" theme={fr(el.dashPen)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
 

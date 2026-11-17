@@ -25,3 +25,11 @@
   --fs-xl: calc(1.5rem * var(--ui) * var(--font-scale));
   --font: 'Press Start 2P', monospace;
 }
+
+/* Settings > high contrast: brighter text, darker backgrounds, clearer borders and gold */
+:root[data-contrast='high'] {
+  --bg-1: #0d0c09; --bg-2: #15130e; --bg-3: #000;
+  --border-1: #8a8466; --border-2: #b6b08c; --border-dark: #000;
+  --text: #fff; --text-2: #fff; --text-muted: #e6e2cc;
+  --gold: #ffe066; --success: #3fae5a; --error: #d95a5a; --info: #6f8be0;
+}

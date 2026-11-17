@@ -402,6 +402,8 @@ export const en = {
   "estimatedMinutes": "Estimated minutes",
   "optional": "optional",
   "tagsPlaceholder": "comma, separated",
+  "highContrast": "High contrast",
+  "holdHint": "Hold BODY for workouts, MIND for mind maps.",
   "manageCategories": "Categories",
   "noCategories": "No categories yet. Make your own, like Career or Home.",
   "addCategory": "Add category",

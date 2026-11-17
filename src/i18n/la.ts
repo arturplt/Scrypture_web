@@ -403,6 +403,8 @@ export const la: Record<Key, string> = {
   "estimatedMinutes": "Minutae aestimatae",
   "optional": "optionale",
   "tagsPlaceholder": "commatibus separata",
+  "highContrast": "Contrastus altus",
+  "holdHint": "Tene CORPUS pro exercitiis, MENS pro tabulis.",
   "manageCategories": "Categoriae",
   "noCategories": "Nondum categoriae. Fac tuas, ut Opus aut Domus.",
   "addCategory": "Adde categoriam",

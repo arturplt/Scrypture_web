@@ -33,7 +33,7 @@ export interface AppState {
   /** Bóbr world map: saved worlds (seed + changes + plane + sky). */
   worlds: WorldsSave;
   bobr: { happiness: number; happinessAt: number; lastInteraction: number; feedings: number; /** excited until then: a berry was just eaten */ treatUntil?: number; /** playful until then: a level-up or an achievement */ mischiefUntil?: number };
-  settings: { frameTheme: string; language: 'EN' | 'LA' | 'PL'; fullscreen: boolean; /** sound volume 0..1 (0 = off) */ volume: number; /** switch off animations */ reduceMotion?: boolean } & Look;
+  settings: { frameTheme: string; language: 'EN' | 'LA' | 'PL'; fullscreen: boolean; /** sound volume 0..1 (0 = off) */ volume: number; /** switch off animations */ reduceMotion?: boolean; /** stronger text and border colours */ highContrast?: boolean } & Look;
 }
 
 export const CURRENT_VERSION = 1;
@@ -55,7 +55,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   planner: emptyPlanner(),
   worlds: emptyWorlds(),
   bobr: { happiness: 1, happinessAt: now, lastInteraction: now, feedings: 0 },
-  settings: { frameTheme: 'green_bev', language: 'EN', fullscreen: true, volume: 0.7, reduceMotion: false, ...DEFAULT_LOOK },
+  settings: { frameTheme: 'green_bev', language: 'EN', fullscreen: true, volume: 0.7, reduceMotion: false, highContrast: false, ...DEFAULT_LOOK },
 });
 
 /** Transient UI events (not persisted): level-ups and achievement unlocks to celebrate. */

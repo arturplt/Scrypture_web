@@ -403,6 +403,8 @@ export const pl: Record<Key, string> = {
   "estimatedMinutes": "Szacowane minuty",
   "optional": "opcjonalnie",
   "tagsPlaceholder": "oddzielone przecinkami",
+  "highContrast": "Wysoki kontrast",
+  "holdHint": "Przytrzymaj BODY: treningi, MIND: mapy myśli.",
   "manageCategories": "Kategorie",
   "noCategories": "Brak kategorii. Stwórz własne, np. Praca albo Dom.",
   "addCategory": "Dodaj kategorię",

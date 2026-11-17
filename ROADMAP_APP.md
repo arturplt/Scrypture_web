@@ -107,7 +107,7 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 - Show and flip a link's direction, since it decides what a branch is.
 - Export a map as a picture; duplicate a map.
 - Keep undo steps after the map is closed; offer the user's own frames and colour variants for boxes.
-- A visible hint that holding the Mind box on Home opens the maps.
+- ~~A visible hint that holding the Mind box on Home opens the maps~~ (built 2026-11-17).
 - Done when: a 50-box map can be kept tidy without placing every box by hand.
 
 ## Phase 7: exercise tracker
@@ -145,7 +145,7 @@ Small items to pick up while touching a screen; the detail is in `BACKLOG.md`.
 
 - **Themes:** more elements customisable (achievement cards, chat bubbles, event dialogs), translated style names, an inventory slot picker, the `gameover` frame.
 - **Languages:** Polish plural forms, a native-speaker review of the Latin and Polish written for the web, translated labels on the Body / Mind / Soul sprites.
-- **Accessibility:** ~~a reduced-motion switch~~ (built 2026-11-17), a high-contrast palette, text and interface size in onboarding, a screen-reader pass on a real device.
+- **Accessibility:** ~~a reduced-motion switch~~ (built 2026-11-17), ~~a high-contrast palette~~ (built 2026-11-17), text and interface size in onboarding, a screen-reader pass on a real device.
 - **Layouts:** Settings, Chat, habit detail and Start Here stay one narrow column on wide screens.
 - **Settings:** reordering navigation items. (Name editing was built 2026-11-17.)
 - **Developer pages:** `/kit` does not show the newer pieces.
