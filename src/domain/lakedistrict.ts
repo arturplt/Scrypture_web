@@ -16,7 +16,10 @@ export interface LakeMapDef {
   affine: number[];                     // [a, b, c, d, e, f]: tile x = a lon + b lat + c, tile y = d lon + e lat + f (centred on the grid's middle, y south)
   spawn: { lon: number; lat: number; heading: number };
   waters: { name: string; pts: [number, number][] }[];
+  roads: RoadLine[];                    // the map's own stand-in roads, used until the real ones (public/assets/lakedistrict/roads.json) are loaded
 }
+/** A road as a line of (lon, lat) points: its ref (M6, A591), and its class (motorway, trunk, primary, secondary, tertiary, unclassified) that sets how wide it is drawn. */
+export interface RoadLine { ref: string; kind: string; pts: [number, number][] }
 /** The affine of a map given by its lon/lat box (every tile the same size in degrees). */
 const boxAffine = (w: number, e: number, s: number, n: number, gw: number, gh: number) => [gw / (e - w), 0, -w * gw / (e - w) - (gw >> 1), 0, -gh / (n - s), n * gh / (n - s) - (gh >> 1)];
 
@@ -57,14 +60,19 @@ const CONISTON_WATERS: { name: string; pts: [number, number][] }[] = [
   { name: 'Yew Tree Tarn', pts: [[-3.0535, 54.3935]] },
 ];
 
+/** The M6 motorway through the big map, Lancaster to Carlisle (approximate, like the waters). */
+export const M6 = 'M6';
+const LAKES_ROADS: RoadLine[] = [
+  { ref: M6, kind: 'motorway', pts: [[-2.78, 54.0], [-2.80, 54.07], [-2.75, 54.13], [-2.72, 54.20], [-2.70, 54.27], [-2.66, 54.33], [-2.62, 54.38], [-2.595, 54.43], [-2.63, 54.49], [-2.66, 54.54], [-2.70, 54.60], [-2.74, 54.66], [-2.80, 54.72], [-2.84, 54.8]] },
+];
 export const LAKE_MAPS: Record<LakeMapId, LakeMapDef> = {
   lakes: {
     id: 'lakes', name: 'Lake District', png: 'lakedistrict.png', json: 'meta.json', tileM: 50, stretch: 1.5, grid: { w: 1426, h: 1769 },
-    affine: boxAffine(-3.70, -2.60, 54.00, 54.80, 1426, 1769), spawn: { lon: -3.1096, lat: 54.3708, heading: 0 }, waters: LAKES_WATERS,
+    affine: boxAffine(-3.70, -2.60, 54.00, 54.80, 1426, 1769), spawn: { lon: -3.1096, lat: 54.3708, heading: 0 }, waters: LAKES_WATERS, roads: LAKES_ROADS,
   },
   coniston: {   // (the affine is the one the build script fitted: see public/assets/lakedistrict/coniston.json)
     id: 'coniston', name: 'Coniston', png: 'coniston.png', json: 'coniston.json', tileM: 10, stretch: 0.5, grid: { w: 1400, h: 1500 },
-    affine: [6502.453579147299, 170.1256342602632, 10771.100286070534, 99.42546292999616, -11126.378197635024, 604826.7394639135], spawn: { lon: -3.0649, lat: 54.3620, heading: -Math.PI / 2 }, waters: CONISTON_WATERS,
+    affine: [6502.453579147299, 170.1256342602632, 10771.100286070534, 99.42546292999616, -11126.378197635024, 604826.7394639135], spawn: { lon: -3.0649, lat: 54.3620, heading: -Math.PI / 2 }, waters: CONISTON_WATERS, roads: [],
   },
 };
 /** The Lake District map's real-metre scale, for code that only ever meets the big map (the tests). */
@@ -185,6 +193,84 @@ export function lakeWatersFrom(x: number, y: number): LakePlace[] {
     }
     return { name: wt.name, tiles: best, dx: bx, dy: by };
   }).sort((a, b) => a.tiles - b.tiles);
+}
+/** The fells with their real heights in metres (lon, lat approximate). */
+const SUMMITS: { name: string; lon: number; lat: number; m: number }[] = [
+  { name: 'Scafell Pike', lon: -3.2117, lat: 54.4542, m: 978 }, { name: 'Scafell', lon: -3.2255, lat: 54.4544, m: 964 }, { name: 'Helvellyn', lon: -3.0166, lat: 54.5275, m: 950 },
+  { name: 'Skiddaw', lon: -3.1478, lat: 54.6519, m: 931 }, { name: 'Great End', lon: -3.2064, lat: 54.4640, m: 910 }, { name: 'Bowfell', lon: -3.1642, lat: 54.4439, m: 902 },
+  { name: 'Great Gable', lon: -3.2184, lat: 54.4821, m: 899 }, { name: 'Pillar', lon: -3.2859, lat: 54.4968, m: 892 }, { name: 'Fairfield', lon: -2.9998, lat: 54.4592, m: 873 },
+  { name: 'Blencathra', lon: -3.0500, lat: 54.6256, m: 868 }, { name: 'Crinkle Crags', lon: -3.1347, lat: 54.4331, m: 859 }, { name: 'High Street', lon: -2.8680, lat: 54.4903, m: 828 },
+  { name: 'Old Man of Coniston', lon: -3.1185, lat: 54.3695, m: 803 }, { name: 'Swirl How', lon: -3.1139, lat: 54.3787, m: 802 }, { name: 'Brim Fell', lon: -3.1219, lat: 54.3731, m: 796 },
+  { name: 'Dow Crag', lon: -3.1306, lat: 54.3583, m: 778 }, { name: 'Wetherlam', lon: -3.0980, lat: 54.3880, m: 763 }, { name: 'Red Pike', lon: -3.2925, lat: 54.5233, m: 755 },
+  { name: 'Haystacks', lon: -3.2495, lat: 54.5128, m: 597 }, { name: 'Catbells', lon: -3.1779, lat: 54.5638, m: 451 }, { name: 'Black Combe', lon: -3.3356, lat: 54.2606, m: 600 },
+];
+export interface LakePlaceLabel { name: string; kind: 'lake' | 'summit'; x: number; y: number; m?: number }
+const placeCache = new Map<LakeMapId, LakePlaceLabel[]>();
+/** The names to float over the loaded map: a point on each water (half way along its line) and the top of each fell (the highest tile close to where it is said to be). */
+export function lakePlaceLabels(): LakePlaceLabel[] {
+  const map = lakeMapId(), hit = placeCache.get(map);
+  if (hit) return hit;
+  const out: LakePlaceLabel[] = [], def = LAKE_MAPS[map];
+  for (const wt of def.waters) {
+    const p = wt.pts.map(q => lakeTileOf(q[0], q[1], map)), seg: number[] = [];
+    let total = 0;
+    for (let i = 1; i < p.length; i++) { const l = Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); seg.push(l); total += l; }
+    let at = total / 2, pt = p[0];
+    for (let i = 0; i < seg.length; i++) { if (at <= seg[i] || i === seg.length - 1) { const k = seg[i] ? Math.min(1, at / seg[i]) : 0; pt = { x: p[i].x + (p[i + 1].x - p[i].x) * k, y: p[i].y + (p[i + 1].y - p[i].y) * k }; break; } at -= seg[i]; }
+    const px = Math.round(pt.x), py = Math.round(pt.y);
+    let best: { x: number; y: number } | null = null, bd = Infinity;   // (the lines are approximate: the label goes on the nearest water tile)
+    for (let dy = -15; dy <= 15; dy++) for (let dx = -15; dx <= 15; dx++) { const d = dx * dx + dy * dy; if (d < bd && lakeOnMap(px + dx, py + dy, 1) && lakeWaterAt(px + dx, py + dy) === LAKE_WATER) { bd = d; best = { x: px + dx + 0.5, y: py + dy + 0.5 }; } }
+    if (best) out.push({ name: wt.name, kind: 'lake', x: best.x, y: best.y });
+  }
+  const r = Math.max(1, Math.round(150 / def.tileM));
+  for (const sm of SUMMITS) {
+    const c = lakeTileOf(sm.lon, sm.lat, map), cx = Math.round(c.x), cy = Math.round(c.y);
+    if (!lakeOnMap(cx, cy, r + 2)) continue;
+    let bx = cx, by = cy, bm = -Infinity;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const m = lakeMetresAt(cx + dx, cy + dy); if (m > bm) { bm = m; bx = cx + dx; by = cy + dy; } }
+    if (bm > sm.m * 0.6) out.push({ name: sm.name, kind: 'summit', x: bx + 0.5, y: by + 0.5, m: sm.m });   // (a fell that the map does not really have there, a clipped corner, is left out)
+  }
+  placeCache.set(map, out);
+  return out;
+}
+/** The real roads of a map (OpenStreetMap, see scripts/build-roads.py), as loaded; a map without them has its own few stand-in roads. */
+const loadedRoads = new Map<LakeMapId, RoadLine[]>();
+export function setLakeRoads(map: LakeMapId, roads: RoadLine[]) { loadedRoads.set(map, roads); roadNets.delete(map); }
+const ROAD_WIDTH_M: Record<string, number> = { motorway: 28, trunk: 14, primary: 10, secondary: 8, tertiary: 6, unclassified: 5 };
+interface RoadSeg { ref: string; ax: number; ay: number; bx: number; by: number; r: number }
+const ROAD_CELL = 16, roadKey = (cx: number, cy: number) => (cx + 512) * 1024 + (cy + 512);
+/** Each map's roads as tile-space segments in a grid of 16-tile cells, built once per map: a chunk asks about hundreds of tiles. A road is `r` tiles either side of its line (never thinner than a line of tiles that still joins up). */
+const roadNets = new Map<LakeMapId, Map<number, RoadSeg[]>>();
+function roadNet(map: LakeMapId) {
+  let net = roadNets.get(map);
+  if (!net) {
+    net = new Map();
+    const tileM = LAKE_MAPS[map].tileM;
+    for (const rd of loadedRoads.get(map) ?? LAKE_MAPS[map].roads) {
+      const p = rd.pts.map(q => lakeTileOf(q[0], q[1], map)), r = Math.max(tileM >= 30 ? 0.72 : 0.55, (ROAD_WIDTH_M[rd.kind] ?? 6) / 2 / tileM);
+      for (let i = 1; i < p.length; i++) {
+        const sg: RoadSeg = { ref: rd.ref, ax: p[i - 1].x, ay: p[i - 1].y, bx: p[i].x, by: p[i].y, r }, m = r + 2;
+        for (let cx = Math.floor((Math.min(sg.ax, sg.bx) - m) / ROAD_CELL); cx <= Math.floor((Math.max(sg.ax, sg.bx) + m) / ROAD_CELL); cx++)
+          for (let cy = Math.floor((Math.min(sg.ay, sg.by) - m) / ROAD_CELL); cy <= Math.floor((Math.max(sg.ay, sg.by) + m) / ROAD_CELL); cy++) {
+            const k = roadKey(cx, cy), l = net.get(k); if (l) l.push(sg); else net.set(k, [sg]);
+          }
+      }
+    }
+    roadNets.set(map, net);
+  }
+  return net;
+}
+/** The ref of the road a point is on (or within `extra` tiles of) on the loaded map, the widest one where several meet, or null. */
+export function lakeRoadAt(x: number, y: number, extra = 0): string | null {
+  const l = roadNet(lakeMapId()).get(roadKey(Math.floor(x / ROAD_CELL), Math.floor(y / ROAD_CELL)));
+  if (!l) return null;
+  let best: RoadSeg | null = null;
+  for (const sg of l) {
+    if (best && sg.r <= best.r) continue;
+    const vx = sg.bx - sg.ax, vy = sg.by - sg.ay, l2 = vx * vx + vy * vy, t = l2 ? Math.max(0, Math.min(1, ((x - sg.ax) * vx + (y - sg.ay) * vy) / l2)) : 0;
+    if (Math.hypot(sg.ax + vx * t - x, sg.ay + vy * t - y) <= sg.r + extra) best = sg;
+  }
+  return best ? best.ref : null;
 }
 /** 8-point compass letters for a direction in map tiles (y south). */
 export const compass = (dx: number, dy: number): string => ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'][(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];

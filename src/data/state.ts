@@ -22,6 +22,8 @@ export interface AppState {
   chat: ChatMessage[];
   /** Rock-throwing minigame: lifetime stats + the best scores. */
   rockGame: RockSave;
+  /** Lake District: the named waters the plane has flown over (across all worlds), for the lake achievements. */
+  lakesFlown: string[];
   /** Sanctuary block builder: saved levels + the unsaved work in progress. */
   sanctuary: SanctuarySave;
   /** Mind maps: boxes and the links between them. */
@@ -50,6 +52,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   inventory: {},
   chat: [],
   rockGame: emptyRockSave(),
+  lakesFlown: [],
   sanctuary: emptySanctuarySave(),
   mindMaps: emptyMindMaps(),
   notes: emptyNotes(),

@@ -63,6 +63,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     categories: sanitizeCategories(s.categories),
     inventory: isObj(s.inventory) ? s.inventory : {},
     rockGame: sanitizeRockSave(s.rockGame),
+    lakesFlown: Array.isArray(s.lakesFlown) ? [...new Set<string>(s.lakesFlown.filter((x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length < 60))].slice(0, 100) : [],
     sanctuary: sanitizeSanctuarySave(s.sanctuary),
     mindMaps: sanitizeMindMaps(s.mindMaps),
     notes: sanitizeNotes(s.notes),

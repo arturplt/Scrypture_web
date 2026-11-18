@@ -13,7 +13,7 @@
  *    ecosystem changed a tile keeps every other decoration where it was.
  */
 
-import { lakeBiomeIndex, lakeWaterAt, LAKE_LAND, groundTiles, groundZ, type WorldKind } from './lakedistrict';
+import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, LAKE_LAND, groundTiles, groundZ, type WorldKind } from './lakedistrict';
 
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
@@ -155,7 +155,7 @@ export function generateLakeChunk(cx: number, cy: number): { t: Uint8Array; b: U
     if (lakeWaterAt(x, y) !== LAKE_LAND) { out[k] = WATER; continue; }
     let near = false;
     for (let dj = -1; dj <= 1 && !near; dj++) for (let di = -1; di <= 1; di++) if (lakeWaterAt(x + di, y + dj) !== LAKE_LAND) { near = true; break; }
-    out[k] = near || b === 3 ? SAND : GRASS;
+    out[k] = near || b === 3 || lakeRoadAt(x, y) ? SAND : GRASS;   // (a road is a strip of bare ground)
   }
   return { t: out, b: bio };
 }

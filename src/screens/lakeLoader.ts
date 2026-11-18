@@ -1,4 +1,4 @@
-import { lakeReady, lakeData, setLakeData, LAKE_MAPS, type LakeMapId } from '../domain';
+import { lakeReady, lakeData, setLakeData, setLakeRoads, LAKE_MAPS, type LakeMapId, type RoadLine } from '../domain';
 
 const loading = new Map<LakeMapId, Promise<void>>();
 /** Load a Lake District map (public/assets/lakedistrict): an RGB image read back through a canvas (no alpha, so the values come out exactly). Only one map is held at a time: loading another replaces it. */
@@ -8,10 +8,12 @@ export function loadLakeDistrict(map: LakeMapId = 'lakes'): Promise<void> {
   if (!p) {
     const def = LAKE_MAPS[map];
     p = (async () => {
-      const [meta, img] = await Promise.all([
+      const [meta, img, roads] = await Promise.all([
         fetch(`/assets/lakedistrict/${def.json}`).then(r => r.json() as Promise<{ w: number; h: number; credits: string }>),
         new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('lake map')); i.src = `/assets/lakedistrict/${def.png}`; }),
+        fetch('/assets/lakedistrict/roads.json').then(r => (r.ok ? (r.json() as Promise<Partial<Record<LakeMapId, RoadLine[]>>>) : ({} as Partial<Record<LakeMapId, RoadLine[]>>))).catch(() => ({} as Partial<Record<LakeMapId, RoadLine[]>>)),   // (the real roads: without them the map keeps its stand-in ones)
       ]);
+      if (roads[map]) setLakeRoads(map, roads[map]!);
       const cv = document.createElement('canvas'); cv.width = meta.w; cv.height = meta.h;
       const c = cv.getContext('2d', { willReadFrequently: true })!; c.drawImage(img, 0, 0);
       setLakeData(meta.w, meta.h, c.getImageData(0, 0, meta.w, meta.h).data, meta.credits, map);

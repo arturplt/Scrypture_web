@@ -3,7 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
-import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, LAKE_LAND, compass } from '../domain';
+import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, lookAhead, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
@@ -402,7 +402,7 @@ function WorldView({ id }: { id: string }) {
     // every trick flown in this run, by name: how many times and what it paid (shown when the plane is down)
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
-    let trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
+    let lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
     // The stage's real size, never 0: if layout has not settled (or the observer missed a change) fall back to the box around it or the window.
     const measure = () => {
       const r = el.getBoundingClientRect(), p = el.parentElement;
@@ -422,10 +422,16 @@ function WorldView({ id }: { id: string }) {
       const g = c.getContext('2d', { willReadFrequently: true })!; g.imageSmoothingEnabled = false;   // memory-backed: the 3D view reads the pixels once to make its texture, and a GPU canvas would stall on that read
       g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, c.width, c.height);   // water underneath: the water and shore tiles are partly see-through, and the 3D view has no flat water backdrop
       const decos: Deco[] = [];
+      const road = s.world.kind === 'lakedistrict', roadTile = road ? document.createElement('canvas') : c, rg = road ? ((roadTile.width = roadTile.height = TILE_PX), roadTile.getContext('2d')!) : g;   // (scratch tile for the darkened road sand)
+      if (road) rg.imageSmoothingEnabled = false;
       const tiles = s.world.chunkDrawn(cx, cy);
       for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
         const x = cx * CHUNK + i, y = cy * CHUNK + j, d = tiles[j * CHUNK + i];
-        g.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, i * TILE_PX, j * TILE_PX, TILE_PX, TILE_PX);
+        if (road && s.world.terrainAt(x, y) === SAND && lakeRoadAt(x, y)) {   // a road: its sand tile, darkened (tarmac), made as the chunk is drawn
+          rg.globalCompositeOperation = 'copy'; rg.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, 0, 0, TILE_PX, TILE_PX);
+          rg.globalCompositeOperation = 'source-atop'; rg.fillStyle = 'rgba(34,32,38,0.68)'; rg.fillRect(0, 0, TILE_PX, TILE_PX);
+          g.drawImage(roadTile, i * TILE_PX, j * TILE_PX);
+        } else g.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, i * TILE_PX, j * TILE_PX, TILE_PX, TILE_PX);
         if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
       }
       return { cv: c, decos };
@@ -803,6 +809,13 @@ function WorldView({ id }: { id: string }) {
         });
         SKY_BANDS.forEach((b, bi) => { const v = (calm0(wv) ? 1 : 0.4 + wv * 2) * b.drift; sphOff[bi].x += (calm0(wv) ? 1 : Math.cos(wd)) * v * dt; sphOff[bi].y += (calm0(wv) ? 0 : -Math.sin(wd)) * v * dt; });
       }
+      // lakes: flying (not landed) over a named lake counts for the lake achievements; checked a few times a second
+      if (glide && !gl.landed && s.world.kind === 'lakedistrict' && (lakeTick = (lakeTick + 1) % 6) === 0) {
+        if (lakeWaterAt(Math.round(f.x), Math.round(f.y)) === LAKE_WATER) {
+          const w = lakeWatersFrom(f.x, f.y)[0];
+          if (w && w.tiles < 12) actions.flewOverLake(w.name);
+        } else if (lakeRoadAt(f.x, f.y, 0.8) === M6) actions.flewOverLake(M6);   // (the M6 is remembered in the same list)
+      }
       // hoops: passed when the plane's path since the last frame goes through the disc (heights in tiles, as drawn: 0.18 per metre when gliding)
       {
         const hl = glide ? gl.z * 0.18 : 4 + (10 - layer) * 2, pv = prevP;
@@ -896,6 +909,7 @@ function WorldView({ id }: { id: string }) {
           }
         }
       }
+      const placeLabels: { x: number; y: number; text: string; d: number; summit: boolean }[] = [];   // the Lake District's lake and fell names, over the places they name
       const hoopLabels: { x: number; y: number; text: string; size: number; done: boolean }[] = [];   // each hoop's height, on the stage, drawn over its middle
       let pp: [number, number] = [W / 2, H / 2], pg: [number, number] = [W / 2, H / 2];   // the plane and its shadow on the stage
 
@@ -1083,6 +1097,16 @@ function WorldView({ id }: { id: string }) {
           G.flat('decal', hp.x, hp.y, 0.02, hp.r * 0.75, hp.r * 2, tx, ty, at.ring, 0, 0, 0, done ? 0.16 : 0.3);   // the shadow of an upright ring is a squashed ring on the ground, as wide as the hoop and not as deep
           const hc = G.projectAgl(hp.x, hp.y, hp.h), he = G.projectAgl(hp.x, hp.y, hp.h + hp.r);
           if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${Math.round(hp.h / 0.18)} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
+        }
+        // the names of the lakes and fells, floating over them, as far off as they can be read
+        if (s.world.kind === 'lakedistrict' && !L.hideUi) {
+          const tileM = lakeData()?.tileM ?? 50;
+          for (const pl of lakePlaceLabels()) {
+            const d = Math.hypot(pl.x - f.x, pl.y - f.y) * tileM, max = pl.kind === 'lake' ? 14000 : 9000;
+            if (d > max || d < 60) continue;
+            const c = G.projectAgl(pl.x, pl.y, pl.kind === 'lake' ? 5 : 7);
+            if (c && c[0] > 40 && c[0] < W - 40 && c[1] > 20 && c[1] < H - 20) placeLabels.push({ x: c[0], y: c[1], text: pl.kind === 'summit' ? `${pl.name} ${pl.m} m` : pl.name, d: d / max, summit: pl.kind === 'summit' });
+          }
         }
         // aiming a throw: the path the plane will fly from here, as dots along it with a ring where it comes down (power and heading as they are right now)
         if (aiming) {
@@ -1310,6 +1334,7 @@ function WorldView({ id }: { id: string }) {
       const toStage = (x: number, y: number): [number, number] => { const ex = x - CX, ey = y - CY; return [W / 2 + ex * Math.cos(rot) - ey * Math.sin(rot), H / 2 + ex * Math.sin(rot) + ey * Math.cos(rot)]; };
       pp = toStage(px, py); pg = toStage(px + alt * 0.12 * zoom, oy + f.y * T);
       for (const hl of hoopLabels) { const [lx, ly] = toStage(hl.x, hl.y); hl.x = lx; hl.y = ly; }
+      for (const pl of placeLabels) { const [lx, ly] = toStage(pl.x, pl.y); pl.x = lx; pl.y = ly; }
       }
       // night
       const dark = darkness(sunElevation(s.hour));
@@ -1381,6 +1406,16 @@ function WorldView({ id }: { id: string }) {
       for (const hl of hoopLabels) {                                                    // each hoop's height, right in its middle
         ctx.font = `${Math.max(8, Math.round(hl.size * 0.6))}px ${PXF}`; ctx.globalAlpha = hl.done ? 0.55 : 1;
         ctx.strokeText(hl.text, hl.x, hl.y); ctx.fillStyle = hl.done ? '#9cff8a' : '#ffd54f'; ctx.fillText(hl.text, hl.x, hl.y);
+      }
+      if (placeLabels.length) {                                                          // lake and fell names: nearest first, one that would sit on another is left out
+        const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
+        for (const pl of placeLabels.sort((a, b) => a.d - b.d)) {
+          const size = Math.round(10 - 3 * pl.d); ctx.font = `${size}px ${PXF}`;
+          const w = ctx.measureText(pl.text).width, r = { x0: pl.x - w / 2 - 4, y0: pl.y - size, x1: pl.x + w / 2 + 4, y1: pl.y + size };
+          if (taken.some(q => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
+          taken.push(r);
+          ctx.globalAlpha = 1 - 0.55 * pl.d; ctx.strokeText(pl.text, pl.x, pl.y); ctx.fillStyle = pl.summit ? '#ffe082' : '#81d4fa'; ctx.fillText(pl.text, pl.x, pl.y);
+        }
       }
       ctx.globalAlpha = 1;
       if (!L.hideUi) {

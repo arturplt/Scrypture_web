@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import sharp from 'sharp';
+import roadsRaw from '../../public/assets/lakedistrict/roads.json?raw';
 import { CHUNK, GRASS, SAND, WATER, World, generateLakeChunk, MARGIN, SIDE } from './worldgen';
-import { lakeSpawnFor, lakeTileOf, lakeOnMap, LAKE_WATER, groundTiles, groundZ, lakeMetresAt, lakeWaterAt, setLakeData, cornerMetres, HEIGHT_STRETCH, REAL_TILE_M } from './lakedistrict';
+import { lakeSpawnFor, setLakeRoads, lakePlaceLabels, lakeRoadAt, lakeTileOf, lakeOnMap, LAKE_WATER, groundTiles, groundZ, lakeMetresAt, lakeWaterAt, setLakeData, cornerMetres, HEIGHT_STRETCH, REAL_TILE_M } from './lakedistrict';
 import { newSavedWorld, sanitizeWorlds } from './worldsave';
 import { newGlider, stepGlider, throwPlane, type GlideEnv } from './glider';
 
@@ -70,5 +71,39 @@ describe('the Coniston map', () => {
     expect(top).toBeGreaterThan(780);                                                       // the Old Man of Coniston is 803 m
     expect(groundTiles(tx, ty) / 0.5 * 10).toBeGreaterThan(700);                           // (10 m a tile, stretch 0.5: the height reads back in metres)
     setLakeData(1426, 1769, new Uint8Array(1426 * 1769 * 4), '', 'lakes');   // leave the big map's shape for the next tests
+  });
+});
+
+describe('names and roads', () => {
+  it('floats a name over Windermere and the top of Scafell Pike', async () => {
+    const { data, info } = await sharp(`${DIR}/lakedistrict.png`).ensureAlpha().raw().toBuffer({ resolveWithObject: true });   // (an earlier test left an empty map loaded)
+    setLakeData(info.width, info.height, data);
+    const l = lakePlaceLabels();
+    const w = l.find(p => p.name === 'Windermere')!, pike = l.find(p => p.name === 'Scafell Pike')!;
+    expect(lakeWaterAt(Math.round(w.x), Math.round(w.y))).toBe(LAKE_WATER);
+    expect(lakeMetresAt(Math.floor(pike.x), Math.floor(pike.y))).toBeGreaterThan(900);
+    expect(l.filter(p => p.kind === 'summit').length).toBeGreaterThan(12);
+  });
+  it('the M6 is found on its line and not far from it', async () => {
+    const { data, info } = await sharp(`${DIR}/lakedistrict.png`).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    setLakeData(info.width, info.height, data);
+    const a = lakeTileOf(-2.72, 54.20);
+    expect(lakeRoadAt(a.x, a.y)).toBe('M6');
+    expect(lakeRoadAt(a.x - 40, a.y)).toBeNull();
+  });
+});
+
+describe('real roads', () => {
+  it('the M6 and the A591 are found, and chunks stay fast to build', async () => {
+    const { data, info } = await sharp(`${DIR}/lakedistrict.png`).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    setLakeData(info.width, info.height, data);
+    const roads = JSON.parse(roadsRaw);
+    setLakeRoads('lakes', roads.lakes);
+    const refs = new Set<string>();
+    for (const r of roads.lakes) if (r.ref === 'M6' || r.ref === 'A591') { const t = lakeTileOf(r.pts[0][0], r.pts[0][1]); if (lakeRoadAt(t.x, t.y) === r.ref) refs.add(r.ref); }
+    expect(refs.has('M6')).toBe(true); expect(refs.has('A591')).toBe(true);
+    const t0 = performance.now(); let sand = 0;
+    for (let cx = 0; cx < 8; cx++) { const c = generateLakeChunk(cx, 3); for (const v of c.t) if (v === SAND) sand++; }
+    expect(performance.now() - t0).toBeLessThan(400); expect(sand).toBeGreaterThan(0);
   });
 });

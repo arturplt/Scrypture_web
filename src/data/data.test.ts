@@ -104,7 +104,7 @@ describe('persistence', () => {
   it('normalize fills missing fields, adds new seeded achievements, rejects bad input', () => {
     const st = normalize({ version: 1, tasks: [], achievements: [{ id: 'first_task', unlocked: true }] });
     expect(st.stats.level).toBe(1);
-    expect(st.achievements).toHaveLength(18);
+    expect(st.achievements).toHaveLength(25);
     expect(st.achievements[0].unlocked).toBe(true);
     expect(() => normalize({ tasks: 'nope' })).toThrow();
     expect(() => normalize({ version: CURRENT_VERSION + 1 })).toThrow(/newer/);

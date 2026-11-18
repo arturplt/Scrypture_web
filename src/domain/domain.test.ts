@@ -71,10 +71,10 @@ describe('progress + achievements', () => {
     const r = applyTaskCompletion(initialStats(), { experienceReward: 13, statRewards: { body: 1, mind: 0, soul: 1 } });
     expect(r.stats).toMatchObject({ totalExperiencePoints: 13, body: 1, soul: 1, totalTasksCompleted: 1 });
   });
-  it('seed has 18 unique achievements', () => {
+  it('seed has 25 unique achievements', () => {
     const s = seedAchievements();
-    expect(s).toHaveLength(18);
-    expect(new Set(s.map(a => a.id)).size).toBe(18);
+    expect(s).toHaveLength(25);
+    expect(new Set(s.map(a => a.id)).size).toBe(25);
   });
   it('unlocks once and reports new ones', () => {
     const stats = { ...initialStats(), totalTasksCompleted: 10, totalExperiencePoints: 700, body: 100 };

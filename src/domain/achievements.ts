@@ -23,6 +23,14 @@ const DEFS: Def[] = [
   ['rock_game_score_1000', 'High Score', 'Reach 1000 points in a single game', 'SPECIAL', 'RARE'],
   ['rock_game_perfect_level', 'Perfectionist', 'Complete a level without missing a throw', 'SPECIAL', 'UNCOMMON'],
   ['rock_game_max_distance', 'Distance King', 'Hit a far-away target from near the edge of the field', 'SPECIAL', 'RARE'],
+  // Lake District: flying over its named waters
+  ['lake_first', 'Over the Water', 'Fly over a lake in the Lake District', 'SPECIAL', 'COMMON'],
+  ['lake_5', 'Lake Hopper', 'Fly over 5 different lakes', 'SPECIAL', 'UNCOMMON'],
+  ['lake_10', 'Lakeland Explorer', 'Fly over 10 different lakes', 'SPECIAL', 'RARE'],
+  ['lake_windermere', 'Queen of the Lakes', 'Fly over Windermere', 'SPECIAL', 'UNCOMMON'],
+  ['lake_ullswater', 'Ullswater Steamer', 'Fly over Ullswater', 'SPECIAL', 'UNCOMMON'],
+  ['road_m6', 'Motorway Overpass', 'Fly over the M6 motorway', 'SPECIAL', 'UNCOMMON'],
+  ['lake_coniston', 'Coniston Crossing', 'Fly over Coniston Water', 'SPECIAL', 'COMMON'],
 ];
 
 export const seedAchievements = (): Achievement[] =>
@@ -34,10 +42,15 @@ export interface AchievementContext {
   maxHabitStreak: number;
   /** Rock-throwing progress; absent means no games played. */
   rock?: RockStats;
+  /** Named Lake District waters flown over. */
+  lakes?: string[];
 }
 
+/** The flown-over list holds lakes and roads (the M6): only the waters count towards the lake achievements. */
+const waterCount = (places: string[]) => places.filter(n => n !== 'M6').length;
+
 /** Same rules as Android AchievementViewModel.checkAndUnlockAchievements (level checks use total XP). */
-export function isConditionMet(condition: string, { stats, maxHabitStreak, rock = emptyRockStats() }: AchievementContext): boolean {
+export function isConditionMet(condition: string, { stats, maxHabitStreak, rock = emptyRockStats(), lakes = [] }: AchievementContext): boolean {
   switch (condition) {
     case 'first_task': return stats.totalTasksCompleted >= 1;
     case 'ten_tasks': return stats.totalTasksCompleted >= 10;
@@ -57,6 +70,13 @@ export function isConditionMet(condition: string, { stats, maxHabitStreak, rock 
     case 'rock_game_score_1000': return rock.highScore >= 1000;
     case 'rock_game_perfect_level': return rock.perfectLevel;
     case 'rock_game_max_distance': return rock.farHit;
+    case 'lake_first': return waterCount(lakes) >= 1;
+    case 'lake_5': return waterCount(lakes) >= 5;
+    case 'lake_10': return waterCount(lakes) >= 10;
+    case 'road_m6': return lakes.includes('M6');
+    case 'lake_windermere': return lakes.includes('Windermere');
+    case 'lake_ullswater': return lakes.includes('Ullswater');
+    case 'lake_coniston': return lakes.includes('Coniston Water');
     default: return false;
   }
 }
@@ -89,6 +109,9 @@ const TARGETS: Record<string, [value: (c: AchievementContext) => number, target:
   rock_game_bullseye_10: [c => c.rock?.bullseyes ?? 0, 10],
   rock_game_combo_10: [c => c.rock?.longestCombo ?? 0, 10],
   rock_game_score_1000: [c => c.rock?.highScore ?? 0, 1000],
+  lake_first: [c => waterCount(c.lakes ?? []), 1],
+  lake_5: [c => waterCount(c.lakes ?? []), 5],
+  lake_10: [c => waterCount(c.lakes ?? []), 10],
 };
 
 /** Progress toward a count-based achievement, or null when it has no countable progress (speed, perfect-level and distance minigame ones). */

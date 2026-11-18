@@ -574,6 +574,7 @@ export class WorldGL {
       const hasFar = !!T && !!this.farMesh;
       if (hasFar) this.nearReach = mix(this.reach, 200 * this.walkK);                       // the real chunks reach 140 tiles; the far mesh shows the rest of the map, hazing out at 560
       this.reach = mix(this.reach, T ? (hasFar ? FAR_REACH : 240 * this.walkK) : 48); this.fogStart = mix(this.fogStart, T ? (hasFar ? Math.max(500, 300 * this.walkK) : 180 * this.walkK) : 44); this.farOn = hasFar;   // (a hilly world shows far: fells and lakes kilometres off. The flat worlds keep their short haze)   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
+      this.fogStart = Math.max(this.fogStart, this.reach * 0.9);   // (the blend from the flying view's haze to the walking one must not pass through a close fog: the haze only ever sits in the last tenth of the reach)
       near = mix(near, hasFar ? 0.15 : 0.05); far = mix(far, this.reach * 1.6);
     }
     this.fpvK = c.fpv ? Math.min(1, c.fpv.k) : 0;
@@ -769,7 +770,7 @@ export class WorldGL {
     gl.uniformMatrix4fv(this.loc.uVP, false, this.vp);
     gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]);
     gl.uniform3f(this.loc.uFog, this.sky[0], this.sky[1], this.sky[2]);
-    if (this.noFog) gl.uniform2f(this.loc.uFogRange, 1e7, 2e7); else gl.uniform2f(this.loc.uFogRange, this.fogStart, this.reach * 0.98);
+    gl.uniform2f(this.loc.uFogRange, 1e7, 2e7);   // no distance haze anywhere
     gl.uniform1i(this.loc.uTex, 0);
     gl.uniform4f(this.loc.uNight, nt[0], nt[1], nt[2], nt[3]);
     gl.uniform1f(this.loc.uFx, this.fx ? 1 : 0); gl.uniform1f(this.loc.uTime, (performance.now() / 1000) % 3600); gl.uniform1f(this.loc.uDay, this.dayK);
