@@ -1465,6 +1465,8 @@ export const en = {
   "emoticonsHint": "Every ASCII face Bóbr makes, and the feeling each one stands for. Tap one to see it large.",
   "tunerite": "Tunerite",
   "tuneriteHint": "A tuner, a voice trainer, a piano and an ear trainer. Opens tunerite.scrypture.app in a new tab.",
+  "steam": "Steam",
+  "steamHint": "A recipe book with costing and menu design. Opens steam.scrypture.app in a new tab.",
   "emoticonSearch": "Search faces or (names)",
   "emoticonSymbols": "Symbols",
   "emoticonOther": "Scenes and animals",

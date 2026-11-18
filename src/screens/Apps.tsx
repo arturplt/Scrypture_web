@@ -15,6 +15,7 @@ const APPS: { path?: string; href?: string; icon: string; name: Key; hint: Key }
   { path: '/apps/notes', icon: 'soul_active', name: 'notes', hint: 'notesHint' },
   { path: '/apps/emoticons', icon: 'chat_bubble_blue', name: 'emoticons', hint: 'emoticonsHint' },
   { href: 'https://tunerite.scrypture.app', icon: 'rearrange', name: 'tunerite', hint: 'tuneriteHint' },
+  { href: 'https://steam.scrypture.app', icon: 'berry', name: 'steam', hint: 'steamHint' },
 ];
 
 export function Apps() {

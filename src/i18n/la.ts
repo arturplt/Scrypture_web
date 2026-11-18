@@ -1466,6 +1466,8 @@ export const la: Record<Key, string> = {
   "emoticonsHint": "Omnes vultus ASCII Bobri et affectus quem quisque significat. Tange ut magnum videas.",
   "tunerite": "Tunerite",
   "tuneriteHint": "Tonorum accommodator, vocis exercitatio, clavichordium et auris exercitatio. Aperit tunerite.scrypture.app in nova tabula.",
+  "steam": "Steam",
+  "steamHint": "Liber culinarius cum aestimatione sumptuum et ordinatione cibariorum. Aperit steam.scrypture.app in nova tabula.",
   "emoticonSearch": "Vultus vel (nomina) quaere",
   "emoticonSymbols": "Signa",
   "emoticonOther": "Scaenae et animalia",
