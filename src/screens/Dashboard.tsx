@@ -1,8 +1,12 @@
 import { bobrNudge, todaySummary, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, MAX_LEVEL } from '../domain';
+import { PenGame } from '../ui/PenGame';
+import { preloadWorld } from './WorldMap';
+import { flyIntoWorld } from '../ui/worldPortal';
+import { enterWorldFromHome } from './worldEntry';
 import { useAppState } from '../data/hooks';
 import { useNow } from '../hooks';
-import { useEffect, useState } from 'react';
-import { tradeFor, willTrade } from '../domain';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { tradeFor, willTrade, type GameMode } from '../domain';
 import { useNavBadges } from '../ui/navBadges';
 import { NAV_DEFS } from '../ui/navItems';
 import { useT } from '../i18n/useT';
@@ -37,7 +41,20 @@ export function Dashboard() {
   const [noMood, setNoMood] = useState(false);   // a pop-up that fades on its own when he refuses
   useEffect(() => { if (!noMood) return; const id = setTimeout(() => setNoMood(false), 1800); return () => clearTimeout(id); }, [noMood]);
   const [trading, setTrading] = useState(false);   // tapping Bóbr opens / closes the trade (slots, arrow, button)
+  const [step, setStep] = useState<null | 'main' | 'mode'>(null);   // tapping Bóbr first offers trade or play, then (play) which game
+  const lastStep = useRef<'main' | 'mode'>('main');   // what the choices show while they fade out
+  if (step) lastStep.current = step;
+  const [game, setGame] = useState<GameMode | null>(null);   // the rock game, played in the pen
+  const [penCard, setPenCard] = useState<HTMLElement | null>(null);
+  const penRowRef = useCallback((el: HTMLElement | null) => setPenCard(el ? el.closest<HTMLElement>('.pen-card') : null), []);
   const deal = tradeFor(now);
+  const worlds = useAppState(s => s.worlds.list);
+  const flyNow = (btn: HTMLElement) => {   // the world played last, else the list of worlds
+    const last = worlds.reduce<(typeof worlds)[number] | null>((b, w) => (!b || w.playedAt > b.playedAt ? w : b), null);
+    enterWorldFromHome(true);
+    const to = last ? `/games/paperplane/play/${last.id}` : '/games/paperplane';
+    if (last) flyIntoWorld(btn.closest('.pen-card'), () => navigate(to), preloadWorld); else navigate(to);
+  };
   const badges = useNavBadges();
   const navItems = useAppState(s => s.settings.nav.items);
   const inNav = new Set(NAV_DEFS.filter(d => navItems.includes(d.id)).map(d => d.path));   // what the nav bar already shows is not repeated here
@@ -47,10 +64,8 @@ export function Dashboard() {
   const menu = [
     { path: '/tasks', icon: 'task', label: t('chatTasks'), badge: badges['/tasks'] ?? null },
     { path: '/habits', icon: 'habit', label: t('chatHabits'), badge: badges['/habits'] ?? null },
-    { path: '/plan', icon: 'box_checked', label: t('planner'), badge: badges['/plan'] ?? null },
-    { path: '/start', icon: 'target', label: t('startHere'), badge: null },
-    { path: '/games', icon: 'joystick_knob', label: t('games'), badge: null },
-    { path: '/achievements', icon: 'achievement_gold', label: t('trophies'), badge: badges['/achievements'] ?? null },
+    { path: '/plan', icon: 'calendar', label: t('planner'), badge: badges['/plan'] ?? null },
+    { path: '/achievements', icon: 'thropy', label: t('trophies'), badge: badges['/achievements'] ?? null },
     { path: '/apps', icon: 'pencil_yellow', label: t('apps'), badge: null },
     { path: '/settings', icon: 'rearrange', label: t('settings'), badge: null },
   ].filter(m => !inNav.has(m.path));
@@ -76,12 +91,19 @@ export function Dashboard() {
 
         <PixelFrame theme={fr(el.dashPen)} scale={1} className="card pen-card">
           <PenScene />
-          <div className="pen-row">
+          <div className="pen-row" ref={penRowRef}>
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="left" /> : <div className="pen-slots" />}
-            <BobrPen stage={bobrStage(stats.level)} emotion={emotion} onBobr={() => (willTrade(emotion) ? setTrading(v => !v) : (setTrading(false), setNoMood(true)))} bobrLabel={t('trade')} bobrOn={trading} onChat={() => navigate('/chat')} chatLabel={t('chatButton')} />
+            <BobrPen stage={bobrStage(stats.level)} emotion={emotion} onBobr={() => { if (trading) setTrading(false); else setStep(v => (v ? null : 'main')); }} bobrLabel={t('trade')} bobrOn={trading || !!step} onChat={() => navigate('/chat')} chatLabel={t('chatButton')} choice={{ open: !!step && !trading && !game,
+              left: (step ?? lastStep.current) === 'main'
+                ? { icon: 'trade', wide: true, label: t('trade'), onClick: () => { setStep(null); if (willTrade(emotion)) setTrading(true); else setNoMood(true); } }
+                : { icon: 'arcade', label: t('arcadeMode'), text: t('arcadeMode'), onClick: () => { setStep(null); setGame('ARCADE'); } },
+              right: (step ?? lastStep.current) === 'main'
+                ? { icon: 'joystick', label: t('games'), onClick: () => setStep('mode') }
+                : { icon: 'timetrial', label: t('timeTrialMode'), text: t('timeTrialMode'), onClick: () => { setStep(null); setGame('TIMETRIAL'); } } }} onSign={() => navigate('/start')} signLabel={t('startHere')} onFly={flyNow} flyLabel={t('world')} />
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="right" /> : <div className="pen-slots" />}
           </div>
           {trading && willTrade(emotion) && <TradeBar deal={deal} />}
+          {game && penCard && <PenGame card={penCard} mode={game} onClose={() => setGame(null)} />}
           {noMood && <div className="mood-pop" role="status">{t('noTradeMoodPop')}</div>}
         </PixelFrame>
         {nudge && <PixelFrame as="button" theme={fr(el.dashNudge)} scale={1} className="card nudge" onClick={() => navigate('/plan')}>{nudgeText}</PixelFrame>}
@@ -95,7 +117,13 @@ export function Dashboard() {
 
       <div className="col col-b">
         <nav className="menu-grid" aria-label={t('mainNav')}>
-          {menu.map(m => (
+          {menu.map(m => m.icon === 'calendar' || m.icon === 'thropy' ? (
+            <button key={m.path} type="button" className="cal-tile" onClick={() => navigate(m.path)} aria-label={m.label}>
+              <Icon name={m.icon} size={m.icon === 'calendar' ? 108 : 78} />
+              {m.badge && <span className="menu-badge"><Chip color="#b6a432">{m.badge}</Chip></span>}
+              <span className="cal-label">{m.label}</span>
+            </button>
+          ) : (
             <PixelFrame key={m.path} as="button" theme={fr(el.dashMenu)} scale={1} className="menu-tile" onClick={() => navigate(m.path)}>
               <Icon name={m.icon} size={32} />
               <span>{m.label}</span>

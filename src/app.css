@@ -433,10 +433,10 @@ textarea { resize: vertical; }
 /* Home must fit the screen without scrolling (inside the device case): the Bóbr area takes whatever height is left, the menu tiles
    share the rest, and the small pieces keep their natural size. With the case off, or on a very short screen, it simply scrolls. */
 :root[data-device] .content:has(> .dash) { height: 100%; box-sizing: border-box; }
-:root[data-device] .dash { height: 100%; min-height: 0; gap: calc(8 * var(--u)); grid-template-rows: auto auto minmax(var(--pen-min), 1fr) auto auto auto; }
+:root[data-device] .dash { height: 100%; min-height: 0; gap: calc(8 * var(--u)); grid-template-rows: auto auto auto auto auto auto; }
 :root[data-device][data-layout='medium'] .dash, :root[data-device][data-layout='wide'] .dash { grid-template-rows: minmax(0, 1fr); align-items: stretch; }   /* the columns must fill the screen height */
 :root[data-device][data-layout='medium'] .dash > .col, :root[data-device][data-layout='wide'] .dash > .col { display: grid; gap: calc(8 * var(--u)); min-height: 0; align-content: stretch; }
-:root[data-device][data-layout='medium'] .col-a, :root[data-device][data-layout='wide'] .col-a { grid-template-rows: auto auto minmax(var(--pen-min), 1fr) auto auto; }
+:root[data-device][data-layout='medium'] .col-a, :root[data-device][data-layout='wide'] .col-a { grid-template-rows: auto auto auto auto auto; }
 :root[data-device][data-layout='medium'] .col-b, :root[data-device][data-layout='wide'] .col-b { grid-template-rows: minmax(min-content, 1fr) auto; }
 :root[data-device] .dash .pen-card { min-height: var(--pen-min); display: grid; grid-template-rows: minmax(0, 1fr); }
 :root[data-device] .dash .pen { height: 100%; min-height: 0; }
@@ -574,6 +574,8 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .scene-clouds { top: 10%; height: 60%; opacity: 0.85; }
 .scene-mountains { height: 100%; bottom: 7%; opacity: 0.9; }
 .scene-trees { height: 85%; bottom: -13.5%; }   /* the picture has an empty strip under its grass: lowered so the grass meets the ground */
+.scene-meadow { height: calc(46 * var(--u)); bottom: 0; }   /* the meadow below the tree line */
+.scene-meadow img { image-rendering: auto; }
 .scene-ground { position: absolute; left: 0; right: 0; bottom: 0; height: calc(3 * var(--u)); background: #2f4a12; }   /* the sky must not show under the grass */
 /* pollen and leaves drifting through the scene (over the trees, under Bóbr) */
 .scene-fx { position: absolute; inset: 0; overflow: hidden; }
@@ -595,9 +597,10 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 /* Bóbr: hops while he walks (turned the way he goes), looks left and right when he stops; items lie on the ground and slide with it */
 .pen .bobr-img { scale: var(--face, 1) 1; translate: 0 calc(28 * var(--u)); }   /* standing on the ground line */
 .pen[data-face='-1'] { --face: -1; }
-.pen[data-act='walk'] .bobr-img { animation: bobr-step 0.4s steps(2) infinite; }
-.pen[data-act='pick'] .bobr-img { animation: bobr-step 0.25s steps(2) 2; }
-@keyframes bobr-step { 50% { translate: 0 calc(25 * var(--u)); } }
+.pen .bobr-img { transform-origin: 50% 100%; }   /* he wiggles about his feet: no hopping */
+.pen[data-act='walk'] .bobr-img { animation: bobr-wiggle 0.5s ease-in-out infinite; }
+.pen[data-act='pick'] .bobr-img { animation: bobr-wiggle 0.3s ease-in-out 2; }
+@keyframes bobr-wiggle { 0%, 100% { rotate: -3deg; } 50% { rotate: 3deg; } }
 .spawn.ground { top: auto; bottom: calc(-26 * var(--u)); animation: none; }
 .spawn.ground img { animation: bob 1s steps(2) infinite; }
 @media (prefers-reduced-motion: reduce) { .pen .bobr-img, .spawn.ground img { animation: none !important; } }
@@ -622,3 +625,91 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 /* faces with characters Press Start 2P lacks: let the system font draw them */
 .fancy-face { font-family: system-ui, 'Noto Sans', 'Noto Sans Symbols 2', 'Noto Sans Malayalam', 'Noto Sans Batak', sans-serif; font-size: calc(var(--fs-sm) * 1.4); line-height: 1.4; }
 .emoticon-text.fancy-face { font-size: var(--fs-sm); line-height: 1; }   /* a flourish keeps the bubble's size */
+
+/* Home: the Planner is the calendar sprite itself at 1x (no frame around it), today's count written on its page */
+.menu-grid > .cal-tile { position: relative; justify-self: center; align-self: center; display: block; padding: 0; border: 0; background: transparent; font: inherit; color: var(--text); cursor: pointer; line-height: 0; -webkit-tap-highlight-color: transparent; }
+.cal-tile:hover { filter: brightness(1.15); }
+.cal-tile:active { transform: translateY(calc(2 * var(--u))); }
+.cal-tile:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.cal-tile .icon { display: block; }
+.cal-label { position: absolute; left: 0; right: 0; bottom: calc(-14 * var(--u)); text-align: center; font-size: var(--fs-xs); line-height: 1; white-space: nowrap; }
+.cal-tile { margin-bottom: calc(16 * var(--u)); }
+
+/* the plane in the pen's top-left corner: quick start into the last world */
+.pen-fly { position: absolute; top: calc(6 * var(--u)); left: calc(6 * var(--u)); z-index: 3; background: none; border: 0; padding: 0; line-height: 0; cursor: pointer; animation: pen-chat-bob 2.4s steps(2) infinite; }
+.pen-fly:hover { filter: brightness(1.2); }
+@media (prefers-reduced-motion: reduce) { .pen-fly { animation: none; } }
+
+/* the Start Here sign standing in the pen: placed each frame by BobrPen, behind Bóbr */
+.pen-sign { position: absolute; left: 50%; bottom: calc(-26 * var(--u)); z-index: 0; background: none; border: 0; padding: 0; line-height: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pen-sign:hover { filter: brightness(1.15); }
+.pen-sign:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); }
+
+/* Bóbr's two choices, one each side of him: trade on the left, play (the joystick) on the right */
+.pen-choice { position: absolute; bottom: calc(-10 * var(--u)); z-index: 3; background: none; border: 0; padding: 0; line-height: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; animation: pen-choice-in .25s steps(4) both; }
+.pen-choice.left { left: calc(50% - 120 * var(--u)); transform: translateX(-50%); }
+.pen-choice.right { left: calc(50% + 120 * var(--u)); transform: translateX(-50%); }
+.pen-choice:hover { filter: brightness(1.15); }
+.pen-choice:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); }
+@keyframes pen-choice-in { from { opacity: 0; translate: 0 calc(10 * var(--u)); } }
+@media (prefers-reduced-motion: reduce) { .pen-choice { animation: none; } }
+.pen-choice.wide img { width: calc(146 * var(--u)); height: auto; }   /* the trade sprite is 73 wide: shown at 2x */
+.pen-choice { display: flex; flex-direction: column; align-items: center; gap: calc(2 * var(--u)); }
+.pen-choice-text { line-height: 1.2; font-size: var(--fs-xs); color: var(--text); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; }
+.pen-choice.out { animation: pen-choice-out .25s steps(4) both; pointer-events: none; }
+@keyframes pen-choice-out { to { opacity: 0; translate: 0 calc(10 * var(--u)); } }
+@media (prefers-reduced-motion: reduce) { .pen-choice.out { animation: none; } }
+
+/* playing the rock game in the pen: the field covers the card (see Dashboard), a score line over it, no sliders or throw button */
+/* the game layer fills the pen card just inside its frame, like the pen's own scenery */
+/* the game layer fills the pen card just inside its frame (like the pen's own scenery); the scenery shows through it */
+.pen-game { position: absolute; inset: calc(5 * var(--u) - min(var(--bw, 16), 16) * var(--u) * var(--s, 1)); z-index: 30; overflow: hidden; }
+.pen-game-field { position: absolute; top: 0; }
+.rock-embed { position: absolute; inset: 0; }
+.rock-embed .rock-field { position: absolute; inset: 0; aspect-ratio: auto; transition: opacity .3s; }
+.rock-mini { position: absolute; left: calc(6 * var(--u)); right: calc(6 * var(--u)); top: calc(6 * var(--u)); display: flex; flex-wrap: wrap; gap: calc(6 * var(--u)) calc(12 * var(--u)); align-items: center; font-size: var(--fs-xs); color: var(--gold); text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; pointer-events: none; }
+.rock-mini > button { pointer-events: auto; margin-left: auto; }
+.pen-game-bobr { position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none; image-rendering: pixelated; transform-origin: 50% 50%; will-change: transform; }
+.pen-card.pen-playing > .pen-row, .pen-card.pen-playing > .pen-slots, .pen-card.pen-playing > .mood-pop { visibility: hidden; }   /* the game has the pen: only the backdrop stays until the field covers it */
+
+/* the game's backdrop is the pen's own scenery (clouds, mountains, trees, drifting leaves and pollen): sky down to Bóbr's feet, grass below */
+.pen-game-sky { position: absolute; left: 0; right: 0; top: 0; height: var(--ground, 72%); overflow: hidden; }
+.pen-game-sky .scene { inset: 0; }
+.pen-game-sky .scene-meadow { display: none; }   /* (the game has its own, bigger meadow below) */
+.pen-game-sky .scene-trees { height: 22%; bottom: -3%; }
+.pen-game-sky .scene-mountains { height: 48%; bottom: 3%; }
+.pen-game-grass { position: absolute; left: 0; right: 0; top: var(--ground, 72%); bottom: 0; background: #1c2e0a; overflow: hidden; }   /* (the meadow strip's own bottom colour, below it) */
+.pen-game-meadow { display: flex; width: max-content; justify-content: center; position: absolute; left: 50%; top: 0; transform: translateX(-50%); }
+.pen-game-meadow img { height: calc(156 * var(--u)); width: auto; flex: none; image-rendering: pixelated; }   /* the meadow sprite at 2x (it fills the grass down to the bottom edge), mirrored every other copy so the strip never shows a seam */
+.pen-game-meadow img[data-flip] { transform: scaleX(-1); }
+.pen-game .rock-embed { z-index: 1; }
+
+
+/* ---- Bóbr's pen has the rock game's proportions (1080 x 1200), so starting a game changes nothing in the layout: the same scenery stays, he walks to
+   his place, the field fades in. --g: where his feet are in the field (the tree line and the meadow start there); BobrView refines it from his sprite. ---- */
+.dash .col-a { container-type: inline-size; }   /* (its width is the pen card's: the card's height follows from it, in a way a grid track can size itself to) */
+.dash .pen-card { --g: 0.69; --hz: calc(var(--g) - 0.07); height: calc(100cqw * 1200 / 1080); align-self: start; min-height: 0; }
+.dash .pen-card .scene-cirrus { top: 0; height: calc(34% * var(--hz)); }
+.dash .pen-card .scene-strato { top: calc(6% * var(--hz)); height: calc(42% * var(--hz)); }
+.dash .pen-card .scene-clouds { top: calc(10% * var(--hz)); height: calc(60% * var(--hz)); }
+.dash .pen-card .scene-mountains { height: calc(48% * var(--hz)); bottom: calc(100% * (1 - var(--hz)) - 3% * var(--hz)); }
+.dash .pen-card .scene-trees { height: calc(22% * var(--hz)); bottom: calc(100% * (1 - var(--hz)) - 3% * var(--hz)); }   /* lowered behind the meadow (drawn after it): no haze shows between the tree line and the grass */
+.dash .pen-card .scene-meadow { height: calc(100% * (1 - var(--hz)) + 1% * var(--hz)); bottom: 0; }   /* reaches up over the foot of the tree line */   /* the meadow starts at the horizon, a little above his feet: he stands in it, not on its edge */
+.dash .pen-card .scene-ground { display: none; }
+/* Bóbr stands on the line, at the size he is drawn in the game (his sprite's own pixels, scaled like the field) */
+:root .dash .pen-card .pen { height: auto; margin-bottom: calc((1 - var(--g)) * 111.111cqw - 28 * var(--u));   /* (28: the frame and padding between the card edge and the row) */  align-content: end; }
+:root .dash .pen-card .pen .bobr-img { width: calc(var(--nw, 168) * 100cqw / 1080); height: auto; max-width: none; object-fit: fill; translate: 0 var(--dy, 0px); scale: calc(var(--face, 1) * var(--zs, 1)) var(--zs, 1); }
+.dash .pen-card .pen .bobr { height: auto; align-content: end; justify-items: center; }
+:root .dash .pen-card .pen-hit { height: 100%; display: grid; align-content: end; justify-items: center; }
+
+/* phone: the big Home sprites (planner, trophies) and Bóbr's choices (trade, joystick, arcade, time trial) are half size */
+:root[data-layout='compact'] .menu-grid > .cal-tile .icon { height: calc(var(--px, 32) * .5 * var(--u)); }
+:root[data-layout='compact'] .pen-choice img { width: auto; height: auto; zoom: .5; }
+:root[data-layout='compact'] .pen-choice.wide img { width: calc(73 * var(--u)); zoom: 1; }
+:root[data-layout='compact'] .pen-choice.left { left: calc(50% - 70 * var(--u)); }
+:root[data-layout='compact'] .pen-choice.right { left: calc(50% + 70 * var(--u)); }
+
+.pen-hit { z-index: 0; }   /* (a grid item inside .pen: z-index works without making it a positioned box, which would move the emoticon) */
+.pen-sign { z-index: 1; }   /* (Bóbr is in front of it once he has walked forward past it: see BobrPen) */
+/* the Start Here sign stands in the middle of the meadow (its base at 0.87 of the pen's height; the meadow runs from about 0.62 to the bottom) */
+.dash .pen-card .pen-sign { bottom: calc((var(--g) - 0.87) * 111.111cqw); }

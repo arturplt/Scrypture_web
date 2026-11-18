@@ -48,13 +48,16 @@ function text(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, si
 /** The aiming reticle is drawn only when this is true (aiming by touch still works without it). */
 const SHOW_RETICLE = false;
 
-export function drawGame(ctx: CanvasRenderingContext2D, s: GameState, sp: Sprites, fx: Fx, comboLabel: string) {
+export function drawGame(ctx: CanvasRenderingContext2D, s: GameState, sp: Sprites, fx: Fx, comboLabel: string, clear = false) {
   ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = '#23211a'; ctx.fillRect(0, 0, FIELD_W, FIELD_H);
-  // ground under the thrower
+  // ground under the thrower (`clear`: the pen's own scenery is behind the canvas, so nothing is painted under the play)
   const ground = THROWER.y + sp.bobr.height / 2;
-  ctx.fillStyle = '#2d2b22'; ctx.fillRect(0, ground, FIELD_W, FIELD_H - ground);
-  ctx.fillStyle = '#44412f'; ctx.fillRect(0, ground, FIELD_W, 8);
+  if (clear) ctx.clearRect(0, 0, FIELD_W, FIELD_H);
+  else {
+    ctx.fillStyle = '#23211a'; ctx.fillRect(0, 0, FIELD_W, FIELD_H);
+    ctx.fillStyle = '#2d2b22'; ctx.fillRect(0, ground, FIELD_W, FIELD_H - ground);
+    ctx.fillStyle = '#44412f'; ctx.fillRect(0, ground, FIELD_W, 8);
+  }
 
   ctx.drawImage(sp.bobr, THROWER.x - sp.bobr.width / 2, THROWER.y - sp.bobr.height / 2);
 

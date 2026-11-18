@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
+import { releaseWorldPortal } from '../ui/worldPortal';
+import { worldExitPath } from './worldEntry';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, lookAhead, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
@@ -265,7 +267,7 @@ function WorldView({ id }: { id: string }) {
       shadowSprite.current = sh;
       const loadImg = (name: string, put: (im: HTMLImageElement) => void) => new Promise<void>(res => { const im = new Image(); im.onload = () => { put(im); res(); }; im.onerror = () => res(); im.src = rawUrl(name); });
       const sdone = Promise.all([loadImg('stick', im => { stickImg.current = im; }), loadImg('leaf', im => { leafImgs.current[0] = im; }), loadImg('leaf_maple', im => { leafImgs.current[1] = im; }), loadImg('pollen', im => { leafImgs.current[2] = im; }), loadImg('stone', im => { stoneImg.current = im; }), loadImg('berry', im => { berryImg.current = im; })]);
-      Promise.all([loadCloudSprites(), loadFireSprites(), loadBeaverSprites(), loadPlaneModel().then(m => { planeModel.current = m; }).catch(e => console.warn('plane model:', e)), sdone]).finally(() => setReady(true));   // (the world starts once the plane model is in too, so the flat sprite never shows first)
+      Promise.all([loadCloudSprites(), loadFireSprites(), loadBeaverSprites(), loadPlaneModel().then(m => { planeModel.current = m; }).catch(e => console.warn('plane model:', e)), sdone]).finally(() => { setReady(true); });   // (the world starts once the plane model is in too, so the flat sprite never shows first)
     };
     img.onerror = () => setFailed(true);
     img.src = SHEET_URL;
@@ -442,6 +444,7 @@ function WorldView({ id }: { id: string }) {
       if (viewChase) { let d = (f.course - Math.PI / 2 - camAng.current) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2; camAng.current += d * (1 - Math.exp(-(poseOn || launchActive ? 14 : 5) * dt)); } else camAng.current = 0;
       const rot = useGL ? 0 : camAng.current;   // (the flat canvas's own turn; the 3D camera takes the angle itself)
       anim += dt; frames++; fpsAcc += dt;
+      if (frames === 8) releaseWorldPortal();   // a few frames are on screen: the cover can fade
       if (L.windAuto && L.wind.enabled && !L.paused) {                                // natural wind: wander on a slow curve, written to the sim at once and to the dial twice a second
         windT += dt; windAcc += dt;
         if (windAcc >= 0.25) {
@@ -1532,7 +1535,7 @@ function WorldView({ id }: { id: string }) {
       {/* top left: close */}
       <div className={`wui wui-tl ${lookUi ? 'wui-keep' : ''}`}>
         <div className="wui-row">
-          <PixelButton size="compact" scale={1} variant="red" className="wui-exit" aria-label={t('worldClose')} onClick={() => navigate('/games/paperplane')}><Icon name={lookUi ? 'home' : 'symbol_cross'} size={24} alt="" /></PixelButton>   {/* (on foot it is the home button, the one thing kept of the top left) */}
+          <PixelButton size="compact" scale={1} variant="red" className="wui-exit" aria-label={t('worldClose')} onClick={() => navigate(worldExitPath())}><Icon name={lookUi ? 'home' : 'symbol_cross'} size={24} alt="" /></PixelButton>   {/* (on foot it is the home button, the one thing kept of the top left) */}
         </div>
       </div>
 
@@ -2051,4 +2054,10 @@ function drawMinimap(cv: HTMLCanvasElement, world: World, explored: Set<number>,
   const dx = Math.cos(f.heading), dy = -Math.sin(f.heading), px = -dy, py = dx;   // the plane: an arrow pointing the way it flies (north is up)
   g.beginPath(); g.moveTo(50 + dx * 7, 50 + dy * 7); g.lineTo(50 - dx * 4 + px * 4.5, 50 - dy * 4 + py * 4.5); g.lineTo(50 - dx * 1.5, 50 - dy * 1.5); g.lineTo(50 - dx * 4 - px * 4.5, 50 - dy * 4 - py * 4.5); g.closePath();
   g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
+}
+
+/** Warm what a world needs (sprites, plane model, the tile sheet) so opening one from Home does not wait on them. */
+export function preloadWorld() {
+  loadCloudSprites().catch(() => {}); loadFireSprites().catch(() => {}); loadBeaverSprites().catch(() => {}); loadPlaneModel().catch(() => {});
+  const im = new Image(); im.src = SHEET_URL;
 }

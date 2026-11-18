@@ -25,7 +25,8 @@ interface Outcome { rewards: Rewards; newHighScore: boolean; score: number; leve
 
 const MIN_SHOOT_POWER = 0.1;
 
-export function RockGame({ mode }: { mode: GameMode }) {
+/** `embedded`: played inside Bóbr's pen on Home: just the field (aim by dragging, let go to throw), a small score line, no sliders or throw button. `hold`: the field is not shown and the game does not run yet. */
+export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold: boolean; onExit: () => void } }) {
   const { t } = useI18n();
   const stage = useAppState(s => bobrStage(s.stats.level));
   const stone = useAppState(s => s.inventory.stone ?? 0);
@@ -50,8 +51,8 @@ export function RockGame({ mode }: { mode: GameMode }) {
     const c = canvas.current, ctx = c?.getContext('2d');
     if (!c || !ctx || !sprites) return;
     ctx.setTransform(c.width / FIELD_W, 0, 0, c.height / FIELD_H, 0, 0);
-    drawGame(ctx, game.current, sprites, fx.current, comboLabel);
-  }, [sprites, comboLabel]);
+    drawGame(ctx, game.current, sprites, fx.current, comboLabel, !!embedded);
+  }, [sprites, comboLabel, embedded]);
 
   useEffect(() => { let live = true; loadSprites(stage).then(s => live && setSprites(s), () => live && setFailed(true)); return () => { live = false; }; }, [stage]);
 
@@ -83,7 +84,7 @@ export function RockGame({ mode }: { mode: GameMode }) {
 
   // the game loop
   useEffect(() => {
-    if (!sprites || paused || outcome) { redraw(); return; }
+    if (!sprites || paused || outcome || embedded?.hold) { redraw(); return; }
     let raf = 0, last = performance.now();
     const frame = (ts: number) => {
       const dt = Math.min(0.1, (ts - last) / 1000); last = ts;
@@ -99,7 +100,7 @@ export function RockGame({ mode }: { mode: GameMode }) {
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [sprites, paused, outcome, run, redraw, sync, endGame, t]);
+  }, [sprites, paused, outcome, embedded?.hold, run, redraw, sync, endGame, t]);
 
   const pause = useCallback((p: boolean) => { game.current = { ...game.current, paused: p }; setPaused(p); sync(); }, [sync]);
   // never leave a game running in a hidden tab
@@ -155,11 +156,65 @@ export function RockGame({ mode }: { mode: GameMode }) {
     fx.current = newFx(); finished.current = false;
     setOutcome(null); setPaused(false); setRun(n => n + 1); sync();
   };
-  const quit = () => navigate('/');   // leaving a game goes home
+  const quit = () => (embedded ? embedded.onExit() : navigate('/'));   // leaving a game goes home
 
   if (failed) return <div className="screen"><p role="alert">{t('rockLoadFailed')}</p><PixelButton scale={1} variant="red" onClick={quit}>{t('back')}</PixelButton></div>;
 
+  const modals = (<>
+      <Modal open={paused && !outcome} onClose={() => pause(false)} title={t('paused')}>
+        <div className="col-actions">
+          <PixelButton scale={1} onClick={() => pause(false)}>{t('resume')}</PixelButton>
+          {mode !== 'ARCADE' && <PixelButton scale={1} onClick={endGame}>{t('finishGame')}</PixelButton>}
+          <PixelButton scale={1} onClick={playAgain}>{t('restart')}</PixelButton>
+          <PixelButton scale={1} variant="red" onClick={quit}>{t('quit')}</PixelButton>
+          <span className="muted small">{t('rockStonePrice', { n: PLAY_COST_STONE })}</span>
+        </div>
+      </Modal>
+      {/* Escape / outside tap do nothing here: an achievement or level-up popup can sit on top of this one, and dismissing it must not also leave the results. */}
+      <Modal open={!!outcome} onClose={() => {}} title={t('gameOver')}>
+        {outcome && (
+          <div className="rock-over">
+            {outcome.newHighScore && <p className="rock-new-high" role="status">{t('newHighScore')}</p>}
+            <div className="rock-score">{outcome.score}</div>
+            <dl className="rock-results">
+              <dt>{t('levelReached')}</dt><dd>{outcome.level}</dd>
+              <dt>{t('targetsHit')}</dt><dd>{outcome.targetsHit}</dd>
+              <dt>{t('xpEarned')}</dt><dd>+{outcome.rewards.xp}</dd>
+              {(outcome.rewards.body + outcome.rewards.mind + outcome.rewards.soul) > 0 && <>
+                <dt>{t('statPoints')}</dt><dd>{t('body')} +{outcome.rewards.body} · {t('mind')} +{outcome.rewards.mind} · {t('soul')} +{outcome.rewards.soul}</dd></>}
+            </dl>
+            {outcome.rewards.items.length > 0 && <div className="row wrap">{outcome.rewards.items.map(id => <Icon key={id} name={ITEM_SPRITE[id as ItemId] ?? id} size={32} alt={id} />)}</div>}
+            <div className="col-actions">
+              <PixelButton scale={1} onClick={playAgain}>{t('playAgain')}</PixelButton>
+              <PixelButton scale={1} variant="red" onClick={quit}>{t('home')}</PixelButton>
+              <span className="muted small">{t('rockStonePrice', { n: PLAY_COST_STONE })} ({stone})</span>
+            </div>
+          </div>
+        )}
+      </Modal>
+      <Modal open={needStone} onClose={() => setNeedStone(false)} title={t('rockThrowing')}>
+        <p role="alert">{t('needStones', { n: PLAY_COST_STONE })}</p>
+        <PixelButton scale={1} onClick={() => setNeedStone(false)}>{t('back')}</PixelButton>
+      </Modal>
+  </>);
+
   const throwsText = hud.throws === Infinity ? '∞' : String(hud.throws);
+  if (embedded) return (
+    <div className="rock-embed">
+      <div className="rock-field" ref={field} tabIndex={0} role="application" aria-label={t('rockFieldLabel')} style={{ opacity: embedded.hold ? 0 : 1 }}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up(false)} onPointerCancel={up(true)} onKeyDown={key}>
+        <canvas ref={canvas} />
+      </div>
+      {!embedded.hold && <div className="rock-mini" aria-live="off">
+        <span>{hud.score}</span>
+        <span>{t('level').toUpperCase()} {hud.level}</span>
+        <span>{hud.time >= 0 ? `${hud.time}s${hud.speed > 1 ? ` x${hud.speed}` : ''}` : `${t('rocks').toUpperCase()} ${throwsText}`}</span>
+        <span>{t('targets').toUpperCase()} {hud.left}</span>
+        <PixelButton scale={1} size="compact" onClick={() => pause(true)} aria-label={t('pause')} disabled={!!outcome}><Icon name="pause" size={16} alt="" /></PixelButton>
+      </div>}
+      {modals}
+    </div>
+  );
   return (
     <div className="screen rock">
       <div className="rock-top">
@@ -190,43 +245,7 @@ export function RockGame({ mode }: { mode: GameMode }) {
         <PixelButton scale={1} variant="red" className="rock-shoot" onClick={shoot} disabled={!hud.canThrow} aria-label={t('shoot')}><Icon name="stone" size={32} alt="" /></PixelButton>
       </div>
 
-      <Modal open={paused && !outcome} onClose={() => pause(false)} title={t('paused')}>
-        <div className="col-actions">
-          <PixelButton scale={1} onClick={() => pause(false)}>{t('resume')}</PixelButton>
-          {mode !== 'ARCADE' && <PixelButton scale={1} onClick={endGame}>{t('finishGame')}</PixelButton>}
-          <PixelButton scale={1} onClick={playAgain}>{t('restart')}</PixelButton>
-          <PixelButton scale={1} variant="red" onClick={quit}>{t('quit')}</PixelButton>
-          <span className="muted small">{t('rockStonePrice', { n: PLAY_COST_STONE })}</span>
-        </div>
-      </Modal>
-
-      {/* Escape / outside tap do nothing here: an achievement or level-up popup can sit on top of this one, and dismissing it must not also leave the results. */}
-      <Modal open={!!outcome} onClose={() => {}} title={t('gameOver')}>
-        {outcome && (
-          <div className="rock-over">
-            {outcome.newHighScore && <p className="rock-new-high" role="status">{t('newHighScore')}</p>}
-            <div className="rock-score">{outcome.score}</div>
-            <dl className="rock-results">
-              <dt>{t('levelReached')}</dt><dd>{outcome.level}</dd>
-              <dt>{t('targetsHit')}</dt><dd>{outcome.targetsHit}</dd>
-              <dt>{t('xpEarned')}</dt><dd>+{outcome.rewards.xp}</dd>
-              {(outcome.rewards.body + outcome.rewards.mind + outcome.rewards.soul) > 0 && <>
-                <dt>{t('statPoints')}</dt><dd>{t('body')} +{outcome.rewards.body} · {t('mind')} +{outcome.rewards.mind} · {t('soul')} +{outcome.rewards.soul}</dd></>}
-            </dl>
-            {outcome.rewards.items.length > 0 && <div className="row wrap">{outcome.rewards.items.map(id => <Icon key={id} name={ITEM_SPRITE[id as ItemId] ?? id} size={32} alt={id} />)}</div>}
-            <div className="col-actions">
-              <PixelButton scale={1} onClick={playAgain}>{t('playAgain')}</PixelButton>
-              <PixelButton scale={1} variant="red" onClick={quit}>{t('home')}</PixelButton>
-              <span className="muted small">{t('rockStonePrice', { n: PLAY_COST_STONE })} ({stone})</span>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal open={needStone} onClose={() => setNeedStone(false)} title={t('rockThrowing')}>
-        <p role="alert">{t('needStones', { n: PLAY_COST_STONE })}</p>
-        <PixelButton scale={1} onClick={() => setNeedStone(false)}>{t('back')}</PixelButton>
-      </Modal>
+      {modals}
     </div>
   );
 }

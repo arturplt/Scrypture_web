@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EMOTICONS, flourishFor, type BobrStage, type Emotion } from '../domain';
+import { EMOTICONS, FIELD_H, THROWER, flourishFor, type BobrStage, type Emotion } from '../domain';
 import { useUi } from './useUi';
 import { PixelFrame } from './PixelFrame';
 
@@ -34,7 +34,12 @@ export function BobrView({ stage, emotion }: { stage: BobrStage; emotion: Emotio
   return (
     <div className="bobr">
       <div className="bobr-top"><Emoticon emotion={emotion} /></div>
-      <img className="pixel bobr-img" src={`/assets/raw/${FILE[stage]}.png`} width={px(220)} height={px(220)} alt="Bóbr" />
+      <img className="pixel bobr-img" src={`/assets/raw/${FILE[stage]}.png`} width={px(220)} height={px(220)} alt="Bóbr" onLoad={e => {   // in the pen he is drawn at the size he has in the rock game, and his feet are where the game puts them
+        const img = e.currentTarget, card = img.closest<HTMLElement>('.pen-card');
+        if (!card) return;
+        img.style.setProperty('--nw', String(img.naturalWidth));
+        card.style.setProperty('--g', String((THROWER.y + img.naturalHeight / 2) / FIELD_H));
+      }} />
     </div>
   );
 }

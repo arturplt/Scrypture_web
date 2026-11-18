@@ -17,6 +17,7 @@ const LAYERS = [
   { src: '/assets/Clouds/pixelite-543x181-Cumulus1.png', cls: 'scene-clouds', far: 0.04, wind: 10 },
   { src: mountainsUrl, cls: 'scene-mountains', far: 0.2, wind: 0 },
   { src: treesUrl, cls: 'scene-trees', far: 0.5, wind: 0 },
+  { src: '/assets/raw/meadow.png', cls: 'scene-meadow', far: 1, wind: 0 },   // the ground itself, in front of the tree line: it moves at Bóbr's own speed
 ];
 
 /** Things that float about: pollen rises and wanders, leaves tumble down. Laid out once; each moves by its own CSS animation. */

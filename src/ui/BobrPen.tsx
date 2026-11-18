@@ -6,6 +6,14 @@ import { actions } from '../data/hooks';
 import { BobrView } from './BobrView';
 import { useUi } from './useUi';
 
+/** The Start Here sign stands on the ground and slides with it; it loops once the pen plus the sign's own width has gone by, so it leaves fully out of sight on one side and walks in from the other (no jump on screen). */
+const SIGN_AT = 0.25;
+/** Forward in the meadow he is drawn this much lower (of the card's height) and this much bigger at depth 1; the sign stands at SIGN_DEPTH. */
+const DEPTH_DROP = 0.28, DEPTH_GROW = 0.5, SIGN_DEPTH = 0.64;   // (the sign's base is at 0.87 of the card's height: see app.css; his feet are at --g, 0.69, and go DEPTH_DROP further down)
+
+/** One of Bóbr's choices: a sprite (`wide`: shown at 2x), its label, and what it does. */
+export interface PenChoice { icon: string; label: string; onClick: () => void; wide?: boolean; text?: string }
+
 interface Spawned { id: number; itemId: ItemId; x: number }   // x: where it lies, in pen widths along the pen's endless ground
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -48,13 +56,32 @@ function usePen(root: React.RefObject<HTMLDivElement>) {
       const el = root.current, w = walker.current, list = itemsRef.current;
       if (el) {
         const W = el.closest('.pen-card')?.clientWidth || el.clientWidth || 300;
-        if (!still) {
+        if (!still && !penView.hold) {
           const got = stepWalker(w, dt, list.map(i => i.x));
           if (got >= 0) collect(list[got]);
         }
         penView.pos = w.pos; penView.width = W;
+        if (!penView.hold) {   // forward in the meadow: lower and bigger (he is drawn from his feet); in front of the Start Here sign once he is past where it stands
+          const H = el.closest('.pen-card')?.clientHeight || W * 1.11, z = 1 + w.depth * DEPTH_GROW;
+          el.style.setProperty('--dy', `${w.depth * DEPTH_DROP * H}px`); el.style.setProperty('--zs', z.toFixed(3));
+          const front = w.depth > SIGN_DEPTH;
+          if (el.dataset.front !== String(front)) { el.dataset.front = String(front); const hit = el.querySelector<HTMLElement>('.pen-hit'); if (hit) hit.style.zIndex = front ? '2' : '0'; }
+        }
         const look = `${w.act} ${w.face}`;
         if (look !== shown) { shown = look; el.dataset.act = w.act; el.dataset.face = String(w.face); }
+        const sign = el.querySelector<HTMLElement>('.pen-sign');
+        if (sign) {   // it wraps just beyond the edges of the pen row, which is what clips it (measured, since the card's padding differs by layout), so it is out of sight while it jumps
+          const row = el.closest<HTMLElement>('.pen-row'), scene = el.closest('.pen-card')?.querySelector('.scene')?.getBoundingClientRect(), rr = row?.getBoundingClientRect();
+          if (row && scene && rr) {   // the row clips its sides, but the scenery reaches further out: widen the clip to the scenery's edges so the sign is seen all the way across
+            const clip = `inset(calc(-40 * var(--u)) ${Math.min(0, rr.right - scene.right)}px calc(-32 * var(--u)) ${Math.min(0, scene.left - rr.left)}px)`;
+            if (row.dataset.clip !== clip) { row.dataset.clip = clip; row.style.clipPath = clip; }
+          }
+          const card = scene ?? el.closest('.pen-row')?.getBoundingClientRect(), me = el.getBoundingClientRect();
+          const mid = me.left + me.width / 2, half = sign.offsetWidth / 2 + 8;
+          const lo = (card ? card.left - mid : -W / 2) - half, span = (card ? card.width : W) + half * 2;
+          const x = lo + ((((SIGN_AT - w.pos) * W - lo) % span) + span) % span;
+          sign.style.transform = `translateX(calc(-50% + ${x}px))`;
+        }
         list.forEach(it => { const e = els.current.get(it.id); if (e) e.style.transform = `translateX(calc(-50% + ${(it.x - w.pos) * W}px))`; });
       }
       raf = requestAnimationFrame(frame);
@@ -66,15 +93,29 @@ function usePen(root: React.RefObject<HTMLDivElement>) {
   return { items, collect, els };
 }
 
-export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn }: { /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
+export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn, onFly, flyLabel, onSign, signLabel, choice }: { /** tapping Bóbr offers two things, one each side of him (first trade or play, then which game) */ choice?: { open: boolean; left: PenChoice; right: PenChoice }; /** the Start Here sign on the ground */ onSign?: () => void; signLabel?: string; /** a paper plane in the corner: straight back into the flying world */ onFly?: (from: HTMLElement) => void; flyLabel?: string; /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
   const root = useRef<HTMLDivElement>(null);
   const { items, collect, els } = usePen(root);
   const { px } = useUi();
+  const open = !!choice?.open;
+  const [mounted, setMounted] = useState(open);   // the choices stay on while they play their leaving animation
+  useEffect(() => {
+    if (open) { setMounted(true); return; }
+    const id = setTimeout(() => setMounted(false), reducedMotion() ? 0 : 250);
+    return () => clearTimeout(id);
+  }, [open]);
   return (
     <div className="pen" ref={root} data-act="idle" data-face="1">
       {onBobr
         ? <div className="pen-hit" role="button" tabIndex={0} aria-label={bobrLabel} aria-pressed={bobrOn} onClick={onBobr} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBobr(); } }}><BobrView stage={stage} emotion={emotion} /></div>
         : <BobrView stage={stage} emotion={emotion} />}
+      {onSign && <button type="button" className="pen-sign" aria-label={signLabel} title={signLabel} onClick={onSign}><img className="pixel" src="/assets/raw/starthere.png" width={px(90)} alt="" /></button>}
+      {choice && mounted && ([['left', choice.left], ['right', choice.right]] as const).map(([side, c]) => (
+        <button key={side} type="button" className={`pen-choice ${side} ${c.wide ? 'wide' : ''} ${open ? '' : 'out'}`} disabled={!open} aria-label={c.label} title={c.label} onClick={c.onClick}>
+          <img className="pixel" src={`/assets/raw/${c.icon}.png`} alt="" />{c.text && <span className="pen-choice-text">{c.text}</span>}
+        </button>
+      ))}
+      {onFly && <button type="button" className="pen-fly" aria-label={flyLabel} title={flyLabel} onClick={e => onFly(e.currentTarget)}><img className="pixel" src="/assets/raw/airplane.png" width={px(36)} alt="" /></button>}
       {onChat && <button type="button" className="pen-chat" aria-label={chatLabel} title={chatLabel} onClick={onChat}><img className="pixel" src="/assets/raw/chat_bubble_blue.png" width={px(36)} alt="" /></button>}
       {items.map(it => (
         <button key={it.id} ref={e => { if (e) els.current.set(it.id, e); else els.current.delete(it.id); }} className="spawn ground" aria-label={`Collect ${it.itemId}`}

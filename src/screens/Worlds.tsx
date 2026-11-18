@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { enterWorldFromHome } from './worldEntry';
 import { MAX_WORLDS, seedFrom } from '../domain';
 import { actions, useAppState } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
@@ -9,6 +10,7 @@ import { Icon } from '../ui/misc';
 
 /** Bóbr world list (Android's WorldListScreen): make a world from a name and a seed, open it, delete it. */
 export function Worlds() {
+  useEffect(() => enterWorldFromHome(false), []);   // coming through the list: closing a world comes back here
   const { t, lang } = useI18n();
   const worlds = useAppState(s => s.worlds.list);
   const [name, setName] = useState('');
