@@ -39,7 +39,7 @@ export const NAV_ITEMS = ['home', 'tasks', 'habits', 'plan', 'start', 'chat', 't
 export const NAV_ACTIVE = ['outline', 'glow', 'plate', 'underline', 'lift'] as const;
 export const NAV_LABELS = ['icons', 'both'] as const;
 export interface NavSettings { frame: string; active: string; plate: string; plateScale: number; items: string[]; labels: string }
-export const DEFAULT_NAV: NavSettings = { frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits'], labels: 'icons' };
+export const DEFAULT_NAV: NavSettings = { frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits', 'apps'], labels: 'icons' };
 
 /** Valid, de-duplicated items in the fixed canonical order, always including Home. */
 export function sanitizeNavItems(raw: unknown): string[] {

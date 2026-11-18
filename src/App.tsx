@@ -46,6 +46,8 @@ import { FrameDensity } from './ui/PixelFrame';
 import { useNavPreview } from './ui/navPreview';
 import { NAV_DEFS, isActivePath } from './ui/navItems';
 import { useNavBadges } from './ui/navBadges';
+import { AppDrawerHost, setAppDrawer } from './ui/appDrawer';
+import { useLongPress } from './ui/misc';
 import { LIGHT_FRAMES, frameOr, resolveFrame, splitFrame } from './ui/themes';
 import type { Key } from './i18n';
 import './app.css';
@@ -79,6 +81,20 @@ function Screen({ route }: { route: string }) {
   if (route === '/settings') return <Settings />;
   if (route === '/theme') return <ThemeManager />;
   return <Dashboard />;
+}
+
+/** One nav-bar button. Apps opens the XL drawer on a tap and the described list on a press and hold. */
+function NavButton({ d, active, label, size, badge, showLabel }: { d: (typeof NAV_DEFS)[number]; active: boolean; label: string; size: number; badge?: string | number | null; showLabel: boolean }) {
+  const held = useRef(false);
+  const hold = useLongPress(d.id === 'apps' ? () => { held.current = true; navigate('/apps'); } : undefined);
+  return (
+    <button className={`nav-btn ${active ? 'active' : ''}`} {...hold} aria-label={label} aria-current={active ? 'page' : undefined}
+      onClick={() => { if (held.current) { held.current = false; return; } if (d.id === 'apps') setAppDrawer(true); else navigate(d.path); }}>
+      <Icon name={d.icon} size={size} />
+      {badge && <span className="menu-badge"><Chip color="#b6a432">{badge}</Chip></span>}
+      {showLabel && <span className="nav-label">{label}</span>}
+    </button>
+  );
 }
 
 export function App() {
@@ -207,11 +223,7 @@ export function App() {
           </> : NAV_DEFS.filter(d => nav.items.includes(d.id)).map(d => {
             const active = isActivePath(route, d.path);
             return (
-              <button key={d.id} className={`nav-btn ${active ? 'active' : ''}`} onClick={() => navigate(d.path)} aria-label={t(d.label)} aria-current={active ? 'page' : undefined}>
-                <Icon name={d.icon} size={device ? Math.round(d.size * 0.75) : d.size} />
-                {badges[d.path] && <span className="menu-badge"><Chip color="#b6a432">{badges[d.path]}</Chip></span>}
-                {nav.labels === 'both' && <span className="nav-label">{t(d.label)}</span>}
-              </button>
+              <NavButton key={d.id} d={d} active={active} label={t(d.label)} size={device ? Math.round(d.size * 0.75) : d.size} badge={badges[d.path]} showLabel={nav.labels === 'both'} />
             );
           })}
         </PixelFrame>
@@ -224,6 +236,7 @@ export function App() {
       {banner}
       {device ? <DeviceShell title={title} level={level} resetKey={route} nav={<FrameDensity.Provider value="slim">{navEl}</FrameDensity.Provider>}>{page}</DeviceShell> : <>{page}{navEl}</>}
       <EventHost />
+      <AppDrawerHost />
       <UndoBar />
       <Notices />
       <Keyboard />

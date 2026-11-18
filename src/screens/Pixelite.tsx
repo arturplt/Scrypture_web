@@ -375,7 +375,7 @@ export function Pixelite() {
 
   return (
     <div className="screen px">
-      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton></div>
+      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('pixelite')}</h1>
 
       {!img ? (

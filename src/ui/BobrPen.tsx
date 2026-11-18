@@ -13,7 +13,7 @@ const SIGN_AT = 0.25;
 const DEPTH_DROP = 0.28, DEPTH_GROW = 0.5, SIGN_DEPTH = 0.64;   // (the sign's base is at 0.87 of the card's height: see app.css; his feet are at --g, 0.69, and go DEPTH_DROP further down)
 
 /** One of Bóbr's choices: a sprite (`wide`: shown at 2x), its label, and what it does. */
-export interface PenChoice { icon: string; label: string; onClick: () => void; wide?: boolean; text?: string }
+export interface PenChoice { icon: string; label: string; onClick: () => void; wide?: boolean; text?: string; /** press and hold */ onHold?: () => void }
 
 interface Spawned { id: number; itemId: ItemId; x: number }   // x: where it lies, in pen widths along the pen's endless ground
 
@@ -100,6 +100,17 @@ function usePen(root: React.RefObject<HTMLDivElement>) {
   return { items, collect, els };
 }
 
+function PenChoiceButton({ side, c, open }: { side: 'left' | 'right'; c: PenChoice; open: boolean }) {
+  const held = useRef(false);
+  const hold = useLongPress(c.onHold && (() => { held.current = true; c.onHold!(); }));
+  return (
+    <button type="button" className={`pen-choice ${side} ${c.wide ? 'wide' : ''} ${open ? '' : 'out'}`} disabled={!open} aria-label={c.label} title={c.label} {...hold}
+      onClick={() => { if (held.current) { held.current = false; return; } c.onClick(); }}>
+      <img className="pixel" src={`/assets/raw/${c.icon}.png`} alt="" />{c.text && <span className="pen-choice-text">{c.text}</span>}
+    </button>
+  );
+}
+
 export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn, onFly, onFlyHold, flyLabel, onSign, signLabel, choice }: { /** tapping Bóbr offers two things, one each side of him (first trade or play, then which game) */ choice?: { open: boolean; left: PenChoice; right: PenChoice }; /** the Start Here sign on the ground */ onSign?: () => void; signLabel?: string; /** a paper plane in the corner: straight back into the flying world */ onFly?: (from: HTMLElement) => void; /** press and hold on the plane: pick a world instead */ onFlyHold?: () => void; flyLabel?: string; /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
   const flyHeld = useRef(false);
   const flyHold = useLongPress(onFlyHold && (() => { flyHeld.current = true; onFlyHold(); }));
@@ -119,11 +130,7 @@ export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, 
         ? <div className="pen-hit" role="button" tabIndex={0} aria-label={bobrLabel} aria-pressed={bobrOn} onClick={onBobr} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBobr(); } }}><BobrView stage={stage} emotion={emotion} /></div>
         : <BobrView stage={stage} emotion={emotion} />}
       {onSign && <button type="button" className="pen-sign" aria-label={signLabel} title={signLabel} onClick={onSign}><img className="pixel" src="/assets/raw/starthere.png" width={px(90)} alt="" /></button>}
-      {choice && mounted && ([['left', choice.left], ['right', choice.right]] as const).map(([side, c]) => (
-        <button key={side} type="button" className={`pen-choice ${side} ${c.wide ? 'wide' : ''} ${open ? '' : 'out'}`} disabled={!open} aria-label={c.label} title={c.label} onClick={c.onClick}>
-          <img className="pixel" src={`/assets/raw/${c.icon}.png`} alt="" />{c.text && <span className="pen-choice-text">{c.text}</span>}
-        </button>
-      ))}
+      {choice && mounted && ([['left', choice.left], ['right', choice.right]] as const).map(([side, c]) => <PenChoiceButton key={side} side={side} c={c} open={open} />)}
       {onFly && <button type="button" className="pen-fly" aria-label={flyLabel} title={flyLabel} {...flyHold} onClick={e => { if (flyHeld.current) { flyHeld.current = false; return; } onFly(e.currentTarget); }}><img className="pixel" src="/assets/raw/airplane.png" width={px(36)} alt="" /></button>}
       {onChat && <button type="button" className="pen-chat" aria-label={chatLabel} title={chatLabel} onClick={onChat}><img className="pixel" src="/assets/raw/chat_bubble_blue.png" width={px(36)} alt="" /></button>}
       {items.map(it => (

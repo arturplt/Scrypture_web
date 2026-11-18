@@ -32,7 +32,7 @@ function NoteList() {
   const create = (title: string) => { setNaming(false); const made = actions.createNote(title); if (made) navigate(notePath(made)); };
   return (
     <div className="screen">
-      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton></div>
+      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('notes')}</h1>
       <div className="muted small">{t('notesHint')}</div>
       <div className="row"><PixelButton scale={1} disabled={full} onClick={() => setNaming(true)}>{t('noteNew')}</PixelButton></div>

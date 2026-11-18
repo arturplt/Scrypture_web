@@ -231,10 +231,10 @@ describe('look (appearance + accessibility)', () => {
     expect(sanitizeLook({ elements: 'nope' } as never).elements).toEqual(DEFAULT_LOOK.elements);
   });
   it('navigation bar: defaults, always keeps Home, canonical order, drops unknown and duplicate items', () => {
-    expect(DEFAULT_LOOK.nav).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits'], labels: 'icons' });
+    expect(DEFAULT_LOOK.nav).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits', 'apps'], labels: 'icons' });
     expect(sanitizeNavItems(['settings', 'chat', 'chat', 'nope', 7])).toEqual(['home', 'chat', 'settings']);   // Home added, order fixed
     expect(sanitizeNavItems([])).toEqual(['home']);
-    expect(sanitizeNavItems('nope')).toEqual(['home', 'tasks', 'habits']);
+    expect(sanitizeNavItems('nope')).toEqual(['home', 'tasks', 'habits', 'apps']);
     const bad = sanitizeLook({ nav: { frame: '', active: 'blink', items: ['tasks'], labels: 'text' } } as never).nav;
     expect(bad).toEqual({ frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks'], labels: 'icons' });
   });

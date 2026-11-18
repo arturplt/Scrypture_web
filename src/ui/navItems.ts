@@ -13,7 +13,7 @@ export const NAV_DEFS: NavDef[] = [
   { id: 'start', path: '/start', icon: 'target', size: 32, label: 'startHere' },
   { id: 'chat', path: '/chat', icon: 'chat_bubble_blue', size: 36, label: 'chatButton' },
   { id: 'trophies', path: '/achievements', icon: 'achievement_gold', size: 40, label: 'trophies' },
-  { id: 'apps', path: '/apps', icon: 'pencil_yellow', size: 32, label: 'apps' },
+  { id: 'apps', path: '/apps', icon: 'apps', size: 39, label: 'apps' },
   { id: 'settings', path: '/settings', icon: 'rearrange', size: 32, label: 'settings' },
 ];
 export const isActivePath = (route: string, path: string) => route === path || (path !== '/' && route.startsWith(`${path}/`));

@@ -494,7 +494,7 @@ textarea { resize: vertical; }
 :root[data-motion='reduce'] *, :root[data-motion='reduce'] *::before, :root[data-motion='reduce'] *::after { animation: none !important; transition: none !important; }
 
 /* Bóbr's nudge on Home */
-.nudge { text-align: left; font-size: var(--fs-xs); line-height: 1.6; cursor: pointer; }
+.nudge { font-family: inherit; color: var(--text); text-align: left; font-size: var(--fs-xs); line-height: 1.6; cursor: pointer; }
 
 /* elements feel solid: no text selection, long-press callouts or dragged pictures; only text fields stay selectable */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -713,3 +713,28 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .pen-sign { z-index: 1; }   /* (Bóbr is in front of it once he has walked forward past it: see BobrPen) */
 /* the Start Here sign stands in the middle of the meadow (its base at 0.87 of the pen's height; the meadow runs from about 0.62 to the bottom) */
 .dash .pen-card .pen-sign { bottom: calc((var(--g) - 0.87) * 111.111cqw); }
+
+/* App drawer: appsXL.png (313 × 313) at 1x with a 2 × 4 grid of hit areas over its tiles */
+.drawer { position: relative; width: calc(313 * var(--u)); height: calc(313 * var(--u)); margin: calc(8 * var(--u)) auto; max-width: 100%; }
+.drawer-img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.drawer-tile { position: absolute; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: calc(6 * var(--u)); -webkit-tap-highlight-color: transparent;
+  left: calc((52 + var(--col) * 108) * var(--u)); top: calc((33 + var(--row) * 62.5) * var(--u)); width: calc(101 * var(--u)); height: calc(59 * var(--u)); }
+.drawer-tile:hover, .drawer-tile:focus-visible { background: #ffd9a338; outline: calc(2 * var(--u)) solid #ffd9a3; outline-offset: calc(-1 * var(--u)); }
+.drawer-tile:active { background: #ffd9a360; }
+/* opening the drawer: the board pops up over the dashboard (the 156px icon stays), swelling in from 2x smaller */
+.drawer-pop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: #000a; animation: drawer-fade .2s ease-out both; }
+.drawer-pop .drawer { margin: 0; }
+.drawer { animation: drawer-grow .3s cubic-bezier(.2, .9, .3, 1) both; transform-origin: 50% 50%; }
+.drawer-tile { animation: drawer-tile .3s step-end both; }
+@keyframes drawer-grow { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes drawer-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawer-tile { from { pointer-events: none; } to { pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-pop, .drawer-tile { animation: none; } }
+
+/* the trophies sit beside the level bar; the planner lives in Bóbr's prompting box */
+.level-card { display: flex; align-items: center; gap: calc(6 * var(--u)); }
+.level-main { flex: 1; min-width: 0; display: grid; gap: calc(4 * var(--u)); }
+.level-trophy { flex: none; position: relative; }
+.nudge { display: flex; align-items: center; gap: calc(8 * var(--u)); position: relative; }
+.nudge-text { flex: 1; min-width: 0; }
+.level-trophy { margin-bottom: 0; padding: 0; border: 0; background: transparent; cursor: pointer; line-height: 0; }

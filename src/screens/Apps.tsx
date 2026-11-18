@@ -5,9 +5,36 @@ import { PixelButton } from '../ui/PixelButton';
 import { Icon } from '../ui/misc';
 import type { Key } from '../i18n';
 
-/** Little tools that live beside the game. */
-/** `path` is a screen of this app; `href` an outside site, opened in a new tab. */
-const APPS: { path?: string; href?: string; icon: string; name: Key; hint: Key }[] = [
+/** The app drawer: appsXL.png is a 2 × 4 board of tiles; each gets a hover-lit hit area over it.
+ *  `path` is a screen of this app; `href` an outside site, opened in a new tab. */
+const TILES: { path?: string; href?: string; name: Key }[] = [
+  { path: '/apps/pixelite', name: 'pixelite' },
+  { href: 'https://tunerite.scrypture.app', name: 'tunerite' },
+  { href: 'https://steam.scrypture.app', name: 'steam' },
+  { path: '/apps/mindmap', name: 'mindMap' },
+  { path: '/apps/exercise', name: 'exercise' },
+  { path: '/apps/notes', name: 'notes' },
+  { path: '/games/paperplane', name: 'world' },
+  { path: '/settings', name: 'settings' },
+];
+
+/** The board itself; `onPick` runs when a tile is chosen (the popup uses it to close). */
+export function AppDrawer({ onPick }: { onPick?: () => void }) {
+  const { t } = useI18n();
+  return (
+      <div className="drawer">
+        <img className="drawer-img" src="/assets/raw/appsXL.png" alt="" draggable={false} />
+        {TILES.map((a, i) => (
+          <button key={a.name} className="drawer-tile" style={{ '--col': i % 2, '--row': Math.floor(i / 2) } as React.CSSProperties}
+            aria-label={t(a.name)} title={t(a.name)}
+            onClick={() => { onPick?.(); if (a.path) navigate(a.path); else window.open(a.href, '_blank', 'noopener,noreferrer'); }} />
+        ))}
+      </div>
+  );
+}
+
+/** The full list: every app with its icon, name and what it does. */
+const LIST: { path?: string; href?: string; icon: string; size?: number; name: Key; hint: Key }[] = [
   { path: '/apps/pixelite', icon: 'pencil_yellow', name: 'pixelite', hint: 'pixeliteHint' },
   { path: '/apps/sanctuary', icon: 'home', name: 'sanctuary', hint: 'sanctuaryHint' },
   { path: '/apps/exercise', icon: 'body_active', name: 'exercise', hint: 'exerciseHint' },
@@ -15,7 +42,7 @@ const APPS: { path?: string; href?: string; icon: string; name: Key; hint: Key }
   { path: '/apps/notes', icon: 'soul_active', name: 'notes', hint: 'notesHint' },
   { path: '/apps/emoticons', icon: 'chat_bubble_blue', name: 'emoticons', hint: 'emoticonsHint' },
   { path: '/games/paperplane', icon: 'airplane', name: 'world', hint: 'worldHint' },
-  { href: 'https://tunerite.scrypture.app', icon: 'rearrange', name: 'tunerite', hint: 'tuneriteHint' },
+  { href: 'https://tunerite.scrypture.app', icon: 'tunerite', size: 156, name: 'tunerite', hint: 'tuneriteHint' },
   { href: 'https://steam.scrypture.app', icon: 'berry', name: 'steam', hint: 'steamHint' },
 ];
 
@@ -25,9 +52,9 @@ export function Apps() {
     <div className="screen">
       <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('apps')}</h1>
-      {APPS.map(a => (
+      {LIST.map(a => (
         <PixelFrame key={a.path ?? a.href} theme="gold_thick" scale={1} className="card">
-          <div className="row"><Icon name={a.icon} size={32} alt="" /><h2 className="subtitle">{t(a.name)}</h2></div>
+          <div className="row"><Icon name={a.icon} size={a.size ?? 32} alt="" /><h2 className="subtitle">{t(a.name)}</h2></div>
           <div className="muted small">{t(a.hint)}</div>
           <PixelButton scale={1} onClick={() => (a.path ? navigate(a.path) : window.open(a.href, '_blank', 'noopener,noreferrer'))}>{t('openApp')}</PixelButton>
         </PixelFrame>

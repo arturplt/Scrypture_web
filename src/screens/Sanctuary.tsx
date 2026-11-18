@@ -266,7 +266,7 @@ export function Sanctuary() {
 
   return (
     <div className="screen san">
-      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton></div>
+      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('sanctuary')}</h1>
       <div className="muted small">{t('sanHelp')}</div>
 

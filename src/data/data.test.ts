@@ -169,7 +169,7 @@ describe('bobr life', () => {
 describe('settings migration', () => {
   it('old saves without look settings get defaults; bad values are cleaned', () => {
     const old = normalize({ version: 1, settings: { frameTheme: 'gold', language: 'PL' } });
-    expect(old.settings).toMatchObject({ frameTheme: 'gold', language: 'PL', textScale: 1, uiScale: 0, frameEdges: 'random', buttonSize: 'compact', frameCenter: 'clean', nav: { items: ['home', 'tasks', 'habits'], active: 'outline' }, chips: 'wood', elements: { tick: 'classic', task: 'app' }, buttons: { primary: 'button_green' }, bars: { hunger: 'boxes_red' } });
+    expect(old.settings).toMatchObject({ frameTheme: 'gold', language: 'PL', textScale: 1, uiScale: 0, frameEdges: 'random', buttonSize: 'compact', frameCenter: 'clean', nav: { items: ['home', 'tasks', 'habits', 'apps'], active: 'outline' }, chips: 'wood', elements: { tick: 'classic', task: 'app' }, buttons: { primary: 'button_green' }, bars: { hunger: 'boxes_red' } });
     const bad = normalize({ version: 1, settings: { textScale: 99, uiScale: 5, bars: { xp: 'seg_gold' } } });
     expect(bad.settings).toMatchObject({ textScale: 1, uiScale: 0, bars: { xp: 'seg_gold', hunger: 'boxes_red' } });
   });

@@ -31,7 +31,7 @@ export function MindMaps() {
 
   return (
     <div className="screen">
-      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton></div>
+      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('mindMap')}</h1>
       <div className="muted small">{t('mindMapHint')}</div>
       <div className="row"><PixelButton scale={1} disabled={full} onClick={() => setNaming({ id: null })}>{t('mmNew')}</PixelButton></div>

@@ -79,7 +79,7 @@ export function Exercise() {
   return (
     <div className="screen ex">
       <div className="row between">
-        <PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton>
+        <PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton>
       </div>
       <div className="row ex-head"><Icon name="body_active" size={32} /><h1 className="title">{t('exercise')}</h1></div>
       {note && <div className="ex-note" role="status"><Chip color={GOLD}>{note}</Chip></div>}

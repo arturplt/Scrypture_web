@@ -12,7 +12,7 @@ export function EmoticonManager() {
   const [picked, setPicked] = useState<Emoticon | null>(null);
   return (
     <div className="screen">
-      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/apps')}>{t('back')}</PixelButton></div>
+      <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('emoticons')}</h1>
       <div className="muted small">{t('emoticonsHint')}</div>
       {picked && (
