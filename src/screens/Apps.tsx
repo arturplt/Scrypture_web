@@ -6,13 +6,15 @@ import { Icon } from '../ui/misc';
 import type { Key } from '../i18n';
 
 /** Little tools that live beside the game. */
-const APPS: { path: string; icon: string; name: Key; hint: Key }[] = [
+/** `path` is a screen of this app; `href` an outside site, opened in a new tab. */
+const APPS: { path?: string; href?: string; icon: string; name: Key; hint: Key }[] = [
   { path: '/apps/pixelite', icon: 'pencil_yellow', name: 'pixelite', hint: 'pixeliteHint' },
   { path: '/apps/sanctuary', icon: 'home', name: 'sanctuary', hint: 'sanctuaryHint' },
   { path: '/apps/exercise', icon: 'body_active', name: 'exercise', hint: 'exerciseHint' },
   { path: '/apps/mindmap', icon: 'mind_active', name: 'mindMap', hint: 'mindMapHint' },
   { path: '/apps/notes', icon: 'soul_active', name: 'notes', hint: 'notesHint' },
   { path: '/apps/emoticons', icon: 'chat_bubble_blue', name: 'emoticons', hint: 'emoticonsHint' },
+  { href: 'https://tunerite.scrypture.app', icon: 'rearrange', name: 'tunerite', hint: 'tuneriteHint' },
 ];
 
 export function Apps() {
@@ -22,10 +24,10 @@ export function Apps() {
       <div className="row between"><PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton></div>
       <h1 className="title">{t('apps')}</h1>
       {APPS.map(a => (
-        <PixelFrame key={a.path} theme="gold_thick" scale={1} className="card">
+        <PixelFrame key={a.path ?? a.href} theme="gold_thick" scale={1} className="card">
           <div className="row"><Icon name={a.icon} size={32} alt="" /><h2 className="subtitle">{t(a.name)}</h2></div>
           <div className="muted small">{t(a.hint)}</div>
-          <PixelButton scale={1} onClick={() => navigate(a.path)}>{t('openApp')}</PixelButton>
+          <PixelButton scale={1} onClick={() => (a.path ? navigate(a.path) : window.open(a.href, '_blank', 'noopener,noreferrer'))}>{t('openApp')}</PixelButton>
         </PixelFrame>
       ))}
     </div>

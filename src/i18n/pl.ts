@@ -1464,6 +1464,8 @@ export const pl: Record<Key, string> = {
   "notes": "Notatki",
   "emoticons": "Emotikony",
   "emoticonsHint": "Wszystkie twarze ASCII Bóbra i uczucie, które oznaczają. Dotknij, by zobaczyć dużą.",
+  "tunerite": "Tunerite",
+  "tuneriteHint": "Stroik, trening głosu, pianino i trening słuchu. Otwiera tunerite.scrypture.app w nowej karcie.",
   "emoticonSearch": "Szukaj twarzy lub (nazw)",
   "emoticonSymbols": "Symbole",
   "emoticonOther": "Sceny i zwierzęta",

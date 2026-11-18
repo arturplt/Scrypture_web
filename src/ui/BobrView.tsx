@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EMOTICONS, FIELD_H, THROWER, flourishFor, type BobrStage, type Emotion } from '../domain';
+import { EMOTICONS, FIELD_H, flourishFor, type BobrStage, type Emotion } from '../domain';
 import { useUi } from './useUi';
 import { PixelFrame } from './PixelFrame';
 
@@ -27,6 +27,9 @@ export function Emoticon({ emotion }: { emotion: Emotion }) {
   );
 }
 
+/** In his pen the centre of his sprite stands here (field units) when he is at the back of the meadow: his feet, and so the horizon, follow from it. */
+const PEN_STAND_Y = FIELD_H * 0.63;
+
 const FILE: Record<BobrStage, string> = { HATCHLING: 'bobr_hatchling', YOUNG: 'bobr_young', MATURE: 'bobr_mature' };
 
 export function BobrView({ stage, emotion }: { stage: BobrStage; emotion: Emotion }) {
@@ -38,7 +41,7 @@ export function BobrView({ stage, emotion }: { stage: BobrStage; emotion: Emotio
         const img = e.currentTarget, card = img.closest<HTMLElement>('.pen-card');
         if (!card) return;
         img.style.setProperty('--nw', String(img.naturalWidth));
-        card.style.setProperty('--g', String((THROWER.y + img.naturalHeight / 2) / FIELD_H));
+        card.style.setProperty('--g', String((PEN_STAND_Y + img.naturalHeight / 2) / FIELD_H));
       }} />
     </div>
   );

@@ -1464,6 +1464,8 @@ export const la: Record<Key, string> = {
   "notes": "Notae",
   "emoticons": "Imagines affectuum",
   "emoticonsHint": "Omnes vultus ASCII Bobri et affectus quem quisque significat. Tange ut magnum videas.",
+  "tunerite": "Tunerite",
+  "tuneriteHint": "Tonorum accommodator, vocis exercitatio, clavichordium et auris exercitatio. Aperit tunerite.scrypture.app in nova tabula.",
   "emoticonSearch": "Vultus vel (nomina) quaere",
   "emoticonSymbols": "Signa",
   "emoticonOther": "Scaenae et animalia",

@@ -79,7 +79,13 @@ function usePen(root: React.RefObject<HTMLDivElement>) {
           const card = scene ?? el.closest('.pen-row')?.getBoundingClientRect(), me = el.getBoundingClientRect();
           const mid = me.left + me.width / 2, half = sign.offsetWidth / 2 + 8;
           const lo = (card ? card.left - mid : -W / 2) - half, span = (card ? card.width : W) + half * 2;
-          const x = lo + ((((SIGN_AT - w.pos) * W - lo) % span) + span) % span;
+          // it stands on a seam of the meadow (where one mirrored copy of the picture meets the next), so the join is hidden behind it: seams are one picture-width apart and slide with the ground
+          const m = el.closest('.pen-card')?.querySelector('.scene-meadow img')?.getBoundingClientRect();
+          let x: number;
+          if (m && m.width > 20) {
+            const seamSpan = m.width * Math.max(1, Math.ceil(span / m.width));
+            x = lo + ((((m.left - mid) - lo) % seamSpan) + seamSpan) % seamSpan;
+          } else x = lo + ((((SIGN_AT - w.pos) * W - lo) % span) + span) % span;
           sign.style.transform = `translateX(calc(-50% + ${x}px))`;
         }
         list.forEach(it => { const e = els.current.get(it.id); if (e) e.style.transform = `translateX(calc(-50% + ${(it.x - w.pos) * W}px))`; });

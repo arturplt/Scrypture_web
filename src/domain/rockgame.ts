@@ -20,7 +20,10 @@ export type Movement =
 
 export const FIELD_W = 1080;
 export const FIELD_H = 1200;
-export const THROWER = { x: FIELD_W * 0.12, y: FIELD_H * 0.63 };
+/** Where Bóbr stands (the centre of his sprite, and where rocks leave from): well down in the meadow, near the bottom edge. */
+export const THROWER = { x: FIELD_W * 0.12, y: FIELD_H * 0.73 };
+/** He is drawn this much bigger than his sprite's own pixels: the nearer the bottom edge, the bigger (the same law as in his pen). */
+export const BOBR_SCALE = 1.2;
 export const GRAVITY = 980;
 export const MAX_SPEED = 1500;
 /** Logical distance from the thrower to the aiming reticle at full power. */

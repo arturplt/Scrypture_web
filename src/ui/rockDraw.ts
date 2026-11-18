@@ -1,4 +1,4 @@
-import { FIELD_H, FIELD_W, RETICLE_REACH, THROWER, trajectory, type BobrStage, type GameState, type HitEvent } from '../domain';
+import { BOBR_SCALE, FIELD_H, FIELD_W, RETICLE_REACH, THROWER, trajectory, type BobrStage, type GameState, type HitEvent } from '../domain';
 import { rawUrl } from './themes';
 
 export interface Sprites { target: HTMLImageElement; stone: HTMLImageElement; bobr: HTMLImageElement }
@@ -51,7 +51,8 @@ const SHOW_RETICLE = false;
 export function drawGame(ctx: CanvasRenderingContext2D, s: GameState, sp: Sprites, fx: Fx, comboLabel: string, clear = false) {
   ctx.imageSmoothingEnabled = false;
   // ground under the thrower (`clear`: the pen's own scenery is behind the canvas, so nothing is painted under the play)
-  const ground = THROWER.y + sp.bobr.height / 2;
+  const bw = sp.bobr.width * BOBR_SCALE, bh = sp.bobr.height * BOBR_SCALE;
+  const ground = THROWER.y + bh / 2;
   if (clear) ctx.clearRect(0, 0, FIELD_W, FIELD_H);
   else {
     ctx.fillStyle = '#23211a'; ctx.fillRect(0, 0, FIELD_W, FIELD_H);
@@ -59,7 +60,7 @@ export function drawGame(ctx: CanvasRenderingContext2D, s: GameState, sp: Sprite
     ctx.fillStyle = '#44412f'; ctx.fillRect(0, ground, FIELD_W, 8);
   }
 
-  ctx.drawImage(sp.bobr, THROWER.x - sp.bobr.width / 2, THROWER.y - sp.bobr.height / 2);
+  ctx.drawImage(sp.bobr, THROWER.x - bw / 2, THROWER.y - bh / 2, bw, bh);
 
   // aiming: a short guide at the current angle, and the predicted path once there is some power
   const a = (s.angle * Math.PI) / 180;

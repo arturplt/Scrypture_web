@@ -20,6 +20,9 @@ import { Inventory, TradeBar, TradeSlot } from '../ui/Inventory';
 import { frameOr } from '../ui/themes';
 
 /** Home as a game menu: every piece of information and every destination sits in its own frame. */
+/** Menu sprites shown big and frameless on Home (their height in interface units, 1x), by sprite name. */
+const BIG_ICON: Record<string, number> = { calendar: 108, thropy: 78, apps: 86, gear: 104 };
+
 export function Dashboard() {
   const stats = useAppState(s => s.stats);
   const bobr = useAppState(s => s.bobr);
@@ -66,8 +69,8 @@ export function Dashboard() {
     { path: '/habits', icon: 'habit', label: t('chatHabits'), badge: badges['/habits'] ?? null },
     { path: '/plan', icon: 'calendar', label: t('planner'), badge: badges['/plan'] ?? null },
     { path: '/achievements', icon: 'thropy', label: t('trophies'), badge: badges['/achievements'] ?? null },
-    { path: '/apps', icon: 'pencil_yellow', label: t('apps'), badge: null },
-    { path: '/settings', icon: 'rearrange', label: t('settings'), badge: null },
+    { path: '/apps', icon: 'apps', label: t('apps'), badge: null },
+    { path: '/settings', icon: 'gear', label: t('settings'), badge: null },
   ].filter(m => !inNav.has(m.path));
 
   return (
@@ -117,9 +120,9 @@ export function Dashboard() {
 
       <div className="col col-b">
         <nav className="menu-grid" aria-label={t('mainNav')}>
-          {menu.map(m => m.icon === 'calendar' || m.icon === 'thropy' ? (
+          {menu.map(m => BIG_ICON[m.icon] ? (
             <button key={m.path} type="button" className="cal-tile" onClick={() => navigate(m.path)} aria-label={m.label}>
-              <Icon name={m.icon} size={m.icon === 'calendar' ? 108 : 78} />
+              <Icon name={m.icon} size={BIG_ICON[m.icon]} />
               {m.badge && <span className="menu-badge"><Chip color="#b6a432">{m.badge}</Chip></span>}
               <span className="cal-label">{m.label}</span>
             </button>

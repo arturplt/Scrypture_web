@@ -219,7 +219,7 @@ describe('step', () => {
     expect(isLevelComplete({ ...g, targetsHit: 3 })).toBe(false); expect(isLevelComplete({ ...g, targetsHit: 4 })).toBe(true);
     expect(isLevelComplete({ ...g, level: 2, targetsHit: 7 })).toBe(false); expect(isLevelComplete({ ...g, level: 2, targetsHit: 8 })).toBe(true);
   });
-  it('field and thrower are where Android puts them', () => { expect(THROWER).toEqual({ x: 129.6, y: 756 }); expect(FIELD).toEqual({ left: 0, top: 0, right: 1080, bottom: 1200 }); });
+  it('the field is Android\'s; the web thrower stands lower (in the meadow of the pen): x as on Android, y at 0.73 of the height instead of 0.63', () => { expect(THROWER).toEqual({ x: 129.6, y: 876 }); expect(FIELD).toEqual({ left: 0, top: 0, right: 1080, bottom: 1200 }); });
 });
 
 describe('saved progress', () => {
