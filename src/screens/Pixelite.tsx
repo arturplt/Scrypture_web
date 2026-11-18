@@ -19,7 +19,6 @@ import { NudgeRange } from '../ui/NudgeRange';
 import { PixelEditor } from './PixelEditor';
 import type { Pixels } from '../domain/pixeledit';
 import { NameDialog } from '../ui/NameDialog';
-import { setNavPreview } from '../ui/navPreview';
 import { CAN_ADD_TO_COLLECTION, addToCollection, suggestName } from './frameCollection';
 import './pixelite.css';
 
@@ -77,6 +76,7 @@ export function Pixelite() {
   const lineDrag = useRef<LineKey | null>(null);
   const mainRef = useRef<HTMLCanvasElement>(null);
   const prevRef = useRef<HTMLCanvasElement>(null);
+  const overRef = useRef<HTMLCanvasElement>(null);   // the same result, laid over the canvas's top-left corner
   const drag = useRef<{ x: number; y: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const frameFileRef = useRef<HTMLInputElement>(null);
@@ -197,9 +197,14 @@ export function Pixelite() {
     const ctx = c.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(tmp, 0, 0, c.width, c.height);
-    setNavPreview(tmp.toDataURL('image/png'), d.height * scale);   // the same result, kept in view in the navigation bar
-  }, [render, scale]);
-  useEffect(() => { if (!img) setNavPreview(null); return () => setNavPreview(null); }, [img]);
+    const o = overRef.current;
+    if (o) {
+      o.width = c.width; o.height = c.height;
+      const octx = o.getContext('2d')!;
+      octx.imageSmoothingEnabled = false;
+      octx.drawImage(tmp, 0, 0, o.width, o.height);
+    }
+  }, [render, scale, art]);
 
   const count = img?.frames.length ?? 1;
   useEffect(() => {   // play the timeline
@@ -407,6 +412,7 @@ export function Pixelite() {
             {!art && <>
             <div ref={stageRef} className={`px-stage ${dragOffset || pickBg ? 'px-grab' : ''}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
               <canvas ref={mainRef} className="px-main" aria-label={t('pixelite')} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} />
+              <canvas ref={overRef} className="px-over" aria-hidden="true" />
             </div>
             <div className="row">
               <PixelButton scale={1} onClick={() => zoomBy(1 / 1.25)}>-</PixelButton>

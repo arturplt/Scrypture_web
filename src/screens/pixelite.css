@@ -7,6 +7,7 @@
 .px-swatches { display: flex; flex-wrap: wrap; gap: calc(4 * var(--u)); }
 .px-swatch { width: calc(20 * var(--u)); height: calc(20 * var(--u)); border: calc(2 * var(--u)) solid var(--border-2); }
 .px-preview { overflow: auto; width: fit-content; max-width: 100%; padding: calc(4 * var(--u)); background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(16 * var(--u)) calc(16 * var(--u)); }
+.px-over { background-color: var(--px-c, #ffcccc); background-image: var(--px-i, repeating-conic-gradient(#ff9999 0% 25%, #ffcccc 0% 50%)); background-size: calc(16 * var(--u)) calc(16 * var(--u)); position: absolute; left: 0; top: 0; pointer-events: none; image-rendering: pixelated; max-width: none; z-index: 1; outline: calc(2 * var(--u)) solid var(--border-2); }
 .px-preview canvas { display: block; image-rendering: pixelated; }
 .px button[aria-pressed='true'] { outline: calc(2 * var(--u)) solid var(--gold); }
 .px-frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(88 * var(--u)), 1fr)); gap: calc(8 * var(--u)); width: 100%; }
