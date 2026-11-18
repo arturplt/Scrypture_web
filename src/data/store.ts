@@ -4,7 +4,7 @@ import {
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
-import { browserKV, exportJSON, importJSON, loadState, saveState, type KV } from './storage';
+import { STORAGE_KEY, browserKV, exportJSON, importJSON, loadState, saveState, type KV } from './storage';
 
 export interface NewTask {
   title: string; category: Category; priority: Priority; difficulty: number;
@@ -476,6 +476,14 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     importData(text: string) { set(importJSON(text, clock())); },
     resetAll() { events = []; set(defaultState(clock())); },
   };
+
+  // another tab (or the installed app) saved: take its state, or this tab's older copy would overwrite its changes with its next save
+  if (kv && typeof window !== 'undefined') window.addEventListener('storage', e => {
+    if (e.storageArea !== localStorage || (e.key !== STORAGE_KEY && e.key !== null)) return;
+    if (e.newValue == null) return;
+    const next = loadState(kv, clock());
+    if (JSON.stringify(next) !== JSON.stringify(state)) { state = next; emit(); }
+  });
 
   return {
     getState: () => state,

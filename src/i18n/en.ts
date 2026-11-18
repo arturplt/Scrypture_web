@@ -823,6 +823,7 @@ export const en = {
   "worldCamFree": "FREE",
   "worldCamFlyby": "FLYBY",
   "worldCamTip": "Camera: chase, free view (drag to look round the plane), flyby. C changes it; the wheel zooms",
+  "worldCamZoom": "Camera zoom",
   "worldSecCamera": "Camera",
   "worldSecDisplay": "Display",
   "worldSecWorld": "World",

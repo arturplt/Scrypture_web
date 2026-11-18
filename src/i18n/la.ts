@@ -824,6 +824,7 @@ export const la: Record<Key, string> = {
   "worldCamFree": "LIBERA",
   "worldCamFlyby": "TRANSITUS",
   "worldCamTip": "Camera: pone, libera (trahe ut circumspicias), transitus. C mutat; rota propius ducit",
+  "worldCamZoom": "Camerae propinquitas",
   "worldSecCamera": "Camera",
   "worldSecDisplay": "Aspectus",
   "worldSecWorld": "Mundus",

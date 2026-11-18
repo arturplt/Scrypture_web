@@ -824,6 +824,7 @@ export const pl: Record<Key, string> = {
   "worldCamFree": "WOLNA",
   "worldCamFlyby": "PRZELOT",
   "worldCamTip": "Kamera: za samolotem, wolna (przeciągaj, by obejrzeć samolot), przelot. C zmienia; kółko przybliża",
+  "worldCamZoom": "Zoom kamery",
   "worldSecCamera": "Kamera",
   "worldSecDisplay": "Obraz",
   "worldSecWorld": "Świat",

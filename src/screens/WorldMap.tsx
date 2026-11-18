@@ -33,7 +33,7 @@ import { BerryPatch } from '../domain/berries';
 import maleIdleUrl from '../assets/male_idle.png';
 import femaleIdleUrl from '../assets/female_idle.png';
 import { BEAVER_ASPECT, beaverLook, beaverSprites, loadBeaverSprites } from './beaversprites';
-import { MIN_EYE_H, ZOOM_DEFAULT, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
+import { MIN_EYE_H, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import './world.css';
@@ -196,6 +196,15 @@ function WorldView({ id }: { id: string }) {
   const flyby = useRef(newFlyby()), poseK = useRef(0), lastPose = useRef({ x: 0, y: 0, h: 10 }), pinch = useRef({ pts: new Map<number, { x: number; y: number }>(), d: 0 });
   const cycleCam = () => setCamMode(m => nextCamMode(m, live.current.mode === 'glide' && poseOkRef.current));
   const cycleCamRef = useRef(cycleCam); cycleCamRef.current = cycleCam;
+  // the zoom slider (phones): 0..1, up = closer, on a log scale over the range of whichever camera is on; it follows the wheel and the pinch too
+  const [zoomPos, setZoomPos] = useState(0.5);
+  const zoomToPos = (m: CamMode, z: number) => { const [a, b] = ZOOM_RANGE[m], k = Math.log(z / a) / Math.log(b / a); return m === 'chase' ? k : 1 - k; };
+  const posToZoom = (m: CamMode, v: number) => { const [a, b] = ZOOM_RANGE[m], k = m === 'chase' ? v : 1 - v; return clampZoom(m, a * Math.pow(b / a, k)); };
+  useEffect(() => {
+    if (!window.matchMedia('(pointer: coarse)').matches) return;
+    const id = window.setInterval(() => { const m = camEffRef.current; setZoomPos(p => { const n = zoomToPos(m, camZoom.current[m]); return Math.abs(n - p) > 0.004 ? n : p; }); }, 250);
+    return () => clearInterval(id);
+  }, []);
   const launchCam = useRef<{ t: number; x: number; y: number; eyeH: number; pitch: number } | null>(null);   // after a throw: the camera stays where it was held while the plane flies out of it, then swings in behind and backs off
   const lookLast = useRef<{ x: number; y: number; id: number } | null>(null);
   lookCam.current.on = lookUi;
@@ -1582,7 +1591,7 @@ function WorldView({ id }: { id: string }) {
   const TILE_CELL: Record<Terrain, readonly [number, number]> = { 0: SHEET.water, 1: SHEET.sand, 2: SHEET.grass };
 
   return (
-    <div ref={root} className={`screen world ${panelOpen ? 'open' : ''} ${hideUi || lookUi ? 'hideui' : ''} ${lookUi ? 'lookui' : ''}`} style={{ '--sheet-img': `url(${SHEET_URL})`, '--mz': miniSize } as CSSProperties}>
+    <div ref={root} onDragStart={e => e.preventDefault()} className={`screen world ${panelOpen ? 'open' : ''} ${hideUi || lookUi ? 'hideui' : ''} ${lookUi ? 'lookui' : ''}`} style={{ '--sheet-img': `url(${SHEET_URL})`, '--mz': miniSize } as CSSProperties}>
       <div ref={stage} className={`world-stage ${tool === 'paint' ? 'paint' : ''}`} onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={onStageUp} onPointerCancel={onStageUp}>
         <canvas ref={glCanvas} className="world-gl" aria-hidden="true" style={{ display: 'none' }} />
         <canvas ref={canvas} role="img" aria-label={t('world')} />
@@ -1602,7 +1611,9 @@ function WorldView({ id }: { id: string }) {
 
       {/* the eye: hides every control, label and instrument so only the view is left; tap again to bring them back */}
       <div className="wui wui-hide"><PixelFrame as="button" theme="bronze" scale={1} className="wui-btn" aria-pressed={hideUi} aria-label={t('worldHideUi')} title={t('worldHideUi')} onClick={() => (lookUi ? setFullUi(true) : onFoot && fullUi ? setFullUi(false) : setHideUi(v => !v))}><Icon name="symbol_eye" size={24} alt="" /></PixelFrame>
-        {mode === 'glide' && !onFoot && <PixelFrame as="button" theme="bronze" scale={1} className="wui-btn wui-lookbtn" aria-pressed={camMode !== 'chase'} aria-label={t('worldCamTip')} title={t('worldCamTip')} onClick={cycleCam}><span>{t(camMode === 'chase' ? 'worldCamChase' : camMode === 'free' ? 'worldCamFree' : 'worldCamFlyby')}</span></PixelFrame>}</div>
+        {mode === 'glide' && !onFoot && <PixelFrame as="button" theme="bronze" scale={1} className="wui-btn wui-lookbtn" aria-pressed={camMode !== 'chase'} aria-label={t('worldCamTip')} title={t('worldCamTip')} onClick={cycleCam}><span>{t(camMode === 'chase' ? 'worldCamChase' : camMode === 'free' ? 'worldCamFree' : 'worldCamFlyby')}</span></PixelFrame>}
+        <input type="range" className="wui-zoom" min={0} max={1} step={0.005} value={zoomPos} aria-label={t('worldCamZoom')} title={t('worldCamZoom')}
+          onChange={e => { const v = Number(e.target.value), m = camEffRef.current; setZoomPos(v); camZoom.current[m] = posToZoom(m, v); }} /></div>
 
       {/* top left: close */}
       <div className={`wui wui-tl ${lookUi ? 'wui-keep' : ''}`}>
