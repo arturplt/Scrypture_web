@@ -51,14 +51,17 @@ def fetch(job):
 
 jobs = [(ci, cj) for cj in range(GH // K) for ci in range(GW // K)]
 done = 0
-if CACHE and os.path.exists(CACHE): height[:] = np.load(CACHE); jobs = []
-with ThreadPoolExecutor(4) as ex:
+if CACHE and os.path.exists(CACHE):
+    height[:] = np.load(CACHE)       # (a square the service failed to give is all no-data: fetch just those again)
+    jobs = [(ci, cj) for ci, cj in jobs if np.isnan(height[cj * K:(cj + 1) * K, ci * K:(ci + 1) * K]).all()]
+    print('refetching', len(jobs), 'missing squares', flush=True)
+with ThreadPoolExecutor(2) as ex:
     for ci, cj, a in ex.map(fetch, jobs):
         done += 1
         if a is not None: height[cj * K:(cj + 1) * K, ci * K:(ci + 1) * K] = a
         if done % 20 == 0: print('fetched', done, '/', len(jobs), flush=True)
 
-if CACHE and not os.path.exists(CACHE): np.save(CACHE, height)
+if CACHE and (not os.path.exists(CACHE) or jobs): np.save(CACHE, height)
 nodata = np.isnan(height)
 print('no-data tiles', int(nodata.sum()), 'of', GW * GH, flush=True)
 
