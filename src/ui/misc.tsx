@@ -11,10 +11,10 @@ export function Icon({ name, size = 32, alt = '' }: { name: string; size?: numbe
   return <img className="icon" src={rawUrl(name)} alt={alt} style={{ '--px': size } as CSSProperties} />;
 }
 
-export function PixelCheckbox({ checked, onChange, label, ariaLabel, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string; disabled?: boolean }) {
+export function PixelCheckbox({ checked, onChange, label, ariaLabel, disabled = false, big = false }: { checked: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string; disabled?: boolean; big?: boolean }) {
   const [off, on] = useTickUrls(useAppState(s => s.settings.elements.tick));
   return (
-    <label className={`pcheck ${disabled ? 'disabled' : ''}`}>
+    <label className={`pcheck ${disabled ? 'disabled' : ''} ${big ? 'pcheck-big' : ''}`}>
       <input type="checkbox" checked={checked} disabled={disabled} aria-label={ariaLabel} onChange={e => onChange(e.target.checked)} />
       <span className="pcheck-box" style={{ backgroundImage: checked ? on : off }} />
       {label && <span>{label}</span>}

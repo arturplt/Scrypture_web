@@ -37,7 +37,8 @@ export const TRIM_SPEED = Math.sqrt(G / (K * CL_A * ALPHA_TRIM));   // ~7 m/s
 export const STALL_SPEED = Math.sqrt(G / (K * CL_A * ALPHA_STALL));  // ~5 m/s at 1 g
 
 export interface Glider {
-  x: number; y: number; z: number;          // position, y north
+  x: number; y: number; z: number;          // position, y north; z is the height above the ground under it
+  gnd?: number;                             // the ground's height under it at the last step (hills; see GlideEnv.ground)
   vx: number; vy: number; vz: number;       // ground velocity
   alpha: number;                            // angle of attack, rad
   phi: number;                              // bank, rad, right wing down positive (read-out: worked out from `nx, ny, nz`; use setBank to change it)
@@ -73,7 +74,7 @@ export interface Glider {
   boostCharges: number;                     // boosts in hand: one at the start, one more for every hoop flown, one spent per boost
 }
 export interface GlideControls { pitch: number; roll: number; yaw: number; freeStall?: boolean; aero?: boolean; thrust?: number }   // freeStall: the elevator reaches past the stall angle and nothing eases the nose back, so a hard pull really stalls; -1..1; pitch + = pull up, roll + = right, yaw + = right
-export interface GlideEnv { windX: number; windY: number; air: (x: number, y: number, t: number) => number; turb?: (x: number, y: number, t: number) => number; heat?: (x: number, y: number, t: number) => number }   // heat: 0..1, how warm and drying the air is here (a thermal, a fire, a wind tunnel)   // turb: 0..1, how rough the air is here (rain): the plane is jolted about its roll and pitch
+export interface GlideEnv { windX: number; windY: number; ground?: (x: number, y: number) => number;   /* the ground's height under (x, y), in the plane's metres (hills): `z` stays the height above it, so the ground rising under the plane is a climb in the ground, not in the air */  air: (x: number, y: number, t: number) => number; turb?: (x: number, y: number, t: number) => number; heat?: (x: number, y: number, t: number) => number }   // heat: 0..1, how warm and drying the air is here (a thermal, a fire, a wind tunnel)   // turb: 0..1, how rough the air is here (rain): the plane is jolted about its roll and pitch
 
 export function newGlider(x = 0, y = 0, heading = Math.PI / 2, z = THROW_ALT): Glider {
   const g: Glider = {
@@ -102,8 +103,8 @@ export function setBank(g: Glider, phi: number) {
 }
 
 /** A hand launch: level wings, a little nose up, a bit faster than best glide. */
-export function throwPlane(g: Glider, x: number, y: number, heading: number, z = THROW_ALT) {
-  const v = (TRIM_SPEED * 1.2) / (1 + 0.3 * g.wet), up = 0.12;   // (a wet plane leaves the hand slower)
+export function throwPlane(g: Glider, x: number, y: number, heading: number, z = THROW_ALT, speed?: number, climb = 0.12) {
+  const v = speed ?? (TRIM_SPEED * 1.2) / (1 + 0.3 * g.wet), up = climb;   // (a wet plane leaves the hand slower)
   g.x = x; g.y = y; g.z = z; g.psi = heading; g.phi = 0; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0;
   g.vx = Math.cos(heading) * v * Math.cos(up); g.vy = Math.sin(heading) * v * Math.cos(up); g.vz = v * Math.sin(up);
   g.gamma = up; g.airspeed = v; g.landed = false; g.impact = null; g.stalled = false; g.load = 1; g.vsi = g.vz; g.energyRate = 0; g.airLift = 0; g.pitch = up + ALPHA_TRIM; g.boost = 0; g.boostCd = 0; g.boostEase = 0;
@@ -171,7 +172,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   g.t += dt;
   if (g.boostCd > 0) g.boostCd = Math.max(0, g.boostCd - dt);
   if (g.boostEase > 0) g.boostEase = Math.max(0, g.boostEase - dt);
-  if (g.landed) { g.vx = g.vy = g.vz = 0; g.vsi = g.energyRate = 0; g.turnRate = 0; g.rollRate = 0; g.phi *= 0.9; g.wet = Math.max(0, g.wet - dt / WET_DRY_GROUND); g.course = g.psi; g.courseSwing = 0; g.invT = 0; return; }
+  if (g.landed) { if (env.ground) g.gnd = env.ground(g.x, g.y); g.vx = g.vy = g.vz = 0; g.vsi = g.energyRate = 0; g.turnRate = 0; g.rollRate = 0; g.phi *= 0.9; g.wet = Math.max(0, g.wet - dt / WET_DRY_GROUND); g.course = g.psi; g.courseSwing = 0; g.invT = 0; return; }
   // controls move towards the keys, and spring back when they are let go
   g.elev = approach(g.elev, ctl.pitch, ctl.pitch === 0 ? 5 : 4, dt);
   g.ail = approach(g.ail, ctl.roll, ctl.roll === 0 ? 5 : 5, dt);
@@ -243,6 +244,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   // the wing axis goes round with the path as far as lift, drag, gravity and thrust bend it (not the fin's push: that is the path catching up with the nose)
   carry(g, ex, ey, ez, fx * dt / V, fy * dt / V, fz * dt / V);
   g.x += g.vx * dt; g.y += g.vy * dt; g.z += g.vz * dt;
+  if (env.ground) { const gr = env.ground(g.x, g.y); g.z -= gr - (g.gnd ?? gr); g.gnd = gr; }   // a hill rising under the plane takes its height away
 
   // roll: ailerons set a roll rate, the dihedral slowly levels the wings, right rudder rolls right, a stall drops a wing.
   // Carried round a climbing or sinking turn the wings would slowly change their bank against the horizon; a plane left alone holds it,
@@ -271,7 +273,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   // instruments
   g.load += (lift / G - g.load) * Math.min(1, dt * 8);
   g.vsi += (g.vz - g.vsi) * Math.min(1, dt * 6);
-  const energy = g.z + (g.vx * g.vx + g.vy * g.vy + g.vz * g.vz) / (2 * G);
+  const energy = g.z + (g.gnd ?? 0) + (g.vx * g.vx + g.vy * g.vy + g.vz * g.vz) / (2 * G);
   g.energyRate = energyRateFilter(g, energy, dt);
   g.airLift = w;
   if (g.z <= 0) { g.impact = { sink: Math.max(0, -g.vz), speed: Math.hypot(g.vx, g.vy), bank: Math.abs(g.phi) }; g.z = 0; g.landed = true; g.vx = g.vy = g.vz = 0; }

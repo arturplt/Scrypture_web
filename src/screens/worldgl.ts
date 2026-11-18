@@ -38,7 +38,7 @@ const FS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec4 vCol; in vec3 vPos;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform float uFx, uTime, uDay, uTileUv; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -46,7 +46,11 @@ float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
 float isWater(vec3 c) { return smoothstep(0.05, 0.10, c.b - c.g) * smoothstep(0.18, 0.28, c.g - c.r); }
 float waterAt(vec2 uv, vec2 dx, vec2 dy) { vec4 s = textureGrad(uTex, uv, dx, dy); return isWater(mix(uBase.rgb, s.rgb, s.a)); }
 void main() {
+  if (uFar > 0.5) { float fd = distance(vPos.xy, uEye.xy); if (fd < uHole || fd > uHoleMax) discard; }     // the far meshes: each only in its ring, none where the real chunks are
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
+  vec3 tn = vec3(0.0, 0.0, -1.0);
+  float flatK = 1.0;                                                         // how level the ground is here: the water's ripples and glitter only lie on level water, a steep bank is plain colour
+  if (uTerr > 0.5 && uBase.a > 0.5) { tn = normalize(vCol.rgb * 2.0 - 1.0); tint = vec4(1.0); flatK = smoothstep(0.82, 0.96, -tn.z); }   // a terrain chunk: the colour carries the ground's normal (z is down, so up is -z), the picture is untinted
   if (tint.a > 3.5) { fxq = 1.0; tint.a -= 4.0; }                           // alpha + 4 marks a drawn effect (see FX_*): the quad has no picture, its colour is worked out here; r = which, g and b = its numbers
   if (tint.a > 1.5) { lit = 1.0; tint.a -= 2.0; }                           // alpha + 2 marks a sprite that gives its own light (fire, lightning): no sun tint, no night
   vec4 c = texture(uTex, vUv) * tint;
@@ -98,7 +102,7 @@ void main() {
   }
   if (uBase.a > 0.5) {   // ground: the water shows through the see-through tiles
     c.rgb = mix(uBase.rgb, c.rgb, c.a); c.a = 1.0;
-    float wm = uFx > 0.5 ? isWater(c.rgb) : 0.0;
+    float wm = uFx > 0.5 ? isWater(c.rgb) * flatK * (1.0 - smoothstep(90.0, 130.0, vDist)) : 0.0;   // (the ripples and glitter, with all their texture reads, fade out by 130 tiles: far water is a plain colour)
     if (wm > 0.01) {     // living water: ripples, the sky mirrored at shallow angles, the sun's glitter, foam along the shore
       vec2 wq = mod(vPos.xy, 256.0);
       float texel = max(fw.x, fw.y) * 16.0, t = uTime;                    // screen pixels per art pixel, upside down: under 1 the art pixels are big, so everything snaps to them
@@ -127,9 +131,13 @@ void main() {
       c.rgb = mix(c.rgb, w, wm);
     }
   }
+  if (uTerr > 0.5 && uBase.a > 0.5) {   // hill shading: slopes facing the sun are bright, those away from it dark; water (flat) keeps its own look
+    float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);
+    c.rgb *= mix(clamp(sh, 0.45, 1.18), 1.0, isWater(c.rgb) * flatK);
+  }
   if (c.a < uCut) discard;
   vec3 fog = uFog;
-  bool onGround = uBase.a > 0.5 || uCut > 0.25;   // the ground and the solid sprites (trees, bushes, rocks); clouds and other blended sprites keep the sky
+  bool onGround = (uBase.a > 0.5 || uCut > 0.25) && uFar < 0.5;   // (the far fells fade into the sky's haze, not the grass plane)   // the ground and the solid sprites (trees, bushes, rocks); clouds and other blended sprites keep the sky
   if (onGround) fog = vec3(0.30, 0.46, 0.13) * (0.45 + 0.55 * uDay);          // the ground and what stands on it fade into the endless grass plane of the sky (same colour), never into grey sky: that left a grey line at its far edge
   if (uFx > 0.5) {
     if (lit < 0.5) c.rgb *= uLight;                                                           // warm light when the sun is low
@@ -149,7 +157,7 @@ const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
 uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx;
-uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas; uniform float uHasT;   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
+uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas; uniform float uHasT, uSea;   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
 // one band of picture: it runs from elevation eb (the picture's row vb) up by hDeg degrees to the top row, and repeats every span degrees round the horizon
@@ -219,6 +227,7 @@ void main() {
     }
     if (el < 0.0) {       // the endless plane: grass all the way to the horizon, under the tree line, where the real ground has not drawn (far away, unloaded, or past the reach)
       vec3 col = vec3(0.30, 0.46, 0.13) * (0.45 + 0.55 * uDay);
+      if (uSea > 0.5) col = mix(vec3(0.06, 0.40, 0.52) * (0.45 + 0.55 * uDay), uHor * 0.92, pow(clamp(1.0 + el / 6.0, 0.0, 1.0), 2.0));   // a hilly world's edge: the sea out to the horizon, paling towards it
       col = mix(col, night * 0.5 + 0.1 * col, nk * 0.9);
       c = col; S = vec3(0.0);
     }
@@ -274,6 +283,8 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
+/** How far a hilly world is seen: the far meshes (the whole map, in levels of detail) haze out to here, past the map's far corner. */
+const FAR_REACH = 2400;
 const FLOATS = 9;                 // x y z u v r g b a
 const MAX_QUADS = 8000;           // per draw call (4 vertices each must stay under 65536)
 
@@ -329,7 +340,20 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { cv: HTMLCanvasElement; tex: WebGLTexture }>();
+  private chunkTex = new Map<number, { cv: HTMLCanvasElement; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }>();
+  /** Ground height in tiles under a point (a hilly world: the Lake District); null = flat ground at 0. Set it before the first frame. */
+  terrain: ((x: number, y: number) => number) | null = null;
+  /** While true, sprites are placed at heights above sea level (the clouds), not above the ground under them. */
+  skyMode = false;
+  private terrIbo: WebGLBuffer | null = null;
+  /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number }[] | null = null;
+  private farOn = false;
+  /** The painted mountain range and tree line round the horizon: on a hilly world (which has real fells of its own) only low down, under 50 m above sea level. */
+  private skyline = true;
+  private nearReach = 0;                                          // how far the real chunks reach when the far mesh covers the rest (0 = as far as `reach`)
+  private baseH = 0;
+  private sm: Record<string, number> = {}; private smAt = 0; private camDt = 0.016;   // the camera's smoothed ground heights (see smooth)                                              // the ground height under the camera's target
   // the queued sprites live in growing typed arrays (no per-sprite allocation, no copy before the upload)
   private pools: Record<Kind, { a: Float32Array; n: number }> = { decal: { a: new Float32Array(4096 * 4 * FLOATS), n: 0 }, solid: { a: new Float32Array(4096 * 4 * FLOATS), n: 0 }, blend: { a: new Float32Array(4096 * 4 * FLOATS), n: 0 } };
   private depths = new Float32Array(4096);                          // per quad of the blend queue: squared distance to the eye
@@ -354,6 +378,10 @@ export class WorldGL {
   private tanY = 0.4; private tanX = 0.5;
   /** Ground reach: fully faded into the sky here, nothing is drawn beyond. */
   reach = 60; fogStart = 30;
+  /** The draw distance setting: 1 = the usual cap (320 tiles) on how far the ground is drawn when the horizon is in view. */
+  drawK = 1;
+  /** On foot: how far the real chunks reach, as a multiple of the usual 200 tiles (the options slider). */
+  walkK = 1;
   /** How far the sky clouds reach (tiles): the far plane goes out to it and the blended sprites fade into the haze over this distance, not the ground's. */
   skyRadius = 360;
   sky: [number, number, number] = [0.62, 0.78, 0.9];
@@ -383,8 +411,8 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uHasT', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -493,18 +521,44 @@ export class WorldGL {
   }
 
   /** Put the camera behind and above the target: the stage's middle shows the target at `T` pixels per tile, whatever the tilt. */
+  /** A ground height the camera follows: eased over `tau` seconds, so a bump or a ridge does not jerk the view (it snaps when the place changes a lot, e.g. a teleport). */
+  private smooth(key: string, raw: number, tau: number): number {
+    const v = this.sm[key];
+    if (v === undefined || Math.abs(raw - v) > 12) return (this.sm[key] = raw);
+    return (this.sm[key] = v + (raw - v) * (1 - Math.exp(-this.camDt / tau)));
+  }
+
+  /** The ground under a first-person eye: eased a little when walking (a step in the ground is not a jolt), exact in the air (the eye is the plane, whose height is the ground plus its height above it). */
+  /** The highest ground at a point and four points `r` tiles round it: the camera clears the lot, so its near plane never cuts into a slope beside it. */
+  private groundNear(x: number, y: number, r: number): number {
+    const T = this.terrain; if (!T) return 0;
+    return Math.max(T(x, y), T(x + r, y), T(x - r, y), T(x, y + r), T(x, y - r));
+  }
+  private footGround(raw: number, eyeH: number): number {
+    const soft = this.smooth('foot', raw, 0.1), k = Math.max(0, Math.min(1, (eyeH - 0.8) / 0.6));
+    return soft + (raw - soft) * k;
+  }
+
   setCamera(c: CameraSpec) {
+    this.nearReach = 0; this.farOn = false;
+    if (this.terrain) { const m = -this.eye[2] / 0.18; this.skyline = this.skyline ? m < 55 : m < 50; } else this.skyline = true;   // (metres above sea level of last frame's eye; a little hysteresis so it does not flicker at the edge)
+    const now = performance.now(); this.camDt = Math.min(0.1, Math.max(0.001, (now - this.smAt) / 1000)); this.smAt = now;
     const fov = 0.72, tanY = Math.tan(fov / 2), tanX = tanY * (c.W / c.H);
     this.tanY = tanY; this.tanX = tanX; this.W = c.W; this.H = c.H;
     let D = c.H / 2 / (c.T * tanY);                                      // distance from the target so that a tile is T px high there
     const st = Math.sin(c.tilt), ct = Math.cos(c.tilt);
-    const lh = c.lookH ?? 0;
-    this.eye = [c.x - c.upX * D * st, c.y - c.upY * D * st, -lh - D * ct];
-    let f = norm([c.x - this.eye[0], c.y - this.eye[1], -lh - this.eye[2]]);
+    const lh = c.lookH ?? 0, T = this.terrain, onFoot = !!c.fpv && c.fpv.k > 0.5; let bh = T ? this.smooth('base', T(c.x, c.y) + lh, onFoot ? 0.12 : 0.35) - lh : 0;   // (the whole target height is eased, ground and look height together: the look height follows the height above the ground, which moves against the ground as the plane crosses a ridge)
+    this.baseH = bh;                                                      // everything below is as on flat ground, lifted by the ground under the target
+    this.eye = [c.x - c.upX * D * st, c.y - c.upY * D * st, -bh - lh - D * ct];
+    if (T && !c.eye) {   // (the chase camera keeps off a hill behind it: lifted at once, let down slowly)
+      const need = Math.max(0, this.groundNear(this.eye[0], this.eye[1], 1) + 0.8 - -this.eye[2]), lift = (this.sm.lift = Math.max(need, this.smooth('lift', need, 1.2)));   // (up at once, so it is never inside the ground; down slowly)
+      this.eye[2] -= lift; bh += lift;   // (the target rises with the eye: the camera is carried up, not tipped down, so the tilt stays what it was)
+    }   // (the chase camera does not sink into a hill behind it)
+    let f = norm([c.x - this.eye[0], c.y - this.eye[1], -bh - lh - this.eye[2]]);
     let r = norm(cross(f, [c.upX, c.upY, 0]));
     if (c.eye) {                                                          // an eye given outright: look from it at the target, the right-hand side level (looking straight down there is no level: then (upX, upY) is up the screen)
-      this.eye = [c.eye[0], c.eye[1], -Math.max(0.05, c.eye[2])];
-      const dx = c.x - this.eye[0], dy = c.y - this.eye[1], dz = -lh - this.eye[2];
+      this.eye = [c.eye[0], c.eye[1], -Math.max(0.3, c.eye[2]) - (T ? T(c.eye[0], c.eye[1]) : 0)];   // (the free eye is exactly where it is told; the clearance guard below only lifts it off a slope)
+      const dx = c.x - this.eye[0], dy = c.y - this.eye[1], dz = -bh - lh - this.eye[2];
       D = Math.max(0.5, Math.hypot(dx, dy, dz)); f = norm([dx, dy, dz]);
       r = Math.hypot(f[0], f[1]) > 0.05 ? norm(cross(f, [0, 0, -1])) : norm(cross(f, [c.upX, c.upY, 0]));
     }
@@ -514,26 +568,33 @@ export class WorldGL {
     if (c.fpv && c.fpv.k > 0) {                                           // standing on the ground: eye, view direction and reach blend towards the walker's
       const k = Math.min(1, c.fpv.k), cp = Math.cos(c.fpv.pitch), sp = Math.sin(c.fpv.pitch), e = this.eye;
       const f1: Vec3 = [c.upX * cp, c.upY * cp, -sp], mix = (a: number, b: number) => a + (b - a) * k;
-      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH)];
+      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - (T ? Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3)) : 0))];
       f = norm([mix(f[0], f1[0]), mix(f[1], f1[1]), mix(f[2], f1[2])]);
       r = [-c.upY, c.upX, 0];                                             // (the right-hand side is level, whatever the pitch)
-      this.reach = mix(this.reach, 48); this.fogStart = mix(this.fogStart, 44);   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
-      near = mix(near, 0.05); far = mix(far, this.reach * 1.6);
+      const hasFar = !!T && !!this.farMesh;
+      if (hasFar) this.nearReach = mix(this.reach, 200 * this.walkK);                       // the real chunks reach 140 tiles; the far mesh shows the rest of the map, hazing out at 560
+      this.reach = mix(this.reach, T ? (hasFar ? FAR_REACH : 240 * this.walkK) : 48); this.fogStart = mix(this.fogStart, T ? (hasFar ? Math.max(500, 300 * this.walkK) : 180 * this.walkK) : 44); this.farOn = hasFar;   // (a hilly world shows far: fells and lakes kilometres off. The flat worlds keep their short haze)   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
+      near = mix(near, hasFar ? 0.15 : 0.05); far = mix(far, this.reach * 1.6);
     }
     this.fpvK = c.fpv ? Math.min(1, c.fpv.k) : 0;
+    if (T) { const g = this.groundNear(this.eye[0], this.eye[1], 0.4) + 0.2; if (-this.eye[2] < g) this.eye[2] = -g; }   // (last guard: whatever the mode, the eye is above the ground)
     const u = cross(r, f);
     this.F = f; this.R = r; this.U = u;
     if (c.fullView && this.fpvK === 0) {
       // how far the farthest visible ground is: if every ray round the border meets the ground, reach just past it and no haze; a ray that never does (the horizon is on screen) means the cap and the haze
-      const CAP = 320; let far2 = 0, inf = false;
+      const CAP = 320 * this.drawK; let far2 = 0, inf = false;
       for (const [nx, ny] of [[-1, 1], [-0.5, 1], [0, 1], [0.5, 1], [1, 1], [1, 0.5], [1, 0], [1, -0.5], [1, -1], [0.5, -1], [0, -1], [-0.5, -1], [-1, -1], [-1, -0.5], [-1, 0], [-1, 0.5]]) {
         const d: Vec3 = [r[0] * nx * tanX + u[0] * ny * tanY + f[0], r[1] * nx * tanX + u[1] * ny * tanY + f[1], r[2] * nx * tanX + u[2] * ny * tanY + f[2]];
         if (d[2] <= 1e-3) { inf = true; break; }
-        far2 = Math.max(far2, (-this.eye[2] / d[2]) * Math.hypot(d[0], d[1]));
+        far2 = Math.max(far2, ((-this.eye[2] - bh) / d[2]) * Math.hypot(d[0], d[1]));
       }
       const need = far2 * 1.03 + 4;
       if (inf || need > CAP) { this.reach = CAP; this.fogStart = CAP * 0.7; this.noFog = false; } else { this.reach = need; this.noFog = true; }
       far = this.reach * 1.6 + D;
+    }
+    if (T && this.farMesh && !(c.fpv && c.fpv.k > 0)) {                 // flying: the same far mesh beyond the chunks the view needs, so the fells stand on the horizon
+      this.nearReach = Math.min(this.reach, 200 * this.drawK, 400); this.reach = FAR_REACH; this.fogStart = Math.max(this.fogStart, 500); this.noFog = false; this.farOn = true;
+      far = Math.max(far, this.reach * 1.05 + D);
     }
     far = Math.max(far, this.skyRadius * 1.05 + D);
     const a = 1 / tanY, asp = c.W / c.H, e = this.eye;
@@ -548,18 +609,22 @@ export class WorldGL {
   }
 
   /** The stage position, in CSS pixels, of a world point (z is down), or null when it is behind the camera. */
-  project(x: number, y: number, z: number): [number, number] | null {
+  project(x: number, y: number, z: number): [number, number] | null {   // (z is the world's, down; for a height above the ground use projectAgl)
     const m = this.vp, cx = m[0] * x + m[4] * y + m[8] * z + m[12], cy = m[1] * x + m[5] * y + m[9] * z + m[13], cw = m[3] * x + m[7] * y + m[11] * z + m[15];
     if (cw <= 0.0001) return null;
     return [(cx / cw * 0.5 + 0.5) * this.W, (1 - (cy / cw * 0.5 + 0.5)) * this.H];
   }
 
+  /** The stage position of a point `h` tiles above the ground under it. */
+  projectAgl(x: number, y: number, h: number): [number, number] | null { return this.project(x, y, -h - this.groundH(x, y)); }
+
   /** Where a ray through a stage point (-1..1 both ways) meets the ground, clamped to the reach; the points ring the visible ground. */
   private groundAt(nx: number, ny: number): [number, number] {
     const d: Vec3 = [this.R[0] * nx * this.tanX + this.U[0] * ny * this.tanY + this.F[0], this.R[1] * nx * this.tanX + this.U[1] * ny * this.tanY + this.F[1], this.R[2] * nx * this.tanX + this.U[2] * ny * this.tanY + this.F[2]];
     const hl = Math.hypot(d[0], d[1]) || 1e-6;
-    let t = d[2] > 1e-4 ? -this.eye[2] / d[2] : Infinity;
-    if (t * hl > this.reach) t = this.reach / hl;                         // looks over the horizon, or past the reach: stop at the reach
+    let t = d[2] > 1e-4 ? Math.max(0, -this.eye[2] - this.baseH) / d[2] : Infinity;
+    const lim = this.nearReach > 0 ? this.nearReach : this.reach;
+    if (t * hl > lim) t = lim / hl;                         // looks over the horizon, or past the reach: stop at the reach
     return [this.eye[0] + d[0] * t, this.eye[1] + d[1] * t];
   }
 
@@ -583,7 +648,7 @@ export class WorldGL {
       return true;
     };
     if (this.fpvK > 0.002) {                                              // on foot the fan of rays is thin close to the eye: take everything round the eye in front of it, too
-      const ex = this.eye[0], ey = this.eye[1], R = this.reach, fx = this.F[0], fy = this.F[1], fl = Math.hypot(fx, fy) || 1;
+      const ex = this.eye[0], ey = this.eye[1], R = this.nearReach > 0 ? this.nearReach : this.reach, fx = this.F[0], fy = this.F[1], fl = Math.hypot(fx, fy) || 1;
       const chase = inside, near = (x: number, y: number, m: number) => { const dx = x - ex, dy = y - ey; return dx * dx + dy * dy < (R + m) * (R + m) && (dx * fx + dy * fy) / fl > -(m + 2); };
       return { minX: Math.min(minX, ex - R), maxX: Math.max(maxX, ex + R), minY: Math.min(minY, ey - R), maxY: Math.max(maxY, ey + R), inside: (x: number, y: number, m: number) => near(x, y, m) || chase(x, y, m) };
     }
@@ -695,7 +760,7 @@ export class WorldGL {
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
       if (this.starsTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.starsTex); gl.uniform1i(L.uStars, 2); gl.activeTexture(gl.TEXTURE0); }
       const lt = this.layerTex, names = ['uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees'];
-      gl.uniform4f(L.uHas, lt[0] ? 1 : 0, lt[1] ? 1 : 0, lt[2] ? 1 : 0, lt[3] ? 1 : 0); gl.uniform1f(L.uHasT, lt[4] ? 1 : 0);
+      gl.uniform4f(L.uHas, lt[0] ? 1 : 0, lt[1] ? 1 : 0, lt[2] ? 1 : 0, lt[3] && this.skyline ? 1 : 0); gl.uniform1f(L.uHasT, lt[4] && this.skyline ? 1 : 0); gl.uniform1f(L.uSea, this.terrain ? 1 : 0);
       lt.forEach((t, i) => { gl.activeTexture(gl.TEXTURE3 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(L[names[i]], 3 + i); });   // (units 3..7)
       gl.activeTexture(gl.TEXTURE0);
       gl.drawArrays(gl.TRIANGLES, 0, 3); gl.enable(gl.DEPTH_TEST);
@@ -721,16 +786,19 @@ export class WorldGL {
   /** Draw the chunks (each a ground-sized quad textured with its canvas). New or rebuilt canvases are uploaded once. */
   ground(list: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[], chunkTiles: number) {
     const gl = this.gl;
+    if (this.farOn && this.farMesh) this.drawFar();
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);                // the flat map's water colour, under every ground tile
+    gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0);
     const e = 0.03;                                                              // a hair of overlap hides cracks between chunks
     for (const c of list) {
       let ent = this.chunkTex.get(c.key);
       if (!ent || ent.cv !== c.cv) {
-        if (ent) gl.deleteTexture(ent.tex);
-        ent = { cv: c.cv, tex: this.makeTexture(c.cv, true) };
+        if (ent) { gl.deleteTexture(ent.tex); }
+        ent = { cv: c.cv, tex: this.makeTexture(c.cv, true), mesh: ent?.mesh, vao: ent?.vao };
         this.chunkTex.set(c.key, ent);
       }
+      if (this.terrain) { gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles); continue; }
       const x0 = c.cx * chunkTiles - e, y0 = c.cy * chunkTiles - e, x1 = (c.cx + 1) * chunkTiles + e, y1 = (c.cy + 1) * chunkTiles + e;
       const b = this.buf;
       b.set([x0, y0, 0, 0, 0, 1, 1, 1, 1, x1, y0, 0, 1, 0, 1, 1, 1, 1, x1, y1, 0, 1, 1, 1, 1, 1, 1, x0, y1, 0, 0, 1, 1, 1, 1, 1]);
@@ -738,11 +806,81 @@ export class WorldGL {
       gl.bufferData(gl.ARRAY_BUFFER, b.subarray(0, 4 * FLOATS), gl.DYNAMIC_DRAW);
       gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
     }
+    if (this.terrain) { gl.bindVertexArray(null); this.endTerrain(); }
+    gl.uniform1f(this.loc.uTerr, 0);
+  }
+
+  /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. */
+  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, n: number) {
+    const gl = this.gl, T = this.terrain!, side = n + 1;
+    if (!this.terrIbo) {
+      const idx = new Uint16Array(n * n * 6);
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * side + i, b = a + 1, d = a + side, e2 = d + 1; idx.set([a, b, e2, a, e2, d], (j * n + i) * 6); }
+      this.terrIbo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+    if (!ent.mesh) {
+      const v = new Float32Array(side * side * FLOATS), x0 = c.cx * n, y0 = c.cy * n, h = (x: number, y: number) => T(x, y);
+      for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
+        const x = x0 + i, y = y0 + j, o = (j * side + i) * FLOATS;
+        const gx = (h(x + 1, y) - h(x - 1, y)) / 2, gy = (h(x, y + 1) - h(x, y - 1)) / 2;        // the slope east and south; z is down, so the normal is (gx, gy, -1) up to its length
+        const l = Math.hypot(gx, gy, 1);
+        v[o] = x; v[o + 1] = y; v[o + 2] = -h(x, y); v[o + 3] = i / n; v[o + 4] = j / n;
+        v[o + 5] = (gx / l) * 0.5 + 0.5; v[o + 6] = (gy / l) * 0.5 + 0.5; v[o + 7] = (-1 / l) * 0.5 + 0.5; v[o + 8] = 1;
+      }
+      ent.mesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    }
+    if (!ent.vao) {   // the chunk's own vertex array: its buffers and attribute layout are set once, a draw is one bind and one call
+      const stride = FLOATS * 4;
+      ent.vao = gl.createVertexArray()!; gl.bindVertexArray(ent.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh!); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo);
+      gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
+    } else gl.bindVertexArray(ent.vao);
+    gl.drawElements(gl.TRIANGLES, n * n * 6, gl.UNSIGNED_SHORT, 0);
+  }
+  /** Back to the shared buffers the sprites are written into. */
+  private endTerrain() {
+    const gl = this.gl, stride = FLOATS * 4;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
+  }
+
+  /** Give a hilly world its far meshes, finest first (see lakeFarLods): positions, colours and indices of each. */
+  setFar(lods: { pos: Float32Array; col: Float32Array; idx: Uint32Array }[] | null) {
+    const gl = this.gl;
+    if (this.farMesh) for (const m of this.farMesh) { gl.deleteBuffer(m.vbo); gl.deleteBuffer(m.ibo); }
+    this.farMesh = null;
+    if (!lods || !lods.length) return;
+    const d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2;
+    this.farMesh = lods.map(m => {
+      const n = m.pos.length / 3, v = new Float32Array(n * FLOATS);
+      for (let i = 0; i < n; i++) { const o = i * FLOATS; v[o] = m.pos[i * 3]; v[o + 1] = m.pos[i * 3 + 1]; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[i * 3]; v[o + 6] = m.col[i * 3 + 1]; v[o + 7] = m.col[i * 3 + 2]; v[o + 8] = 1; }
+      const vbo = gl.createBuffer()!, ibo = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+      return { vbo, ibo, n: m.idx.length };
+    });
+    this.endTerrain();
+  }
+  private drawFar() {
+    const gl = this.gl, stride = FLOATS * 4, hole = this.nearReach * 0.9;
+    gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
+    gl.uniform1f(this.loc.uFar, 1);
+    gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
+    const kk = Math.max(1, this.drawK), rings = [[hole, hole + 260 * kk], [hole + 240 * kk, hole + 820 * kk], [hole + 800 * kk, 1e9]];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)   // (the rings overlap a little: no crack where two levels meet)
+    this.farMesh!.forEach((f, i) => {
+      gl.uniform1f(this.loc.uHole, rings[i][0]); gl.uniform1f(this.loc.uHoleMax, rings[i][1]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
+      gl.drawElements(gl.TRIANGLES, f.n, gl.UNSIGNED_INT, 0);
+    });
+    gl.uniform1f(this.loc.uFar, 0);
+    this.endTerrain();
   }
 
   /** Free the textures of chunks that are gone. */
   prune(has: (key: number) => boolean) {
-    for (const [k, e] of this.chunkTex) if (!has(k)) { this.gl.deleteTexture(e.tex); this.chunkTex.delete(k); }
+    for (const [k, e] of this.chunkTex) if (!has(k)) { this.gl.deleteTexture(e.tex); if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k); }
   }
 
   /** A quad from its centre and two half-axes (world vectors), textured with `uv`, tinted `rgba`. */
@@ -765,11 +903,13 @@ export class WorldGL {
   /** A sprite facing the camera: `w` tiles wide, `h` tall, its bottom middle at (x, y, z up) when `base`, else its middle. */
   board(kind: Kind, x: number, y: number, h0: number, w: number, h: number, base: boolean, uv: UV, r = 1, g = 1, b = 1, a = 1) {
     const R = this.R, U = this.U, up = base ? h / 2 : 0;
+    if (this.terrain && !this.skyMode) h0 += this.terrain(x, y);   // standing on the hill (the sky's clouds are at their own height: skyMode)
     this.quad(kind, x + U[0] * up, y + U[1] * up, -h0 + U[2] * up, R[0] * w / 2, R[1] * w / 2, R[2] * w / 2, U[0] * h / 2, U[1] * h / 2, U[2] * h / 2, uv, r, g, b, a);
   }
 
   /** A sprite lying flat: `w` by `l` tiles at height h0 above the ground, its top pointing along (dirX, dirY); `roll` tips the wings (radians), `pitch` the nose. */
   flat(kind: Kind, x: number, y: number, h0: number, w: number, l: number, dirX: number, dirY: number, uv: UV, r = 1, g = 1, b = 1, a = 1, roll = 0, pitch = 0) {
+    if (this.terrain && !this.skyMode) h0 += this.terrain(x, y);
     const rx = -dirY, ry = dirX;                                          // to the picture's right, on the ground
     const cr = Math.cos(roll), sr = Math.sin(roll), cp = Math.cos(pitch), sp = Math.sin(pitch);
     const hw = w / 2, hl = l / 2;
@@ -785,6 +925,8 @@ export class WorldGL {
     this.model = { local: m.local, uv: m.uv, tex, ibo, n: m.idx.length, out: new Float32Array((m.local.length / 3) * FLOATS) };
   }
   get hasModel() { return !!this.model; }
+  /** The ground height (tiles) under a point: 0 on flat worlds. For the blended sprites that stand on the ground. */
+  groundH(x: number, y: number): number { return this.terrain ? this.terrain(x, y) : 0; }
   /** Queue the model for this frame: centre (x, y), height h0, heading (dirX, dirY), roll and pitch in radians, `len` tiles long.
    *  `basis` gives the attitude outright instead: the nose `f` and the plane's own up `u` as unit vectors (x east, y NORTH, z up, as the glider keeps them), which has no trouble at the vertical or upside down. */
   drawModel(x: number, y: number, h0: number, dirX: number, dirY: number, roll: number, pitch: number, len: number, shadowAlpha = 0.3, shadowSx = 0.12, shadowSy = 0.25, basis?: { f: ArrayLike<number>; u: ArrayLike<number> }) { this.pose = { x, y, h0, dx: dirX, dy: dirY, roll, pitch, len, sa: shadowAlpha, sx: shadowSx, sy: shadowSy, basis }; if (shadowAlpha > 0) this.pushShadow(); }
@@ -800,14 +942,14 @@ export class WorldGL {
       const F = p.basis.f, U = p.basis.u, R = [F[1] * U[2] - F[2] * U[1], F[2] * U[0] - F[0] * U[2], F[0] * U[1] - F[1] * U[0]];
       f1 = [F[0], -F[1], -F[2]]; u2 = [U[0], -U[1], -U[2]]; r1[0] = R[0]; r1[1] = -R[1]; r1[2] = -R[2];
     }
-    const n = m.local.length / 3;
+    const n = m.local.length / 3, g0 = this.terrain ? this.terrain(p.x, p.y) : 0;   // (the pose's height is above the ground under it)
     if (shadow && this.shadowOut.length < n * FLOATS) this.shadowOut = new Float32Array(n * FLOATS);
     const out = shadow ? this.shadowOut : m.out, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2;
     for (let i = 0; i < n; i++) {
       const a = m.local[i * 3] * p.len, b = m.local[i * 3 + 1] * p.len, c = m.local[i * 3 + 2] * p.len, o = i * FLOATS;
       const x = p.x + f1[0] * a + r1[0] * b + u2[0] * c, y = p.y + f1[1] * a + r1[1] * b + u2[1] * c, z = -p.h0 + f1[2] * a + r1[2] * b + u2[2] * c;
-      if (shadow) { const h = Math.max(0, -z); out[o] = x + h * p.sx; out[o + 1] = y + h * p.sy; out[o + 2] = -0.02; }
-      else { out[o] = x; out[o + 1] = y; out[o + 2] = z; out[o + 3] = m.uv[i * 2]; out[o + 4] = m.uv[i * 2 + 1]; out[o + 5] = 1; out[o + 6] = 1; out[o + 7] = 1; out[o + 8] = 1; }
+      if (shadow) { const h = Math.max(0, -z); out[o] = x + h * p.sx; out[o + 1] = y + h * p.sy; out[o + 2] = -g0 - 0.02; }
+      else { out[o] = x; out[o + 1] = y; out[o + 2] = z - g0; out[o + 3] = m.uv[i * 2]; out[o + 4] = m.uv[i * 2 + 1]; out[o + 5] = 1; out[o + 6] = 1; out[o + 7] = 1; out[o + 8] = 1; }
     }
     return out;
   }
@@ -881,8 +1023,8 @@ export class WorldGL {
 
   dispose() {
     const gl = this.gl; this.disposed = true;
-    for (const e of this.chunkTex.values()) gl.deleteTexture(e.tex);
-    this.chunkTex.clear(); gl.deleteTexture(this.atlasTex); gl.deleteBuffer(this.vbo); gl.deleteBuffer(this.ibo); gl.deleteProgram(this.prog); this.freePost();
+    for (const e of this.chunkTex.values()) { gl.deleteTexture(e.tex); if (e.mesh) gl.deleteBuffer(e.mesh); if (e.vao) gl.deleteVertexArray(e.vao); }
+    this.chunkTex.clear(); this.setFar(null); gl.deleteTexture(this.atlasTex); gl.deleteBuffer(this.vbo); gl.deleteBuffer(this.ibo); gl.deleteProgram(this.prog); this.freePost();
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

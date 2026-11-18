@@ -1,0 +1,24 @@
+{
+ "name": "coniston",
+ "w": 1400,
+ "h": 1500,
+ "tileM": 10,
+ "bbox": [
+  -3.18754258318762,
+  54.26384232889412,
+  -2.96876334285955,
+  54.40054897663191
+ ],
+ "maxH": 801.850830078125,
+ "affine": [
+  6502.453579147299,
+  170.1256342602632,
+  10771.100286070534,
+  99.42546292999616,
+  -11126.378197635024,
+  604826.7394639135
+ ],
+ "unit": "decimetres in R*256+G",
+ "water": "B: 0 land, 1 lake or sea, 2 river",
+ "credits": "Contains Environment Agency LiDAR data, Open Government Licence v3. Water (c) OpenStreetMap contributors (ODbL)."
+}

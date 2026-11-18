@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
 import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
+import { loadLakeDistrict, lakeOverview } from './lakeLoader';
+import { createPortal } from 'react-dom';
+import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, LAKE_LAND, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, lookAhead, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
@@ -20,7 +23,7 @@ import { rawUrl } from '../ui/themes';
 import { loadPlaneModel } from './planemodel';
 import { Slot } from '../ui/Inventory';
 import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
-import type { Key } from '../i18n';
+import type { Key, TFn } from '../i18n';
 import { WorldGL, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
@@ -30,7 +33,7 @@ import { BerryPatch } from '../domain/berries';
 import maleIdleUrl from '../assets/male_idle.png';
 import femaleIdleUrl from '../assets/female_idle.png';
 import { BEAVER_ASPECT, beaverLook, beaverSprites, loadBeaverSprites } from './beaversprites';
-import { ZOOM_DEFAULT, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
+import { MIN_EYE_H, ZOOM_DEFAULT, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import './world.css';
@@ -44,6 +47,10 @@ const TILT_RAD = 1.1;   // radians of tipping per unit of tilt (slider step / 10
 /** The slider's 0..16 as a tilt unit (x TILT_RAD radians): steps 1-8 are tenths (up to about 50 degrees), 9-16 go on to about 62 degrees. */
 const tiltUnit = (n: number) => (n <= 8 ? n / 10 : 0.8 + (n - 8) * 0.0225);
 const TILT_CAP = 0.98;
+const DECO_VIEW = 100;   // tiles: how far trees, bushes and rocks are built on a hilly world
+const HOOP_VIEW = 100;   // tiles: how far hoops, rain clouds and their rain are drawn, whatever the draw distance
+const LAKE_START_ALT = 50, LAKE_START_SPEED = 7;   // the Lake District starts in flight: metres above the ground, and ground speed in m/s
+const LAKE_THROTTLE_MAX = 20;
 const NO_NEED = { stick: false, stone: false, brk: false };
 /** What the player on foot stands by and can act on: a dam that still takes pieces, a ripe berry bush, a beaver to feed. */
 interface Act { dam: { stick: boolean; stone: boolean; brk: boolean }; bush: { x: number; y: number } | null; beaver: { id: number; sex: 'm' | 'f'; full: boolean; trust: number } | null }
@@ -71,12 +78,23 @@ export function WorldMap({ id }: { id: string }) {
   const saved = useAppState(s => s.worlds.list.find(w => w.id === id));
   const { t } = useI18n();
   if (!saved) return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{t('worldMissing')}</p></div>;
-  return <WorldView key={id} id={id} />;
+  return saved.kind === 'lakedistrict' ? <LakeGate id={id} /> : <WorldView key={id} id={id} />;
+}
+
+/** The Lake District's map is an image: wait for it before the world is built. */
+function LakeGate({ id }: { id: string }) {
+  const { t } = useI18n();
+  const map = useAppState(s => s.worlds.list.find(w => w.id === id)?.map) ?? 'lakes';
+  const [state, setState] = useState<'wait' | 'ok' | 'fail'>(lakeReady(map) ? 'ok' : 'wait');
+  useEffect(() => { if (state === 'wait') loadLakeDistrict(map).then(() => setState('ok'), () => setState('fail')); }, []);
+  if (state === 'ok') return <WorldView key={id} id={id} />;
+  return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{state === 'wait' ? t('worldLakeLoading') : t('worldMissing')}</p></div>;
 }
 
 function WorldView({ id }: { id: string }) {
   const { t } = useI18n();
-  const initial = useRef(useAppState(s => s.worlds.list.find(w => w.id === id)!)).current;   // read once: the sim owns the state while open
+  const saved0 = useAppState(s => s.worlds.list.find(w => w.id === id)!);
+  const initial = useRef(saved0.kind === 'lakedistrict' && !lakeOnMap(Math.floor(saved0.plane.x), Math.floor(saved0.plane.y), 4) ? { ...saved0, plane: { ...lakeSpawnFor(saved0.map ?? 'lakes') } } : saved0).current;   // (a Lake District world saved out past the map's edge starts at the spawn again)   // read once: the sim owns the state while open
   const scores = useAppState(s => s.worlds.list.find(w => w.id === id)?.scores) ?? NO_SCORES;   // this world's leaderboard
   const scoresRef = useRef<RunScore[]>(scores); scoresRef.current = scores;
   const coins = useAppState(s => s.inventory.bcoin ?? 0), coinsRef = useRef(coins); coinsRef.current = coins;   // the coins are the app's own BCOIN in the inventory: earned here, spent here, shared with everything else
@@ -122,7 +140,7 @@ function WorldView({ id }: { id: string }) {
   const [runResult, setRunResult] = useState<{ hoops: number; metres: number; height: number; bonus: number; soft: boolean; water: boolean; saved: 'insurance' | 'float' | null; dbl: number; coins: number; key: number; trick: number; tricks: { name: string; n: number; pts: number }[] } | null>(null);   // the popup after a run: how it ended and what it scored
   const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
-    const world = new World(initial.seed, decodeChanges(initial.changes));
+    const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural');
     const flight = newFlight(initial.plane.x, initial.plane.y);
     flight.heading = initial.plane.heading; flight.pitch = initial.plane.pitch;
     const eco = new Ecosystem(world, Math.random, { ...initial.wind });
@@ -152,8 +170,8 @@ function WorldView({ id }: { id: string }) {
 
   const [mode, setMode] = useState<FlightMode>('glide');
   const [invertPitch, setInvertPitch] = useState(false);
-  const [debugLiftV, setDebugLiftV] = useState(3), [throttle, setThrottle] = useState(0);   // debug: the updraft's strength in m/s, and a throttle (0..100 %) pushing along the nose
-  const [debugLift, setDebugLift] = useState(false);   // debug: a constant 3 m/s updraft everywhere
+  const [debugLiftV, setDebugLiftV] = useState(initial.kind === 'lakedistrict' ? 1.6 : 3), [throttle, setThrottle] = useState(0);   // debug: the updraft's strength in m/s, and a throttle (0..100 %) pushing along the nose
+  const [debugLift, setDebugLift] = useState(initial.kind === 'lakedistrict');   // debug: a constant 3 m/s updraft everywhere
   const [aero, setAero] = useState(false);   // loops, rolls and inverted flight
   const [freeStall, setFreeStall] = useState(false);   // let a hard pull stall the plane
   const [showEco, setShowEco] = useState(false);   // the ecosystem stats window (a toggle in the menu)
@@ -162,6 +180,9 @@ function WorldView({ id }: { id: string }) {
   const [hideUi, setHideUi] = useState(false);   // the eye button: everything but the view (and the stick) goes away
   const [trimPitch, setTrimPitch] = useState(0), [trimRoll, setTrimRoll] = useState(0), [trimYaw, setTrimYaw] = useState(0);   // glide trim, -50..50 % of the stick: held hands-off, like a trim tab
   const [showInst, setShowInst] = useState(true);
+  const [watersOpen, setWatersOpen] = useState(false);   // the Lake District's list of waters (tap the place name)
+  const [walkDist, setWalkDist] = useState(100);   // on foot (hilly worlds): how far the real chunks reach, % of the usual 200 tiles
+  const [drawDist, setDrawDist] = useState(100);   // draw distance, % of the usual cap (320 tiles) on how far the ground is drawn
   const [mapUiSize, setMapUiSize] = useState(50);   // the minimap and the boxes beside it (biome, clock, wind, temperature, zoom), %
   const [instSize, setInstSize] = useState(50);   // the flight instrument's size, % (the menu's slider)
   const [onFoot, setOnFoot] = useState(false), [fullUi, setFullUi] = useState(false);   // on foot (landed) the screen is cleared like the eye button does, leaving the joystick, Throw and Shop along the bottom; the eye brings the rest back
@@ -214,6 +235,7 @@ function WorldView({ id }: { id: string }) {
   const camTilt = useRef(0);   // the tilt in use now (the slider's value, changed by the plane's pitch)
   const [tilt, setTilt] = useState(MAX_TILT_STEP);   // 0 = flat; 1..16 = how far the ground tips away; starts at the top and fades to flat by 190 m
   const camOff = useRef({ x: 0, y: 0 });
+  const camZRef = useRef<number | null>(null);   // the height above the ground the camera works from: eased on hills, or the view would breathe with every bump
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
   const [paused, setPaused] = useState(false);
   const [tool, setTool] = useState<Tool>('fly');
@@ -223,8 +245,8 @@ function WorldView({ id }: { id: string }) {
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
-  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -232,7 +254,8 @@ function WorldView({ id }: { id: string }) {
     const s = sim.current!;
     if (mode === 'glide' && !startedLanded.current) {   // (opening the world: no throw, the plane starts landed, Throw ready)
       startedLanded.current = true;
-      s.glider.landed = true; s.glider.z = 0; s.glider.vx = s.glider.vy = s.glider.vz = 0; s.glider.impact = null; s.flight.glideAlt = 0; s.flight.glideLanded = true;
+      if (s.world.kind === 'lakedistrict') { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); s.flight.glideAlt = LAKE_START_ALT; s.flight.glideLanded = false; }   // the Lake District opens in the air: 50 m up, 7 m/s, level
+      else { s.glider.landed = true; s.glider.z = 0; s.glider.vx = s.glider.vy = s.glider.vz = 0; s.glider.impact = null; s.flight.glideAlt = 0; s.flight.glideLanded = true; }
       runStat.current = { startZ: s.glider.z, peakZ: s.glider.z };
     } else if (mode === 'glide') { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading); s.flight.glideAlt = s.glider.z; s.flight.glideLanded = false; runStat.current = { startZ: s.glider.z, peakZ: s.glider.z }; }
   }, [mode]);
@@ -431,8 +454,9 @@ function WorldView({ id }: { id: string }) {
       camEffRef.current = camEff; poseOkRef.current = !glFailed;
       for (const m of ['chase', 'free', 'flyby'] as const) camZoomNow.current[m] += (camZoom.current[m] - camZoomNow.current[m]) * (1 - Math.exp(-12 * dt));
       const wantGL = (L.gl3d || camEff !== 'chase') && !glFailed && L.tool === 'fly';
-      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else if (planeModel.current) glr.setModel(planeModel.current); }
+      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.kind === 'lakedistrict') glr.terrain = (x, y) => s.world.heightAt(x, y); glr.setFar(lakeFarLods()); } }
       const useGL = wantGL && !!glr;
+      if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
       glCv.style.display = useGL ? 'block' : 'none';
       // the launch camera: runs for LAUNCH_CAM_T seconds after a throw (p = how far it has backed off, 0 at the throw, 1 when it hands over to the normal view)
       { const l = launchCam.current; if (l) { l.t += dt; if (l.t > LAUNCH_CAM_T || f.mode !== 'glide' || s.glider.landed) launchCam.current = null; } }
@@ -498,13 +522,21 @@ function WorldView({ id }: { id: string }) {
             const sp = WALK_SPEED * run * dt, hx = Math.cos(gl.psi), hy = Math.sin(gl.psi);
             let vx = (hx * fwd + hy * side) * sp, vy = (hy * fwd - hx * side) * sp;
             const lm = Math.hypot(vx, vy); if (lm > sp) { vx *= sp / lm; vy *= sp / lm; }
+            if (s.world.kind === 'lakedistrict') {                              // hills: steep ground is a climb (slower), a cliff is a wall
+              const rise = (s.world.heightAt(gl.x + vx, -(gl.y + vy)) - s.world.heightAt(gl.x, -gl.y)) / (lm || 1);
+              if (rise > 1.0) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
+            }
             const wet = (x: number, y: number) => s.world.terrainAt(Math.round(x), Math.round(-y)) === WATER;
             if (!wet(gl.x + vx, gl.y + vy) || wet(gl.x, gl.y)) { gl.x += vx; gl.y += vy; walkPh += dt * 7 * run; }   // (no wading in: only out of the water you landed in)
           }
         }
         if (walking || (useGL && aim.current.on && gl.landed)) camAng.current = gl.psi - Math.PI / 2;                      // the eyes look the way the bobr faces, at once
+        const hilly = s.world.kind === 'lakedistrict', ridgeLift = (x: number, y: number, wx: number, wy: number, agl: number) => {   // the wind climbing a slope: the air over the windward side of a fell rises (slope soaring), fading with height
+          const e = 0.6, gx = (s.world.groundZAt(x + e, -y) - s.world.groundZAt(x - e, -y)) / (2 * e), gy = (s.world.groundZAt(x, -(y + e)) - s.world.groundZAt(x, -(y - e))) / (2 * e);
+          return Math.max(-3, Math.min(8, (wx * gx + wy * gy) * 0.8)) * Math.max(0, 1 - agl / 70);
+        };
         const wv = s.eco.windSpeed * 1.5, wd = s.eco.wind.dir, gLayer = () => 1 + (1 - Math.max(0, Math.min(1, gl.z / 120))) * 9;   // (the plane's cloud layer from its height: above a cloud it is out of that cloud's rain)
-        stepGlider(gl, { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }, dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
+        stepGlider(gl, { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }, dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
         if (!gl.landed && gl.z < 6) {   // flying into a tree or a bush is a crash: a standing plant is a few metres tall (by its size) and fills the middle of its tile
           const tx = Math.floor(gl.x), ty = Math.floor(-gl.y), dc = s.world.drawn(tx, ty).deco, top = dc === SHEET.bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
           if (top > 0 && gl.z < top * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38) {
@@ -562,7 +594,8 @@ function WorldView({ id }: { id: string }) {
       // 3rd-person camera: the view eases to a point ahead of the plane while it flies, and back when it stops
       const flying = isFlying(f, Math.hypot(dx, dy) > 0.01);
       // how far ahead it looks grows with speed (0 when slow); the tilt starts at the slider's value and fades to flat at 190 m, so the floor follows it
-      const altK = f.mode === 'glide' ? tiltAltitudeFactor(gl.z) : 1;
+      const camZ = (camZRef.current = s.world.kind !== 'lakedistrict' || gl.landed || camZRef.current === null || Math.abs(gl.z - camZRef.current) > 150 ? gl.z : camZRef.current + (gl.z - camZRef.current) * (1 - Math.exp(-dt / 1.5)));
+      const altK = f.mode === 'glide' ? (s.world.kind === 'lakedistrict' ? 0.8 : tiltAltitudeFactor(camZ)) : 1;   // (over the fells the view keeps most of its tilt: looking straight down, the hills read as flat ground)
       // (the view only follows the nose in ordinary flight: steeper than about 55 degrees, or upside down, it lets go, so a loop does not pump the tilt)
       const viewPitch = gl.pitch * (1 - sstep(Math.abs(gl.pitch), 0.7, 1.2)) * sstep(gl.nz, -0.1, 0.3);
       const pn = Math.max(-1, Math.min(1, f.mode === 'glide' ? viewPitch / 0.5 : f.pitch / 45));
@@ -579,7 +612,7 @@ function WorldView({ id }: { id: string }) {
       if ((!lookCam.current.on || !walking) && !lookingFly) lookCam.current.pitch *= Math.exp(-6 * dt);
       if (!lookingFly) { lookYaw.current *= Math.exp(-6 * dt); if (Math.abs(lookYaw.current) < 0.001) lookYaw.current = 0; }   // (not looking: the view settles back level)
       // low and slow: the camera climbs to the plane's nose (the view you have on foot, the same eye) and stays there, so touching down changes nothing
-      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(gl.z, 5, 22)) * (1 - sstep(gl.airspeed, 8, 13)) * (1 - sstep(Math.abs(gl.pitch), 0.8, 1.05)) * sstep(gl.nz, -0.2, 0.1) : 0;   // (not while it stands on its tail or flies upside down: the eye has no roll)
+      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, 5, 22)) * (1 - sstep(gl.airspeed, 8, 13)) * (1 - sstep(Math.abs(gl.pitch), 0.8, 1.05)) * sstep(gl.nz, -0.2, 0.1) : 0;   // (not while it stands on its tail or flies upside down: the eye has no roll)
       const aiming = useGL && f.mode === 'glide' && gl.landed && aim.current.on;   // holding the plane up to throw: the same eye as on foot, and the path it will fly is drawn
       fpvK += (((walking || aiming) ? 1 : launchActive ? (lcT < 0.35 ? 1 : 0) : lowSlow) - fpvK) * (1 - Math.exp(-4 * dt));
       if (!walking && fpvK > 0.002 && f.mode === 'glide') {                       // the view turns to where the plane points as it comes in (on foot it already does)
@@ -631,7 +664,7 @@ function WorldView({ id }: { id: string }) {
       const scr = (vx: number, vy: number): [number, number] => [vx * cr + vy * sr, -vx * sr + vy * cr];
       const zoom = camZoomNow.current.chase;   // (the wheel, in the chase view)
       // the higher it flies the farther the view pulls back (from ~80 m, on down to 0.15x at about 1 km), eased so it never jumps, or the plane fills the screen
-      const altZoomTarget = f.mode === 'glide' ? Math.max(0.15, 1 / (1 + Math.max(0, gl.z - 80) / 160)) : 1;
+      const altZoomTarget = f.mode === 'glide' ? Math.max(0.15, 1 / (1 + Math.max(0, camZ - 80) / 160)) : 1;
       altZoom.current += (altZoomTarget - altZoom.current) * (1 - Math.exp(-2.5 * dt));
       const Tn = TILE_PX * zoom * altZoom.current;
       // after a throw the camera starts close behind the plane and backs off to the normal distance (and from a flat look down the line of flight to the normal tilt)
@@ -646,7 +679,7 @@ function WorldView({ id }: { id: string }) {
         // the 3D camera: the visible ground (clamped at the reach, where everything has faded into the sky) says which chunks are needed
         const aUp = camAng.current + (gl.landed ? 0 : lookYaw.current);   // (the look button turns the view round the plane, or the eye's head)
         const upX = -Math.sin(aUp), upY = -Math.cos(aUp), tiltV = gl.landed ? tiltNow2 : Math.max(0.05, Math.min(1.45, tiltNow2 + lookCam.current.pitch * 0.9));
-        const lookHstd = 0.5 * Math.min(25, f.mode === 'glide' ? gl.z * 0.18 : 4 + (10 - layer) * 2);   // (half way up with the plane: it still looks high above the ground, and stays in view)
+        const lookHstd = 0.5 * Math.min(25, f.mode === 'glide' ? camZ * 0.18 : 4 + (10 - layer) * 2) + (f.mode === 'glide' && s.world.kind === 'lakedistrict' ? 0.18 * (gl.z - camZ) : 0);   // (the last part: the plane's height above the ground, less its eased value, is exactly what the ground's bumps take away, so the look point stays on the plane's own smooth height and the plane does not bob on screen)   // (half way up with the plane: it still looks high above the ground, and stays in view)
         // the free view and the flyby put the eye where the cameraman says, looking at the plane; coming and going, the view eases between that and the chase view
         const poseWant = poseOn && !gl.landed && !launchActive;
         poseK.current += ((poseWant ? 1 : 0) - poseK.current) * (1 - Math.exp(-8 * dt)); if (!poseWant && poseK.current < 0.002) poseK.current = 0;
@@ -654,8 +687,8 @@ function WorldView({ id }: { id: string }) {
         let tgt: [number, number, number] = [camX, camY, lookHstd], eyeV: [number, number, number] | undefined;
         if (poseK.current > 0) {
           const pt = { x: f.x, y: f.y, h: Math.min(120, gl.z * 0.18) };
-          if (poseWant && camEff === 'free') lastPose.current = orbitEye(pt, upX, upY, freeTilt.current, camZoomNow.current.free);
-          else if (poseWant) { const fb = flyby.current; flybyStep(fb, pt, gl.vx, -gl.vy, Math.cos(f.heading), -Math.sin(f.heading), camZoomNow.current.flyby); lastPose.current = { x: fb.x, y: fb.y, h: fb.h }; }
+          if (poseWant && camEff === 'free') { const e = orbitEye(pt, upX, upY, freeTilt.current, camZoomNow.current.free); lastPose.current = { ...e, h: Math.max(MIN_EYE_H, e.h + s.world.heightAt(pt.x, pt.y) - s.world.heightAt(e.x, e.y)) }; }   // (hills: the eye's height is above the ground under the eye, so it is the plane's own height plus the orbit's rise, whatever the ground does between them: the camera stays put in the air, not riding up and down the slopes)
+          else if (poseWant) { const fb = flyby.current; if (flybyStep(fb, pt, gl.vx, -gl.vy, Math.cos(f.heading), -Math.sin(f.heading), camZoomNow.current.flyby)) fb.h = Math.max(MIN_EYE_H, fb.h + s.world.heightAt(pt.x, pt.y) - s.world.heightAt(fb.x, fb.y)); lastPose.current = { x: fb.x, y: fb.y, h: fb.h }; }
           const pe = lastPose.current, k = sstep(poseK.current, 0, 1), Dstd = (H / 2) / (T * Math.tan(0.36)), sT = Math.sin(tiltV), cT = Math.cos(tiltV);
           const sx = camX - upX * Dstd * sT, sy = camY - upY * Dstd * sT, sh = lookHstd + Dstd * cT;   // (where the chase view's eye is)
           eyeV = [sx + (pe.x - sx) * k, sy + (pe.y - sy) * k, sh + (pe.h - sh) * k];
@@ -942,7 +975,7 @@ function WorldView({ id }: { id: string }) {
         }
         if (Tv >= 9) for (const d of decos) {                                          // trees, bushes and rocks stand on their tile, facing the camera (not when zoomed far out: they are a pixel or two, and thousands of them cost more than the ground)
           const wx = d.x + 0.5, wy = d.y + 1;
-          if (far(wx, wy) || !ffp.inside(wx, wy, d.scale)) continue;
+          if (far(wx, wy) || !ffp.inside(wx, wy, d.scale) || (s.world.kind === 'lakedistrict' && (wx - ex) * (wx - ex) + (wy - ey) * (wy - ey) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
           if (L.billboards) G.flat('decal', wx, wy - 0.04, 0.015, d.scale * 0.64, d.scale * 0.2, 0, -1, at.shadow, 0, 0, 0, 0.22);
           G.board('solid', wx, wy, -bottomPad(img, d.cell) * d.scale, d.scale, d.scale, true, G.cell(d.cell[0], d.cell[1]));   // (sunk by the empty rows under the art, so a bush or rock sits on the ground instead of hovering)
           if (d.cell === SHEET.bush && s.berries.ripeBush(d.x, d.y)) {   // ripe berries hang on the bush, a touch nearer the eye than its leaves
@@ -979,11 +1012,12 @@ function WorldView({ id }: { id: string }) {
         }
 
         // water-cycle clouds and the rain under them
+        G.skyMode = true;
         {
           const dirX = Math.cos(L.wind.dir), dirY = -Math.sin(L.wind.dir), reach = L.wind.enabled ? L.wind.strength : 0;
           for (const c of s.eco.clouds) {
             const size = 2 * c.size, rl = c.rl ?? c.layer, hh = cloudH(rl), fd = c.fade ?? 1;
-            if (far((c.rx ?? c.x), (c.ry ?? c.y)) || !ffp.inside((c.rx ?? c.x), (c.ry ?? c.y), size + reach + 3)) continue;
+            if (far((c.rx ?? c.x), (c.ry ?? c.y)) || !ffp.inside((c.rx ?? c.x), (c.ry ?? c.y), size + reach + 3) || Math.hypot((c.rx ?? c.x) - ex, (c.ry ?? c.y) - ey) > HOOP_VIEW) continue;   // (clouds and their rain are seen to 100 tiles, like hoops)
             if (cells.length) G.board('blend', (c.rx ?? c.x), (c.ry ?? c.y), hh, size * 1.7, size * 1.7 * CLOUD_ASPECT, false, pickCell(c.id), 1, 1, 1, Math.min(1, 0.45 + rl * 0.06 + Math.min(0.3, c.water * 0.3)) * fd * nearFade((c.rx ?? c.x), (c.ry ?? c.y), hh));
             if (c.raining) {
               const rx = (c.rx ?? c.x) + dirX * reach, ry = (c.ry ?? c.y) + dirY * reach, spread = 0.8 + 2.4 * c.rain, rainA = 0.9 * Math.min(1, c.rain * 4) * fd;
@@ -994,6 +1028,7 @@ function WorldView({ id }: { id: string }) {
             }
           }
         }
+        G.skyMode = false;
 
         // fire: a flame on every burning tile with its glow on the ground, and the bolts from cloud to ground; both shine at night
         for (const [k, t0] of s.eco.scorched) {                                       // charred ground where a fire went out, fading as it recovers
@@ -1032,19 +1067,21 @@ function WorldView({ id }: { id: string }) {
         }
 
         // the sky: clouds in a sphere round the plane (cumulus low, stratocumulus in the middle, cirrus high), fixed to the world and drifting with the wind
+        G.skyMode = true;
         if (L.decoClouds && at.clouds.length) emitSkyClouds((x, y, z, w, sprite, al) => {
           const p = G.project(x, y, -z); if (!p) return;
           const dist = Math.hypot(x - ex, y - ey, z - eyeH), half = (w / 2) / Math.max(dist, 1) * H * 1.6, m = half + 40;
           if (p[0] < -m || p[0] > W + m || p[1] < -m || p[1] > H + m) return;   // (a cloud wholly off the screen is never built)
           G.board('blend', x, y, z, w, w * CLOUD_ASPECT, false, at.clouds[sprite], 1, 1, 1, al * nearFade(x, y, z));
         }, s.world.seed, f.x, f.y, hP, anim, sphOff);
+        G.skyMode = false;
         // hoops: upright discs standing in the air, gold until the plane has flown through, then a faint green; a shadow on the ground shows where
         for (const hp of hoopsIn(s.world.seed, ffp.minX - 5, ffp.minY - 5, ffp.maxX + 5, ffp.maxY + 5)) {
-          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2)) continue;
+          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || (hp.x - ex) * (hp.x - ex) + (hp.y - ey) * (hp.y - ey) > HOOP_VIEW * HOOP_VIEW) continue;   // (hoops are seen to 100 tiles, however far the ground is drawn)
           const done = hoopsDone.has(hp.key), tx = -Math.sin(hp.angle), ty = Math.cos(hp.angle);
-          G.quad('blend', hp.x, hp.y, -hp.h, tx * hp.r, ty * hp.r, 0, 0, 0, -hp.r, at.ring, done ? 0.4 : 1, done ? 1 : 0.78, done ? 0.5 : 0.15, done ? 0.45 : 0.85 + 0.15 * Math.sin(anim * 3 + hp.x));
+          G.quad('blend', hp.x, hp.y, -hp.h - G.groundH(hp.x, hp.y), tx * hp.r, ty * hp.r, 0, 0, 0, -hp.r, at.ring, done ? 0.4 : 1, done ? 1 : 0.78, done ? 0.5 : 0.15, done ? 0.45 : 0.85 + 0.15 * Math.sin(anim * 3 + hp.x));
           G.flat('decal', hp.x, hp.y, 0.02, hp.r * 0.75, hp.r * 2, tx, ty, at.ring, 0, 0, 0, done ? 0.16 : 0.3);   // the shadow of an upright ring is a squashed ring on the ground, as wide as the hoop and not as deep
-          const hc = G.project(hp.x, hp.y, -hp.h), he = G.project(hp.x, hp.y, -hp.h - hp.r);
+          const hc = G.projectAgl(hp.x, hp.y, hp.h), he = G.projectAgl(hp.x, hp.y, hp.h + hp.r);
           if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${Math.round(hp.h / 0.18)} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
         }
         // aiming a throw: the path the plane will fly from here, as dots along it with a ring where it comes down (power and heading as they are right now)
@@ -1065,7 +1102,7 @@ function WorldView({ id }: { id: string }) {
           if (predG.landed) G.flat('decal', last[0], last[1], 0.04, 3, 3, 0, -1, at.ring, 1, 0.85, 0.3, 0.9);
         }
         G.end();
-        pp = G.project(f.x, f.y, -hP) ?? pp; pg = G.project(shx, shy, 0) ?? pg; planeY.current = pp[1];
+        pp = G.projectAgl(f.x, f.y, hP) ?? pp; pg = G.projectAgl(shx, shy, 0) ?? pg; planeY.current = pp[1];
       } else {
       // the river lines the clouds are drawn to (a debug view in Android, a toggle here)
       if (L.showRivers) {
@@ -1557,7 +1594,8 @@ function WorldView({ id }: { id: string }) {
               <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setMiniScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
             </div>
           </div>
-            <PixelFrame theme="green_ornate" scale={1} className="wui-banner wui-mapbanner"><span className="wui-ellip"><HudText hud={hudRef} pick={h => t(`worldBiome_${h.biome || 'grassland'}` as Key).toUpperCase()} /></span></PixelFrame>
+            <PixelFrame as={initial.kind === 'lakedistrict' ? 'button' : undefined} theme="green_ornate" scale={1} className="wui-banner wui-mapbanner" onClick={initial.kind === 'lakedistrict' ? () => setWatersOpen(v => !v) : undefined}><span className="wui-ellip"><HudText hud={hudRef} pick={h => initial.kind === 'lakedistrict' ? placeText(h.x, h.y, t).toUpperCase() : t(`worldBiome_${h.biome || 'grassland'}` as Key).toUpperCase()} /></span></PixelFrame>
+            {watersOpen && initial.kind === 'lakedistrict' && root.current && createPortal(<WatersList hud={hudRef} t={t} onClose={() => setWatersOpen(false)} />, root.current)}
             <div ref={windDial} className="wui-dial" role="slider" aria-label={t('worldWind')} aria-valuemin={0} aria-valuemax={10} aria-valuenow={wind.strength} aria-valuetext={`${windLetter} ${wind.strength}`}
               style={{ '--dir': `${-wind.dir}rad`, '--h': windHue, '--base': `url(${rawUrl('joystick_base')})` } as CSSProperties} data-on={wind.enabled && wind.strength > 0}
               onPointerDown={e => {
@@ -1662,6 +1700,8 @@ function WorldView({ id }: { id: string }) {
               <PixelButton size="compact" scale={1} variant={third ? 'green' : 'red'} aria-pressed={third} onClick={() => setThird(v => !v)}>{t('worldThird')}</PixelButton>
               </div>
               <div className="world-slider"><span>{t('worldCamDistance')}</span><PixelSlider min={tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0} max={MAX_CAMERA_DISTANCE} step={1} value={Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)} onChange={setCamDist} label={t('worldCamDistance')} valueText={String(Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0))} /><b>{Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)}</b></div>
+              {initial.kind === 'lakedistrict' && <div className="world-slider"><span>{t('worldWalkDist')}</span><PixelSlider min={25} max={200} step={25} value={walkDist} onChange={setWalkDist} label={t('worldWalkDist')} valueText={`${walkDist}%`} /><b>{walkDist}</b></div>}
+              <div className="world-slider"><span>{t('worldDrawDist')}</span><PixelSlider min={10} max={initial.kind === 'lakedistrict' ? 500 : 150} step={10} value={drawDist} onChange={setDrawDist} label={t('worldDrawDist')} valueText={`${drawDist}%`} /><b>{drawDist}</b></div>
               <div className="world-slider"><span>{t('worldTilt')}</span><PixelSlider min={0} max={16} step={1} value={tilt} onChange={setTilt} label={t('worldTilt')} valueText={String(tilt)} /><b>{tilt}</b></div>
               {showInfo && <div className="muted small">{t('worldCamTip')}</div>}
             </div>
@@ -1704,8 +1744,8 @@ function WorldView({ id }: { id: string }) {
               <div className="row world-tools">
                 <PixelButton size="compact" scale={1} variant={debugLift ? 'green' : 'red'} aria-pressed={debugLift} onClick={() => setDebugLift(v => !v)}>{t('worldDebugLift')}</PixelButton>
               </div>
-              <div className="world-slider"><span>{t('worldDebugLiftV')}</span><PixelSlider min={-5} max={15} step={1} value={debugLiftV} onChange={setDebugLiftV} label={t('worldDebugLiftV')} valueText={`${debugLiftV} m/s`} /><b>{debugLiftV}</b></div>
-              <div className="world-slider"><span>{t('worldThrottle')}</span><PixelSlider min={0} max={100} step={5} value={throttle} onChange={setThrottle} label={t('worldThrottle')} valueText={`${throttle}%`} /><b>{throttle}</b></div>
+              <div className="world-slider"><span>{t('worldDebugLiftV')}</span><PixelSlider min={-5} max={15} step={0.1} value={debugLiftV} onChange={v => setDebugLiftV(Math.round(v * 10) / 10)} label={t('worldDebugLiftV')} valueText={`${debugLiftV} m/s`} /><b>{debugLiftV}</b></div>
+              <div className="world-slider"><span>{t('worldThrottle')}</span><PixelSlider min={0} max={initial.kind === 'lakedistrict' ? LAKE_THROTTLE_MAX : 100} step={initial.kind === 'lakedistrict' ? 1 : 5} value={throttle} onChange={setThrottle} label={t('worldThrottle')} valueText={`${throttle}%`} /><b>{throttle}</b></div>
               <div className="muted small"><HudText hud={hudRef} pick={h => `${h.x}, ${h.y} - ${t('worldStats', { clouds: h.clouds, water: h.water })} - ${h.fps} fps, ${h.ms} ms, ${canvas.current?.width ?? 0}x${canvas.current?.height ?? 0}px`} /></div>
             </div>
             <div className="card world-card">
@@ -1914,6 +1954,25 @@ function TimeSlider({ hud, label, onSet }: { hud: MutableRefObject<Hud>; label: 
   return <div className="world-slider"><span>{label}</span><PixelSlider min={0} max={24} step={0.25} value={v} onChange={h => { touched.current = performance.now(); setVal(h); onSet(h >= 24 ? 0 : h); }} label={label} valueText={clockText(v)} /><b>{clockText(v)}</b></div>;
 }
 
+/** Where the plane is, in words: over a named water, or how far and which way from the nearest one. */
+function placeText(x: number, y: number, t: TFn): string {
+  const w = lakeWatersFrom(x, y)[0];
+  if (!w) return '';
+  return w.tiles < 12 && lakeWaterAt(x, y) !== LAKE_LAND ? t('worldPlaceOver' as Key, { name: w.name }) : t('worldPlaceNear' as Key, { km: tilesToKm(w.tiles).toFixed(1), dir: compass(w.dx, w.dy), name: w.name });
+}
+/** Every named water, nearest first, with its distance and direction from the plane. */
+function WatersList({ hud, t, onClose }: { hud: MutableRefObject<Hud>; t: TFn; onClose: () => void }) {
+  const [pos, setPos] = useState({ x: hud.current.x, y: hud.current.y });
+  useEffect(() => { const id = setInterval(() => setPos(p => (p.x === hud.current.x && p.y === hud.current.y ? p : { x: hud.current.x, y: hud.current.y })), 500); return () => clearInterval(id); }, [hud]);
+  const list = lakeWatersFrom(pos.x, pos.y);
+  return (
+    <PixelFrame theme="green_ornate" scale={1} className="wui-waters" onClick={onClose} style={{ position: 'absolute', top: 70, right: 8, zIndex: 30, maxHeight: '60%', overflowY: 'auto', padding: '8px 10px', maxWidth: '85%' }}>
+      <div>{t('worldHere' as Key, { x: pos.x, y: pos.y })}</div>
+      <div className="muted small">{t('worldWaters' as Key).toUpperCase()}</div>
+      {list.map(w => <div key={w.name} className="small">{w.name} - {tilesToKm(w.tiles).toFixed(1)} km {compass(w.dx, w.dy)}</div>)}
+    </PixelFrame>
+  );
+}
 function HudText({ hud, pick }: { hud: MutableRefObject<Hud>; pick: (h: Hud) => string }) {
   const [text, setText] = useState(() => pick(hud.current));
   useEffect(() => {
@@ -2035,6 +2094,17 @@ const inCone = (f: Flight, x: number, y: number) => Math.abs(Math.atan2(Math.sin
 
 interface MiniMark { x: number; y: number; kind: 'hoop' | 'done' | 'heat'; r: number }
 function drawMinimap(cv: HTMLCanvasElement, world: World, explored: Set<number>, f: Flight, cx0: number, cx1: number, cy0: number, cy1: number, scale: number, marks: MiniMark[] = []) {
+  if (world.kind === 'lakedistrict') {   // the whole map, shrunk to fit (see lakeOverview), with the plane on it
+    const ov = lakeOverview(), g = cv.getContext('2d')!;
+    if (ov) {
+      const k = Math.min(100 / ov.width, 100 / ov.height), w = ov.width * k, h = ov.height * k, ox = (100 - w) / 2, oy = (100 - h) / 2;
+      g.fillStyle = '#0a1a2a'; g.fillRect(0, 0, 100, 100); g.imageSmoothingEnabled = true; g.drawImage(ov, ox, oy, w, h);
+      const px = ox + (f.x + (ov.width >> 1) + 0.5) * k, py = oy + (f.y + (ov.height >> 1) + 0.5) * k, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;
+      g.beginPath(); g.moveTo(px + dx * 6, py + dy * 6); g.lineTo(px - dx * 3.5 + qx * 3.5, py - dy * 3.5 + qy * 3.5); g.lineTo(px - dx * 1.2, py - dy * 1.2); g.lineTo(px - dx * 3.5 - qx * 3.5, py - dy * 3.5 - qy * 3.5); g.closePath();
+      g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
+      return;
+    }
+  }
   const g = cv.getContext('2d')!, img = g.createImageData(100, 100), d = img.data;
   const rgb: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
   for (let j = 0; j < 100; j++) for (let i = 0; i < 100; i++) {

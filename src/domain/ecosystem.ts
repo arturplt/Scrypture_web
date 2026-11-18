@@ -219,6 +219,7 @@ export class Ecosystem {
   paint(x: number, y: number, t: Terrain) { this.put(x, y, plainTile(t)); }
   private put(x: number, y: number, s: TileState) {
     const was = this.world.terrainAt(x, y);
+    if (this.world.kind === 'lakedistrict' && (s.t === WATER) !== (was === WATER) && this.cause !== 'paint' && this.cause !== 'dam') return;   // a real map's lakes and shores stay where they are: no rain puddles on the fells, no rivers wandering, no drying up (beaver dams and the paint tool still make ponds)
     this.world.set(x, y, s); this.mark(x, y);
     this.knownVersion = this.world.version;
     if (was !== s.t) {

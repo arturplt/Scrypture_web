@@ -14,6 +14,7 @@ const APPS: { path?: string; href?: string; icon: string; name: Key; hint: Key }
   { path: '/apps/mindmap', icon: 'mind_active', name: 'mindMap', hint: 'mindMapHint' },
   { path: '/apps/notes', icon: 'soul_active', name: 'notes', hint: 'notesHint' },
   { path: '/apps/emoticons', icon: 'chat_bubble_blue', name: 'emoticons', hint: 'emoticonsHint' },
+  { path: '/games/paperplane', icon: 'airplane', name: 'world', hint: 'worldHint' },
   { href: 'https://tunerite.scrypture.app', icon: 'rearrange', name: 'tunerite', hint: 'tuneriteHint' },
   { href: 'https://steam.scrypture.app', icon: 'berry', name: 'steam', hint: 'steamHint' },
 ];

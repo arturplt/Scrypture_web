@@ -13,6 +13,8 @@
  *    ecosystem changed a tile keeps every other decoration where it was.
  */
 
+import { lakeBiomeIndex, lakeWaterAt, LAKE_LAND, groundTiles, groundZ, type WorldKind } from './lakedistrict';
+
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
 export const MARGIN = 2;                       // extra ring of tiles built around a chunk (transitions + coast distance)
@@ -144,6 +146,20 @@ export function generateChunk(cx: number, cy: number, seed: number): { t: Uint8A
   return { t: out, b: bio };
 }
 
+/** The same grids for a Lake District chunk: water, rivers and the sea from the real map, a one-tile beach, sand on the bare tops. */
+export function generateLakeChunk(cx: number, cy: number): { t: Uint8Array; b: Uint8Array } {
+  const out = new Uint8Array(SIDE * SIDE), bio = new Uint8Array(SIDE * SIDE), ox = cx * CHUNK - MARGIN, oy = cy * CHUNK - MARGIN;
+  for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) {
+    const x = ox + i, y = oy + j, k = j * SIDE + i, b = lakeBiomeIndex(x, y);
+    bio[k] = b;
+    if (lakeWaterAt(x, y) !== LAKE_LAND) { out[k] = WATER; continue; }
+    let near = false;
+    for (let dj = -1; dj <= 1 && !near; dj++) for (let di = -1; di <= 1; di++) if (lakeWaterAt(x + di, y + dj) !== LAKE_LAND) { near = true; break; }
+    out[k] = near || b === 3 ? SAND : GRASS;
+  }
+  return { t: out, b: bio };
+}
+
 // ---- tile choice --------------------------------------------------------------------------------------------------------
 
 const validPair = (a: Terrain, b: Terrain) => a !== b;   // every pair of the three terrains has a transition set
@@ -244,24 +260,28 @@ export interface Drawn { ground: Cell; deco: Cell | null; scale: number }
  */
 export class World {
   readonly seed: number;
+  readonly kind: WorldKind;
   readonly changes = new Map<number, TileState>();
   version = 0;
   private cache = new Map<number, { t: Uint8Array; b: Uint8Array }>();
 
-  constructor(seed: number, changes?: Iterable<[number, TileState]>) {
-    this.seed = seed;
+  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural') {
+    this.seed = seed; this.kind = kind;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
   }
   private base(cx: number, cy: number): { t: Uint8Array; b: Uint8Array } {
     const key = tileKey(cx, cy);
     let g = this.cache.get(key);
     if (!g) {
-      g = generateChunk(cx, cy, this.seed);
+      g = this.kind === 'lakedistrict' ? generateLakeChunk(cx, cy) : generateChunk(cx, cy, this.seed);
       this.cache.set(key, g);
       if (this.cache.size > 400) this.cache.delete(this.cache.keys().next().value!);   // keep memory bounded; rebuilt on demand
     }
     return g;
   }
+  /** Ground height in tiles at a point (0 on the flat procedural worlds), and in glider metres. */
+  heightAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundTiles(px, py) : 0; }
+  groundZAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundZ(px, py) : 0; }
   generatedTerrain(x: number, y: number): Terrain {
     const cx = chunkOf(x), cy = chunkOf(y);
     return this.base(cx, cy).t[(y - cy * CHUNK + MARGIN) * SIDE + (x - cx * CHUNK + MARGIN)] as Terrain;

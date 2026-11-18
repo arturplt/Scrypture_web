@@ -3,7 +3,7 @@ import { PenGame } from '../ui/PenGame';
 import { preloadWorld } from './WorldMap';
 import { flyIntoWorld } from '../ui/worldPortal';
 import { enterWorldFromHome } from './worldEntry';
-import { useAppState } from '../data/hooks';
+import { useAppState, actions } from '../data/hooks';
 import { useNow } from '../hooks';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tradeFor, willTrade, type GameMode } from '../domain';
@@ -58,6 +58,14 @@ export function Dashboard() {
     const to = last ? `/games/paperplane/play/${last.id}` : '/games/paperplane';
     if (last) flyIntoWorld(btn.closest('.pen-card'), () => navigate(to), preloadWorld); else navigate(to);
   };
+  const flyLake = () => {   // press and hold on the plane: the Lake District (the one played last, else a new one)
+    const lakes = worlds.filter(w => w.kind === 'lakedistrict');
+    const last = lakes.reduce<(typeof lakes)[number] | null>((b, w) => (!b || w.playedAt > b.playedAt ? w : b), null);
+    const id = last?.id ?? actions.createWorld(t('worldLake'), Math.floor(Math.random() * 2 ** 31), 'lakedistrict');
+    if (!id) { navigate('/games/paperplane'); return; }   // (the list of worlds is full)
+    enterWorldFromHome(true);
+    navigate(`/games/paperplane/play/${id}`);
+  };
   const badges = useNavBadges();
   const navItems = useAppState(s => s.settings.nav.items);
   const inNav = new Set(NAV_DEFS.filter(d => navItems.includes(d.id)).map(d => d.path));   // what the nav bar already shows is not repeated here
@@ -102,7 +110,7 @@ export function Dashboard() {
                 : { icon: 'arcade', label: t('arcadeMode'), text: t('arcadeMode'), onClick: () => { setStep(null); setGame('ARCADE'); } },
               right: (step ?? lastStep.current) === 'main'
                 ? { icon: 'joystick', label: t('games'), onClick: () => setStep('mode') }
-                : { icon: 'timetrial', label: t('timeTrialMode'), text: t('timeTrialMode'), onClick: () => { setStep(null); setGame('TIMETRIAL'); } } }} onSign={() => navigate('/start')} signLabel={t('startHere')} onFly={flyNow} flyLabel={t('world')} />
+                : { icon: 'timetrial', label: t('timeTrialMode'), text: t('timeTrialMode'), onClick: () => { setStep(null); setGame('TIMETRIAL'); } } }} onSign={() => navigate('/start')} signLabel={t('startHere')} onFly={flyNow} onFlyHold={flyLake} flyLabel={t('world')} />
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="right" /> : <div className="pen-slots" />}
           </div>
           {trading && willTrade(emotion) && <TradeBar deal={deal} />}

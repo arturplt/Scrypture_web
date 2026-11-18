@@ -5,6 +5,7 @@ import { ITEM_SPRITE, MAX_SPAWNED, SPAWN_MAX_MS, SPAWN_MIN_MS, SPAWN_TTL_MS, HOM
 import { actions } from '../data/hooks';
 import { BobrView } from './BobrView';
 import { useUi } from './useUi';
+import { useLongPress } from './misc';
 
 /** The Start Here sign stands on the ground and slides with it; it loops once the pen plus the sign's own width has gone by, so it leaves fully out of sight on one side and walks in from the other (no jump on screen). */
 const SIGN_AT = 0.25;
@@ -99,7 +100,9 @@ function usePen(root: React.RefObject<HTMLDivElement>) {
   return { items, collect, els };
 }
 
-export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn, onFly, flyLabel, onSign, signLabel, choice }: { /** tapping Bóbr offers two things, one each side of him (first trade or play, then which game) */ choice?: { open: boolean; left: PenChoice; right: PenChoice }; /** the Start Here sign on the ground */ onSign?: () => void; signLabel?: string; /** a paper plane in the corner: straight back into the flying world */ onFly?: (from: HTMLElement) => void; flyLabel?: string; /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
+export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, bobrOn, onFly, onFlyHold, flyLabel, onSign, signLabel, choice }: { /** tapping Bóbr offers two things, one each side of him (first trade or play, then which game) */ choice?: { open: boolean; left: PenChoice; right: PenChoice }; /** the Start Here sign on the ground */ onSign?: () => void; signLabel?: string; /** a paper plane in the corner: straight back into the flying world */ onFly?: (from: HTMLElement) => void; /** press and hold on the plane: pick a world instead */ onFlyHold?: () => void; flyLabel?: string; /** tapping Bóbr (opens / closes the trade) */ onBobr?: () => void; bobrLabel?: string; bobrOn?: boolean; stage: BobrStage; emotion: Emotion; /** a speech bubble over Bóbr that opens the chat */ onChat?: () => void; chatLabel?: string }) {
+  const flyHeld = useRef(false);
+  const flyHold = useLongPress(onFlyHold && (() => { flyHeld.current = true; onFlyHold(); }));
   const root = useRef<HTMLDivElement>(null);
   const { items, collect, els } = usePen(root);
   const { px } = useUi();
@@ -121,7 +124,7 @@ export function BobrPen({ stage, emotion, onChat, chatLabel, onBobr, bobrLabel, 
           <img className="pixel" src={`/assets/raw/${c.icon}.png`} alt="" />{c.text && <span className="pen-choice-text">{c.text}</span>}
         </button>
       ))}
-      {onFly && <button type="button" className="pen-fly" aria-label={flyLabel} title={flyLabel} onClick={e => onFly(e.currentTarget)}><img className="pixel" src="/assets/raw/airplane.png" width={px(36)} alt="" /></button>}
+      {onFly && <button type="button" className="pen-fly" aria-label={flyLabel} title={flyLabel} {...flyHold} onClick={e => { if (flyHeld.current) { flyHeld.current = false; return; } onFly(e.currentTarget); }}><img className="pixel" src="/assets/raw/airplane.png" width={px(36)} alt="" /></button>}
       {onChat && <button type="button" className="pen-chat" aria-label={chatLabel} title={chatLabel} onClick={onChat}><img className="pixel" src="/assets/raw/chat_bubble_blue.png" width={px(36)} alt="" /></button>}
       {items.map(it => (
         <button key={it.id} ref={e => { if (e) els.current.set(it.id, e); else els.current.delete(it.id); }} className="spawn ground" aria-label={`Collect ${it.itemId}`}
