@@ -8,6 +8,55 @@ import { useUi } from '../ui/useUi';
 import { enterFullscreen, exitFullscreen, useFullscreen } from '../ui/fullscreen';
 import { useT } from '../i18n/useT';
 import { LANGS, LANG_NAMES, LATIN_UNLOCK_TASKS, isLatinUnlocked } from '../i18n';
+import { signIn, signOut, signUp, syncNow, useCloud } from '../data/cloud';
+
+/** Optional account: one save on every device. */
+function CloudSection() {
+  const t = useT();
+  const c = useCloud();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function go(create: boolean) {
+    setBusy(true); setMsg(null);
+    if (create) { const r = await signUp(email, password); setMsg(r.error ? { ok: false, text: r.error } : r.confirm ? { ok: true, text: t('syncCheckMail') } : null); }
+    else { const e = await signIn(email, password); if (e) setMsg({ ok: false, text: e }); }
+    setBusy(false);
+  }
+  return (
+    <section className="list">
+      <h2 className="subtitle">{t('syncTitle')}</h2>
+      {c.email ? (
+        <>
+          <div className="small" style={{ lineHeight: 1.6 }}>{t('syncSignedIn', { email: c.email })}</div>
+          <div className="small" role="status" style={{ lineHeight: 1.6, color: c.phase === 'error' ? 'var(--body)' : undefined }}>
+              {c.phase === 'syncing' ? t('syncBusy') : c.phase === 'error' ? t('syncFailed', { reason: c.error ?? '' }) : c.lastSyncedAt ? t('syncDone', { time: new Date(c.lastSyncedAt).toLocaleTimeString() }) : ''}
+            </div>
+          <div className="row wrap">
+            <PixelButton scale={1} onClick={() => void syncNow()}>{t('syncNow')}</PixelButton>
+            <PixelButton scale={1} variant="red" onClick={() => void signOut()}>{t('syncSignOut')}</PixelButton>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted small" style={{ lineHeight: 1.6 }}>{t('syncNote')}</p>
+          <label className="field">{t('syncEmail')}
+            <input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} aria-label={t('syncEmail')} />
+          </label>
+          <label className="field">{t('syncPassword')}
+            <input type="password" autoComplete="current-password" minLength={6} value={password} onChange={e => setPassword(e.target.value)} aria-label={t('syncPassword')} />
+          </label>
+          <div className="row wrap">
+            <PixelButton scale={1} onClick={() => void go(false)} disabled={busy || !email || password.length < 6}>{t('syncSignIn')}</PixelButton>
+            <PixelButton scale={1} onClick={() => void go(true)} disabled={busy || !email || password.length < 6}>{t('syncSignUp')}</PixelButton>
+          </div>
+          {msg && <div className="small" role="status" style={{ color: msg.ok ? 'var(--soul)' : 'var(--body)', lineHeight: 1.6 }}>{msg.text}</div>}
+        </>
+      )}
+    </section>
+  );
+}
 
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -151,6 +200,8 @@ export function Settings() {
           <PixelButton scale={1} variant="red" onClick={() => actions.setSettings(DEFAULT_APPEARANCE)}>{t('resetAppearance')}</PixelButton>
         </div>
       </section>
+
+      <CloudSection />
 
       <section className="list">
         <h2 className="subtitle">{t('yourData')}</h2>

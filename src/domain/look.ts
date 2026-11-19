@@ -90,7 +90,7 @@ export const DEFAULT_LOOK: Look = {
   crt: 'low',
   deviceFrame: 'grey_gun',
   textScale: 1,
-  uiScale: 0,
+  uiScale: 1,
   frameEdges: 'random',
   buttonSize: 'compact',
   frameCenter: 'clean',
