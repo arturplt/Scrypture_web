@@ -931,6 +931,7 @@ export const en = {
   "worldLoadFail": "The tile sheet could not be loaded.",
   "worldJoystick": "Joystick",
   "worldLook": "Look",
+  "worldYaw": "Yaw",
   "worldFlight": "Flight",
   "worldOff": "Off",
   "worldManual": "Manual",

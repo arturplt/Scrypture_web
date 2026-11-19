@@ -932,6 +932,7 @@ export const pl: Record<Key, string> = {
   "worldLoadFail": "Nie udało się wczytać arkusza kafelków.",
   "worldJoystick": "Joystick",
   "worldLook": "Rozglądanie",
+  "worldYaw": "Zboczenie",
   "worldFlight": "Lot",
   "worldOff": "Wył.",
   "worldManual": "Ręczny",

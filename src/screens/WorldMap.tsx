@@ -169,7 +169,7 @@ function WorldView({ id }: { id: string }) {
   const sheet = useRef<HTMLImageElement | null>(null);
   const chunks = useRef(new Map<number, ChunkImg>());
   const keys = useRef(new Set<string>());
-  const stick = useRef({ dx: 0, dy: 0 }), lookStick = useRef({ dx: 0, dy: 0 });   // (the second joystick, on foot: it looks round)
+  const stick = useRef({ dx: 0, dy: 0 }), lookStick = useRef({ dx: 0, dy: 0 }), yawStick = useRef({ dx: 0, dy: 0 });   // (the second joystick: on foot it looks round; in the free view the left one is the rudder)
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -203,7 +203,7 @@ function WorldView({ id }: { id: string }) {
   const lookFly = camMode === 'free' && mode === 'glide', lookYaw = useRef(0), freeTilt = useRef(1.1);   // free view: dragging the view turns the camera round the plane (and tips it) instead of steering; the keys still fly
   const camZoom = useRef({ ...ZOOM_DEFAULT }), camZoomNow = useRef({ ...ZOOM_DEFAULT }), camEffRef = useRef<CamMode>('chase'), poseOkRef = useRef(true);   // (what the wheel has asked for, and where the view has eased to)
   const flyby = useRef(newFlyby()), poseK = useRef(0), lastPose = useRef({ x: 0, y: 0, h: 10 }), pinch = useRef({ pts: new Map<number, { x: number; y: number }>(), d: 0 });
-  const cycleCam = () => setCamMode(m => nextCamMode(m, live.current.mode === 'glide' && poseOkRef.current));
+  const cycleCam = () => setCamMode(m => (m === 'chase' && live.current.mode === 'glide' && poseOkRef.current ? 'free' : 'chase'));   // (the button and the C key swap chase and free; the flyby is still chosen in the settings)
   const cycleCamRef = useRef(cycleCam); cycleCamRef.current = cycleCam;
   // the zoom slider (phones): 0..1, up = closer, on a log scale over the range of whichever camera is on; it follows the wheel and the pinch too
   const [zoomPos, setZoomPos] = useState(0.5);
@@ -486,7 +486,8 @@ function WorldView({ id }: { id: string }) {
       glCv.style.display = useGL ? 'block' : 'none';
       // the launch camera: runs for LAUNCH_CAM_T seconds after a throw (p = how far it has backed off, 0 at the throw, 1 when it hands over to the normal view)
       { const l = launchCam.current; if (l) { l.t += dt; if (l.t > LAUNCH_CAM_T || f.mode !== 'glide' || s.glider.landed) launchCam.current = null; } }
-      const launchActive = !!launchCam.current && useGL, lcT = launchCam.current ? launchCam.current.t : 99, lcP = launchActive ? sstep(lcT, 0.5, LAUNCH_CAM_T - 0.5) : 1;
+      // a throw is a landing played backwards: the eye starts at the plane's nose (it is held at the eye), and as the plane climbs the eye slides back behind it, then the chase view takes over. No special launch camera.
+      const launchActive = false, lcT = 99, lcP = 1;
       // chase view: the world turns (CSS rotate on the canvas) so the plane's heading points up; eased along the shortest way round
       const poseOn = camEff !== 'chase' && useGL && f.mode === 'glide' && !footRef.current;   // the free view or the flyby: the camera stands where the cameraman puts it
       const viewChase = L.tool === 'fly', chaseOn = viewChase && !useGL;
@@ -545,7 +546,7 @@ function WorldView({ id }: { id: string }) {
         }
         const pull = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0) + stick.current.dy + my;
         const roll = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + stick.current.dx + mx;
-        const yaw = Math.max(-1, Math.min(1, (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) + dyaw));
+        const yaw = Math.max(-1, Math.min(1, (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) + dyaw + yawStick.current.dx));
         if (aim.current.on && gl.landed) { aim.current.t += dt; gl.psi -= Math.max(-1, Math.min(1, roll + aim.current.dx)) * 2.2 * dt; gl.z = launchHeight(upRef.current.launch); }   // holding the plane up at the launch height (1 m on the ground, higher with the shop's launchers), turning it to where it will go
         // landed: the plane turns into the bobr, who walks about in first person (W / S forward and back, A / D turn, Q / E sidestep); Space picks the plane up to throw it again
         walking = useGL && gl.landed && !aim.current.on && !L.paused;
@@ -647,23 +648,21 @@ function WorldView({ id }: { id: string }) {
       // how far ahead it looks grows with speed (0 when slow); the tilt starts at the slider's value and fades to flat at 190 m, so the floor follows it
       const camZ = (camZRef.current = s.world.kind !== 'lakedistrict' || gl.landed || camZRef.current === null || Math.abs(gl.z - camZRef.current) > 150 ? gl.z : camZRef.current + (gl.z - camZRef.current) * (1 - Math.exp(-dt / 1.5)));
       const altK = f.mode === 'glide' ? (s.world.kind === 'lakedistrict' ? 0.8 : tiltAltitudeFactor(camZ)) : 1;   // (over the fells the view keeps most of its tilt: looking straight down, the hills read as flat ground)
-      // (the view only follows the nose in ordinary flight: steeper than about 55 degrees, or upside down, it lets go, so a loop does not pump the tilt)
-      const viewPitch = gl.pitch * (1 - sstep(Math.abs(gl.pitch), 0.7, 1.2)) * sstep(gl.nz, -0.1, 0.3);
-      const pn = Math.max(-1, Math.min(1, f.mode === 'glide' ? viewPitch / 0.5 : f.pitch / 45));
-      const dive = f.mode === 'glide' && !gl.landed ? Math.max(0, Math.min(1, -viewPitch / 0.45)) : 0;   // nose down: the view tips a little over the top of the ground, most of it in a real dive (26 degrees down)
+      // (the view no longer follows the plane's pitch or speed: the tilt is the slider's value (fading with height) and nothing looks ahead, so the picture, and the ground it needs, stay the same)
+      const pn = 0, dive = 0;
       const tiltNow = L.tool === 'fly' ? L.tilt * altK * (1 - 0.5 * dive) : 0;
       // the plane must never slide down behind the instrument: how far it sits below the middle of the view (last frame) against the instrument's top says how much of the look-ahead to give up
       let yMax = H * 0.88;
       if (f.mode === 'glide' && !L.hideUi && L.showInst) { const ie = document.querySelector('.world-inst'); if (ie) yMax = Math.min(yMax, ie.getBoundingClientRect().top - el.getBoundingClientRect().top - 30); }
       const py = planeY.current;
       if (!gl.landed && py > yMax) lookTrim = Math.max(0, lookTrim - dt * (0.9 + ((py - yMax) / H) * 8)); else if (py < yMax - 50) lookTrim = Math.min(1, lookTrim + dt * 0.6);
-      const look = lookAhead(f.mode === 'glide' ? gl.airspeed / FULL_LOOK_AIRSPEED : f.speed / 10, L.camDist, tiltNow) * lookTrim;
+      const look = 0 * lookTrim;   // (no look-ahead with speed)
       { const foot = f.mode === 'glide' && useGL && gl.landed && !aim.current.on; if (foot !== footRef.current) { footRef.current = foot; setOnFoot(foot); if (!foot) setFullUi(false); } }
       const lookingFly = L.lookFly && f.mode === 'glide' && !gl.landed && useGL;
       if ((!lookCam.current.on || !walking) && !lookingFly) lookCam.current.pitch *= Math.exp(-6 * dt);
       if (!lookingFly) { lookYaw.current *= Math.exp(-6 * dt); if (Math.abs(lookYaw.current) < 0.001) lookYaw.current = 0; }   // (not looking: the view settles back level)
       // low and slow: the camera climbs to the plane's nose (the view you have on foot, the same eye) and stays there, so touching down changes nothing
-      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, 5, 22)) * (1 - sstep(gl.airspeed, 8, 13)) * (1 - sstep(Math.abs(gl.pitch), 0.8, 1.05)) * sstep(gl.nz, -0.2, 0.1) : 0;   // (not while it stands on its tail or flies upside down: the eye has no roll)
+      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, 5, 22)) : 0;   // (low and nothing else: speed and pitch no longer decide when the eye comes down to the nose)   // (not while it stands on its tail or flies upside down: the eye has no roll)
       const aiming = useGL && f.mode === 'glide' && gl.landed && aim.current.on;   // holding the plane up to throw: the same eye as on foot, and the path it will fly is drawn
       fpvK += (((walking || aiming) ? 1 : launchActive ? (lcT < 0.35 ? 1 : 0) : lowSlow) - fpvK) * (1 - Math.exp(-4 * dt));
       if (!walking && fpvK > 0.002 && f.mode === 'glide') {                       // the view turns to where the plane points as it comes in (on foot it already does)
@@ -756,9 +755,13 @@ function WorldView({ id }: { id: string }) {
           return { k: fpvK, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 : 0) : gl.z * 0.18 + 0.3 * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
         })() : undefined, lookH: tgt[2] });
         fp = glr!.footprint();
-        cx0 = chunkOf(fp.minX) - 1; cx1 = chunkOf(fp.maxX) + 1; cy0 = chunkOf(fp.minY) - 1; cy1 = chunkOf(fp.maxY) + 1;
-        const ffp = fp;
-        chunkVis = (cx: number, cy: number) => ffp.inside((cx + 0.5) * CHUNK, (cy + 0.5) * CHUNK, CHUNK * 0.75);
+        // everything round the plane is always wanted, whatever the camera looks at (looking up, or from off to one side, the polygon of rays can miss the ground under the plane, and with it every sprite standing there)
+        const NEARC = 3, NR = NEARC * CHUNK, pcx = chunkOf(f.x), pcy = chunkOf(f.y);
+        cx0 = Math.min(chunkOf(fp.minX) - 1, pcx - NEARC); cx1 = Math.max(chunkOf(fp.maxX) + 1, pcx + NEARC); cy0 = Math.min(chunkOf(fp.minY) - 1, pcy - NEARC); cy1 = Math.max(chunkOf(fp.maxY) + 1, pcy + NEARC);
+        const rawFp = fp;
+        fp = { minX: Math.min(rawFp.minX, f.x - NR), maxX: Math.max(rawFp.maxX, f.x + NR), minY: Math.min(rawFp.minY, f.y - NR), maxY: Math.max(rawFp.maxY, f.y + NR), inside: (x: number, y: number, m: number) => (Math.abs(x - f.x) <= NR + m && Math.abs(y - f.y) <= NR + m) || rawFp.inside(x, y, m) };
+        const wide = fp;
+        chunkVis = (cx: number, cy: number) => wide.inside((cx + 0.5) * CHUNK, (cy + 0.5) * CHUNK, CHUNK * 0.75);
       } else {
         // What the stage really shows, as a quad on the canvas: its four corners taken back through the tip and the turn. The canvas is a bigger
         // rectangle than that, so everything (ground chunks, trees, clouds, the ecosystem's watched area) is only handled where this quad reaches.
@@ -827,9 +830,17 @@ function WorldView({ id }: { id: string }) {
       let built = 0;
       const nearest = (a: [number, number], b: [number, number]) => Math.hypot((a[0] + 0.5) * CHUNK - camX, (a[1] + 0.5) * CHUNK - camY) - Math.hypot((b[0] + 0.5) * CHUNK - camX, (b[1] + 0.5) * CHUNK - camY);
       missing.sort(nearest);                                                         // the ground under you first, the horizon last
+      const budget = aim.current.on && f.mode === 'glide' ? 12 : 6;                  // (holding a throw: the view is about to drop to the ground, so build faster)
       for (const [cx, cy] of [...missing, ...stale]) {
-        if (built > 0 && performance.now() - t0 > 6) break;
+        if (built > 0 && performance.now() - t0 > budget) break;
         chunks.current.set(tileKey(cx, cy), buildChunk(cx, cy)); built++;
+      }
+      // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
+      if (f.mode === 'glide' && useGL && performance.now() - t0 < 3) {
+        const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [];
+        for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (!chunks.current.has(tileKey(cx, cy))) near.push([cx, cy]);
+        near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
+        for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; chunks.current.set(tileKey(cx, cy), buildChunk(cx, cy)); built++; }
       }
       if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; }
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
@@ -838,7 +849,7 @@ function WorldView({ id }: { id: string }) {
         if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, cv: ch.cv }); else g.drawImage(ch.cv, ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
       }
       if (chunks.current.size > (cx1 - cx0 + 1) * (cy1 - cy0 + 1) * 3) {                // drop the far chunks; they rebuild exactly from the seed
-        for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < cx0 - 3 || x > cx1 + 3 || y < cy0 - 3 || y > cy1 + 3) chunks.current.delete(key); }
+        for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) chunks.current.delete(key); }
       }
 
       // shared by both views: the plane's state, thermals, the sky's drift
@@ -965,7 +976,8 @@ function WorldView({ id }: { id: string }) {
         // ---- the 3D view: the same things the flat map draws, placed in the world and seen through the camera ----------------------
         const G = glr!, ffp = fp!, cdrop = G.cell(SHEET.drop[0], SHEET.drop[1]), cplane = G.cell(SHEET.plane[0], SHEET.plane[1]);
         const at = G.atlas, cells = at.clouds.slice(0, cloudSprites.length), pickCell = (n: number) => cells[Math.abs(Math.floor(n)) % cells.length], ex = G.eye[0], ey = G.eye[1], lim2 = (G.reach * 0.98) * (G.reach * 0.98);
-        const far = (x: number, y: number) => (x - ex) * (x - ex) + (y - ey) * (y - ey) > lim2;
+        const px0 = f.x, py0 = f.y;   // (how far things are drawn is measured from the plane, not from the camera: the free view's camera stands off to one side, and the distance would change with where it is)
+        const far = (x: number, y: number) => (x - px0) * (x - px0) + (y - py0) * (y - py0) > lim2;
         // heights above the ground, in tiles: layer 10 (low) 4 .. layer 1 (high) 22, for the plane and the clouds alike, so a plane on layer 5 flies between
         // the clouds of layer 4 and 6. Nothing goes above the camera (it hangs about 28 tiles up, lower when it is tipped back).
         const capH = Math.max(-G.eye[2] * 0.88, fpvK > 0.002 || poseK.current > 0 ? 24 : 0);   // (on foot the eye is low, but the clouds still hang where they did)
@@ -1037,7 +1049,7 @@ function WorldView({ id }: { id: string }) {
         }
         if (Tv >= 9) for (const d of decos) {                                          // trees, bushes and rocks stand on their tile, facing the camera (not when zoomed far out: they are a pixel or two, and thousands of them cost more than the ground)
           const wx = d.x + 0.5, wy = d.y + 1;
-          if (far(wx, wy) || !ffp.inside(wx, wy, d.scale) || (s.world.kind === 'lakedistrict' && (wx - ex) * (wx - ex) + (wy - ey) * (wy - ey) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
+          if (far(wx, wy) || !ffp.inside(wx, wy, d.scale) || (s.world.kind === 'lakedistrict' && (wx - px0) * (wx - px0) + (wy - py0) * (wy - py0) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
           if (L.billboards) G.flat('decal', wx, wy - 0.04, 0.015, d.scale * 0.64, d.scale * 0.2, 0, -1, at.shadow, 0, 0, 0, 0.22);
           G.board('solid', wx, wy, -bottomPad(img, d.cell) * d.scale, d.scale, d.scale, true, G.cell(d.cell[0], d.cell[1]));   // (sunk by the empty rows under the art, so a bush or rock sits on the ground instead of hovering)
           if (d.cell === SHEET.bush && s.berries.ripeBush(d.x, d.y)) {   // ripe berries hang on the bush, a touch nearer the eye than its leaves
@@ -1079,7 +1091,7 @@ function WorldView({ id }: { id: string }) {
           const dirX = Math.cos(L.wind.dir), dirY = -Math.sin(L.wind.dir), reach = L.wind.enabled ? L.wind.strength : 0;
           for (const c of s.eco.clouds) {
             const size = 2 * c.size, rl = c.rl ?? c.layer, hh = cloudH(rl), fd = c.fade ?? 1;
-            if (far((c.rx ?? c.x), (c.ry ?? c.y)) || !ffp.inside((c.rx ?? c.x), (c.ry ?? c.y), size + reach + 3) || Math.hypot((c.rx ?? c.x) - ex, (c.ry ?? c.y) - ey) > HOOP_VIEW) continue;   // (clouds and their rain are seen to 100 tiles, like hoops)
+            if (far((c.rx ?? c.x), (c.ry ?? c.y)) || !ffp.inside((c.rx ?? c.x), (c.ry ?? c.y), size + reach + 3) || Math.hypot((c.rx ?? c.x) - px0, (c.ry ?? c.y) - py0) > HOOP_VIEW) continue;   // (clouds and their rain are seen to 100 tiles, like hoops)
             if (cells.length) G.board('blend', (c.rx ?? c.x), (c.ry ?? c.y), hh, size * 1.7, size * 1.7 * CLOUD_ASPECT, false, pickCell(c.id), 1, 1, 1, Math.min(1, 0.45 + rl * 0.06 + Math.min(0.3, c.water * 0.3)) * fd * nearFade((c.rx ?? c.x), (c.ry ?? c.y), hh));
             if (c.raining) {
               const rx = (c.rx ?? c.x) + dirX * reach, ry = (c.ry ?? c.y) + dirY * reach, spread = 0.8 + 2.4 * c.rain, rainA = 0.9 * Math.min(1, c.rain * 4) * fd;
@@ -1139,7 +1151,7 @@ function WorldView({ id }: { id: string }) {
         G.skyMode = false;
         // hoops: upright discs standing in the air, gold until the plane has flown through, then a faint green; a shadow on the ground shows where
         for (const hp of hoopsIn(s.world.seed, ffp.minX - 5, ffp.minY - 5, ffp.maxX + 5, ffp.maxY + 5)) {
-          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || (hp.x - ex) * (hp.x - ex) + (hp.y - ey) * (hp.y - ey) > HOOP_VIEW * HOOP_VIEW) continue;   // (hoops are seen to 100 tiles, however far the ground is drawn)
+          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || (hp.x - px0) * (hp.x - px0) + (hp.y - py0) * (hp.y - py0) > HOOP_VIEW * HOOP_VIEW) continue;   // (hoops are seen to 100 tiles, however far the ground is drawn)
           const done = hoopsDone.has(hp.key), tx = -Math.sin(hp.angle), ty = Math.cos(hp.angle);
           G.quad('blend', hp.x, hp.y, -hp.h - G.groundH(hp.x, hp.y), tx * hp.r, ty * hp.r, 0, 0, 0, -hp.r, at.ring, done ? 0.4 : 1, done ? 1 : 0.78, done ? 0.5 : 0.15, done ? 0.45 : 0.85 + 0.15 * Math.sin(anim * 3 + hp.x));
           G.flat('decal', hp.x, hp.y, 0.02, hp.r * 0.75, hp.r * 2, tx, ty, at.ring, 0, 0, 0, done ? 0.16 : 0.3);   // the shadow of an upright ring is a squashed ring on the ground, as wide as the hoop and not as deep
@@ -1715,8 +1727,8 @@ function WorldView({ id }: { id: string }) {
           <div className="world-instwrap" style={{ '--is': instSize / 100 } as CSSProperties}>
             <div ref={liftMsg} className="world-liftmsg" style={{ display: 'none' }} />
             <FlightInstruments data={inst} label={t('worldInstruments')} />
-            <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>
-            <BoostButton cls="wui-boostrow wui-boostside" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />
+            {!lookFly && <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>}
+            {!lookFly && <BoostButton cls="wui-boostrow wui-boostside" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />}
             <button type="button" className="world-mousebtn" aria-label={t('worldMouseFly')} title={t('worldMouseFly')}
               onPointerDown={e => { const r = e.currentTarget.getBoundingClientRect(); e.currentTarget.setPointerCapture(e.pointerId); instStick.current = { cx: r.left + r.width / 2, cy: r.top + r.height / 2, r: r.width / 2, x: e.clientX, y: e.clientY, id: e.pointerId }; }}
               onPointerMove={e => { const st = instStick.current; if (st && st.id === e.pointerId) { st.x = e.clientX; st.y = e.clientY; } }}
@@ -1732,6 +1744,19 @@ function WorldView({ id }: { id: string }) {
         )}
       </div>
 
+      {/* the free view: dragging the picture turns the camera, so the plane is flown with two joysticks: left yaw, right pitch and roll, with ACRO and the boost above them */}
+      {mode === 'glide' && !onFoot && lookFly && (
+        <div className="wui world-fjoys">
+          <div className="world-fjbtns">
+            <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro world-fjacro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>
+            <BoostButton cls="world-fjboost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />
+          </div>
+          <div className="world-fjrow">
+            <LookStick stick={yawStick} bare label={t('worldYaw')} />
+            <LookStick stick={stick} bare label={t('worldJoystick')} />
+          </div>
+        </div>
+      )}
       {/* glide: the throw button after landing (the instruments replace the stick above) and the throw button after landing */}
       {mode === 'glide' && !onFoot && <BoostButton cls="wui wui-boost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />}
       <div ref={hoopHint} className="wui wui-hint wui-hint-hoop" style={{ display: 'none' }} aria-label={t('worldHoops')}>
@@ -2045,14 +2070,14 @@ function ThrowButton({ hud, label, shopLabel, looking, lead, trail, hidden, powe
 }
 
 /** The second joystick, on foot: a stick for looking round (sideways turns, up and down tips the view). Its own knob, written to `stick`. */
-function LookStick({ stick, label }: { stick: MutableRefObject<{ dx: number; dy: number }>; label: string }) {
+function LookStick({ stick, label, bare }: { stick: MutableRefObject<{ dx: number; dy: number }>; label: string; bare?: boolean }) {
   const box = useRef<HTMLDivElement>(null), knob = useRef<HTMLImageElement>(null), on = useRef(false);
   const set = (dx: number, dy: number) => { stick.current = { dx, dy }; if (knob.current) knob.current.style.transform = `translate(${dx * 20}%, ${dy * 20}%)`; };
   const move = (e: RPointerEvent) => { const r = box.current!.getBoundingClientRect(), R = r.width / 2; let dx = (e.clientX - r.left - R) / (R * 0.8), dy = (e.clientY - r.top - R) / (R * 0.8); const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; } set(dx, dy); };
   const up = () => { on.current = false; set(0, 0); };
   useEffect(() => () => { stick.current = { dx: 0, dy: 0 }; }, [stick]);
   return (
-    <div ref={box} className="world-joy world-joy-look" role="group" aria-label={label} style={{ marginRight: 0, marginLeft: 'calc(28 * var(--u))' }}
+    <div ref={box} className="world-joy world-joy-look" role="group" aria-label={label} style={bare ? { margin: 0 } : { marginRight: 0, marginLeft: 'calc(28 * var(--u))' }}
       onPointerDown={e => { on.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); move(e); }} onPointerMove={e => { if (on.current) move(e); }} onPointerUp={up} onPointerCancel={up}>
       <img className="world-joybase" src={rawUrl('joystick_base')} alt="" draggable={false} />
       <img ref={knob} className="world-knob" data-travel="20" src={rawUrl('joystick_knob')} alt="" draggable={false} />

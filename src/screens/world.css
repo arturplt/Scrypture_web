@@ -380,3 +380,10 @@
 .world-burnbox { position: relative; z-index: 1; pointer-events: auto; animation: world-pop 0.4s steps(4); }
 .world-burnwrap { position: relative; z-index: 1; }
 .world-throwcol { display: flex; flex-direction: column; align-items: stretch; gap: calc(6 * var(--u)); }   /* Throw above Shop, in one column between the two joysticks */
+.world-fjoys { left: calc(10 * var(--u)); right: calc(10 * var(--u)); bottom: calc(14 * var(--u) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: calc(8 * var(--u)); }   /* free view: ACRO and the boost over the two flying joysticks, bottom corners */
+.world-fjbtns, .world-fjrow { display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; }   /* (the rows themselves let taps through to the view: a double tap there is the boost; only the buttons and joysticks catch touches) */
+.world-fjbtns > * { pointer-events: auto; }
+.wui-acro.world-fjacro { position: static; margin: 0; }
+.world-fjboost { pointer-events: auto; }
+.world-fjboost .wui-boostbtn { --bs: 48px; width: 48px; height: 48px; }
+.world-fjrow > * { pointer-events: auto; }

@@ -932,6 +932,7 @@ export const la: Record<Key, string> = {
   "worldLoadFail": "Tabula tegularum onerari non potuit.",
   "worldJoystick": "Regula",
   "worldLook": "Specta",
+  "worldYaw": "Gyrus",
   "worldFlight": "Volatus",
   "worldOff": "Off",
   "worldManual": "Manu",
