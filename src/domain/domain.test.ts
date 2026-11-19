@@ -246,10 +246,10 @@ describe('look (appearance + accessibility)', () => {
     expect(buttonSlice('stone_block', 'large')).toBe(16);              // never thinner than asked
     expect(buttonSlice('gold', 'unknown')).toBe(8);                    // unknown size = compact
   });
-  it('interface scale is automatic by default and only 0..3 are valid', () => {
-    expect(DEFAULT_LOOK.uiScale).toBe(0);
+  it('interface scale is 1x by default and only 0..3 are valid', () => {
+    expect(DEFAULT_LOOK.uiScale).toBe(1);
     expect(sanitizeLook({ uiScale: 3 }).uiScale).toBe(3);
-    expect(sanitizeLook({ uiScale: 4 }).uiScale).toBe(0);
+    expect(sanitizeLook({ uiScale: 4 }).uiScale).toBe(1);
   });
   it('auto scale: phones 1x, portrait tablets 2x, short windows stay 1x, huge screens 3x', () => {
     const cases: [number, number, number][] = [

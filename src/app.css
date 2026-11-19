@@ -231,6 +231,13 @@ textarea { resize: vertical; }
 @keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .undo-drain { animation: none; } }
 
+/* floppy disk: flashes above the nav bar, left, when something is saved */
+.save-icon { position: fixed; z-index: 11; left: calc(16 * var(--u)); bottom: calc(var(--nav-clear) + 4 * var(--u) + env(safe-area-inset-bottom)); width: calc(32 * var(--u)); height: calc(32 * var(--u)); pointer-events: none; image-rendering: pixelated; animation: save-pop .3s steps(3) both; }
+:root[data-rail] .save-icon { left: calc(128 * var(--u) + 16 * var(--u)); bottom: calc(16 * var(--u)); }
+:root[data-device] .save-icon { bottom: calc(var(--nav-h, 64px) + 36 * var(--u)); }
+:root[data-motion='reduce'] .save-icon { animation: none; }
+@keyframes save-pop { from { opacity: 0; transform: translateY(calc(8 * var(--u))); } to { opacity: 1; transform: none; } }
+
 .center-preview { padding: 0; height: calc(76 * var(--u)); }
 .center-preview > span { display: block; }
 .mini-frame.tall { height: calc(52 * var(--u)); }

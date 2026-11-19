@@ -31,6 +31,7 @@ import { persistent, useAppState } from './data/hooks';
 import { EventHost } from './ui/EventHost';
 import { startUiSound } from './audio/uiSound';
 import { UndoBar } from './ui/UndoBar';
+import { SaveIcon } from './ui/SaveIcon';
 import { Notices } from './ui/Notices';
 import { Keyboard } from './ui/Keyboard';
 import { useI18n } from './i18n/useT';
@@ -238,6 +239,7 @@ export function App() {
       <EventHost />
       <AppDrawerHost />
       <UndoBar />
+      <SaveIcon />
       <Notices />
       <Keyboard />
     </div>

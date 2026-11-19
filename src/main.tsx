@@ -3,6 +3,7 @@ import './global.css';
 import { App } from './App';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { registerServiceWorker } from './pwa';
+import './data/cloud';   // optional account sync: starts watching the save and the login
 
 const root = createRoot(document.getElementById('root')!);
 const path = location.pathname;
