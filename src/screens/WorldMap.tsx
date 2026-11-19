@@ -92,6 +92,17 @@ function LakeGate({ id }: { id: string }) {
   return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{state === 'wait' ? t('worldLakeLoading') : t('worldMissing')}</p></div>;
 }
 
+/** Graphics settings: presets and the saved custom values (kept on this device). */
+interface Gfx { res: number; auto: boolean; cap: number; density: number; shaders: boolean; clouds: boolean; draw: number }
+const GFX_PRESETS: Record<'low' | 'med' | 'high', Gfx> = {
+  low: { res: 60, auto: false, cap: 30, density: 40, shaders: false, clouds: false, draw: 50 },
+  med: { res: 80, auto: true, cap: 30, density: 70, shaders: false, clouds: true, draw: 75 },
+  high: { res: 100, auto: true, cap: 60, density: 100, shaders: true, clouds: true, draw: 100 },
+};
+const GFX_KEY = 'scrypture:gfx';
+const loadGfx = (): Gfx => { try { const r = JSON.parse(localStorage.getItem(GFX_KEY) ?? 'null'); if (r && typeof r.res === 'number') return { ...GFX_PRESETS.high, ...r }; } catch { /* none saved */ } return GFX_PRESETS.high; };
+const gfxPresetOf = (g: Gfx): 'low' | 'med' | 'high' | 'custom' => (['low', 'med', 'high'] as const).find(k => (Object.keys(GFX_PRESETS[k]) as (keyof Gfx)[]).every(x => GFX_PRESETS[k][x] === g[x])) ?? 'custom';
+
 const perfStat = { why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
 function WorldView({ id }: { id: string }) {
   const rStart = performance.now();
@@ -189,7 +200,9 @@ function WorldView({ id }: { id: string }) {
   const [showInst, setShowInst] = useState(true);
   const [watersOpen, setWatersOpen] = useState(false);   // the Lake District's list of waters (tap the place name)
   const [walkDist, setWalkDist] = useState(100);   // on foot (hilly worlds): how far the real chunks reach, % of the usual 200 tiles
-  const [drawDist, setDrawDist] = useState(100);   // draw distance, % of the usual cap (320 tiles) on how far the ground is drawn
+  const gfx0 = useRef(loadGfx()).current;
+  const [resScale, setResScale] = useState(gfx0.res), [resAuto, setResAuto] = useState(gfx0.auto), [fpsCap, setFpsCap] = useState(gfx0.cap), [decoDensity, setDecoDensity] = useState(gfx0.density);   // graphics: render resolution (%), whether it also drops by itself when slow, frame cap, how many trees, bushes and rocks (%)
+  const [drawDist, setDrawDist] = useState(gfx0.draw);   // draw distance, % of the usual cap (320 tiles) on how far the ground is drawn
   const [mapUiSize, setMapUiSize] = useState(50);   // the minimap and the boxes beside it (biome, clock, wind, temperature, zoom), %
   const [instSize, setInstSize] = useState(50);   // the flight instrument's size, % (the menu's slider)
   const [onFoot, setOnFoot] = useState(false), [fullUi, setFullUi] = useState(false);   // on foot (landed) the screen is cleared like the eye button does, leaving the joystick, Throw and Shop along the bottom; the eye brings the rest back
@@ -240,13 +253,17 @@ function WorldView({ id }: { id: string }) {
   const miniDirty = useRef(false);
   const [miniSize, setMiniSize] = useState(2);   // minimap size multiplier: 2 (standard) or 3; double tap toggles
   const lastTap = useRef(0);
-  const [decoClouds, setDecoClouds] = useState(true);
+  const [decoClouds, setDecoClouds] = useState(gfx0.clouds);
   const [showRivers, setShowRivers] = useState(false);
   const [third, setThird] = useState(true);
   const [billboards, setBillboards] = useState(false);
   const [camDist, setCamDist] = useState(DEFAULT_CAMERA_DISTANCE);
   const [gl3d, setGl3d] = useState(true);   // tilt / behind plane are drawn through WebGL (a real camera); off = the flat canvas, tipped by the browser
-  const [shaders, setShaders] = useState(true);   // the 3D view's extras: living water, sunlight, glow and sun rays
+  const [shaders, setShaders] = useState(gfx0.shaders);   // the 3D view's extras: living water, sunlight, glow and sun rays
+  const gfxNow: Gfx = { res: resScale, auto: resAuto, cap: fpsCap, density: decoDensity, shaders, clouds: decoClouds, draw: drawDist };
+  const gfxPreset = gfxPresetOf(gfxNow);
+  const applyGfx = (g: Gfx) => { setResScale(g.res); setResAuto(g.auto); setFpsCap(g.cap); setDecoDensity(g.density); setShaders(g.shaders); setDecoClouds(g.clouds); setDrawDist(g.draw); };
+  useEffect(() => { try { localStorage.setItem(GFX_KEY, JSON.stringify(gfxNow)); } catch { /* not saved */ } }, [resScale, resAuto, fpsCap, decoDensity, shaders, decoClouds, drawDist]);
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const camAng = useRef(0);
   const planeY = useRef(0);   // where the plane was on the stage last frame (px from the top)
@@ -263,8 +280,8 @@ function WorldView({ id }: { id: string }) {
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
-  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, third, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -409,7 +426,7 @@ function WorldView({ id }: { id: string }) {
     let glr: WorldGL | null = null, glFailed = false, glFrames = 0;
     const hoopsDone = new Set<string>();   // the hoops passed this visit
     // the 3D canvas drops its resolution when frames are slow (and creeps back up when they are quick): fill rate is what runs out first on a phone
-    let glScale = 1, frameEma = 1 / 60, scaleClock = 0, lastScaleChange = 0;
+    let autoK = 1, glScale = 1, frameEma = 1 / 60, scaleClock = 0, lastScaleChange = 0;
     const pickedSticks = sim.current!.beavers.picked.sticks, pickedStones = sim.current!.beavers.picked.stones;   // shared with the beavers: what they take is gone for the player
     const pickFx: { x: number; y: number; a: number; age: number; stone: boolean; berry?: boolean }[] = [];   // a stick that has just been picked up: it hops up, spins and fades
     // things drifting in the air: autumn and maple leaves that fall from the trees and tumble, pollen that floats up off bushes; all are carried by the wind, pollen
@@ -434,7 +451,8 @@ function WorldView({ id }: { id: string }) {
     addEventListener('resize', fit);
     let syncAcc = 0;
 
-    const buildChunk = (cx: number, cy: number): ChunkImg => {
+    // A chunk is drawn in slices (a few rows of tiles at a time, see `stepChunk`): drawing all 256 tiles of one in a single go took 8-17 ms on a phone, a hitch by itself.
+    function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {
       const c = document.createElement('canvas'); c.width = c.height = CHUNK * TILE_PX;
       const g = c.getContext('2d', { willReadFrequently: true })!; g.imageSmoothingEnabled = false;   // memory-backed: the 3D view reads the pixels once to make its texture, and a GPU canvas would stall on that read
       g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, c.width, c.height);   // water underneath: the water and shore tiles are partly see-through, and the 3D view has no flat water backdrop
@@ -442,7 +460,8 @@ function WorldView({ id }: { id: string }) {
       const road = s.world.kind === 'lakedistrict', roadTile = road ? document.createElement('canvas') : c, rg = road ? ((roadTile.width = roadTile.height = TILE_PX), roadTile.getContext('2d')!) : g;   // (scratch tile for the darkened road sand)
       if (road) rg.imageSmoothingEnabled = false;
       const tiles = s.world.chunkDrawn(cx, cy);
-      for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
+      yield;
+      for (let j = 0; j < CHUNK; j++) { if (j > 0 && j % 4 === 0) yield; for (let i = 0; i < CHUNK; i++) {
         const x = cx * CHUNK + i, y = cy * CHUNK + j, d = tiles[j * CHUNK + i];
         if (road && s.world.terrainAt(x, y) === SAND && lakeRoadAt(x, y)) {   // a road: its sand tile, darkened (tarmac), made as the chunk is drawn
           rg.globalCompositeOperation = 'copy'; rg.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, 0, 0, TILE_PX, TILE_PX);
@@ -450,8 +469,19 @@ function WorldView({ id }: { id: string }) {
           g.drawImage(roadTile, i * TILE_PX, j * TILE_PX);
         } else g.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, i * TILE_PX, j * TILE_PX, TILE_PX, TILE_PX);
         if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
-      }
+      } }
       return { cv: c, decos };
+    }
+    const building = new Map<number, Generator<void, ChunkImg>>();
+    /** Work on a chunk until `endAt` (ms, performance.now) or until it is done (at least one slice); true when it is finished and stored. */
+    const stepChunk = (cx: number, cy: number, endAt: number): boolean => {
+      const key = tileKey(cx, cy);
+      let gen = building.get(key);
+      if (!gen) { if (building.size > 80) building.clear(); gen = buildChunkGen(cx, cy); building.set(key, gen); }
+      let r = gen.next();
+      while (!r.done && performance.now() < endAt) r = gen.next();
+      if (!r.done) return false;
+      chunks.current.set(key, r.value); building.delete(key); return true;
     };
 
     // thermals: warm bare ground makes the strongest rising air, water and forest the weakest; heat waves help, cold snaps hurt
@@ -464,13 +494,21 @@ function WorldView({ id }: { id: string }) {
     const tEnv: ThermalEnv = { seed: s.world.seed, hour: 0, warm: 1, heatAt };
     const thermalEnv = () => { tEnv.hour = s.hour; tEnv.warm = Math.max(0.6, Math.min(1.4, 1 + (s.eco.temperature - BASE_TEMPERATURE) / 25)); return tEnv; };
 
-    let workMs = 0, workN = 0, lastStrike = 0, flashK = 0;
+    let lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0, instMeasured = 0, instLimit = Infinity;
     if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
-    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, builtN: 0, since: 0, txt: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
+    const mark = (k: string) => { if (!perf.on) return; const t = performance.now(); perf.ph[k] = (perf.ph[k] ?? 0) + (t - perf.pt); perf.pt = t; };   // (?perf: where the frame's time goes, averaged over 2 s)
+    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, ev: '' }, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
+      { const cap = live.current.fpsCap; if (cap > 0 && now - lastRunAt < 1000 / cap - 2) return; lastRunAt = now; }   // (the frame cap: a steady 30 feels smoother than a 22-40 that keeps jumping)
       const w0 = performance.now();
-      if (perf.on) { if (perf.lastNow) perf.gap = Math.max(perf.gap, now - perf.lastNow); perf.lastNow = now; }
+      if (perf.on) {
+        const gp = perf.lastNow ? now - perf.lastNow : 0;
+        if (gp > 0) perf.gap = Math.max(perf.gap, gp);
+        if (gp > 100) { const o = perf.f; perf.hitches.unshift(`${gp.toFixed(0)}ms w${o.work.toFixed(0)} ch${o.build.toFixed(0)}/${o.built} gr${o.ground.toFixed(0)} sv${o.persist.toFixed(0)} mk${(glr?.oneMs ?? 0).toFixed(0)} gpu${o.gpu.toFixed(0)}${o.ev} @${(now / 1000).toFixed(1)}s`); perf.hitches.length = Math.min(perf.hitches.length, 5); }   // (the gap before this frame: what the frame before it was doing)
+        perf.f = { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, ev: '' }; if (glr) glr.oneMs = 0;
+        perf.lastNow = now; perf.pt = performance.now(); perf.n++;
+      }
       syncAcc += 1;
       if (syncAcc >= 20) { syncAcc = 0; const m = measure(); if (m.w !== W || m.h !== H || Math.min(2, window.devicePixelRatio || 1) !== dpr) fit(); }   // belt and braces: a canvas that disagrees with its box is refitted within a third of a second
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -503,12 +541,13 @@ function WorldView({ id }: { id: string }) {
           // the dial turns and changes colour straight on the element; React (a re-render of this whole screen, a visible hitch) is only told when what it prints changes: the letter, or the strength by half a step
           const dEl = windDial.current; if (dEl) { dEl.style.setProperty('--dir', `${-nw.dir}rad`); dEl.style.setProperty('--h', String(Math.round(200 - nw.strength * 22))); }
           const letter = Math.round((((nw.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8;
-          if (letter !== windShown.letter || Math.abs(nw.strength - windShown.strength) >= 0.5) { windShown = { letter, strength: nw.strength }; setWind(w => ({ ...w, strength: nw.strength, dir: nw.dir })); }
+          if (letter !== windShown.letter || Math.abs(nw.strength - windShown.strength) >= 1) { windShown = { letter, strength: nw.strength }; setWind(w => ({ ...w, strength: nw.strength, dir: nw.dir })); }
         }
       }
       frameEma += (dt - frameEma) * 0.04; scaleClock += dt;
       if (useGL && scaleClock >= 1) {
         scaleClock = 0;
+        if (L.resAuto) { if (frameEma > 0.036 && autoK > 0.4) autoK = Math.max(0.4, autoK * 0.85); else if (frameEma < 0.024 && autoK < 1) autoK = Math.min(1, autoK / 0.85); }   // (a slow phone: fewer trees, bushes and rocks to draw, too; the same ones are dropped each time)
         if (frameEma > 0.03 && glScale > 0.5) { glScale = Math.max(0.5, glScale * 0.85); lastScaleChange = anim; }
         else if (frameEma < 0.0185 && glScale < 1 && anim - lastScaleChange > 4) { glScale = Math.min(1, glScale / 0.85); lastScaleChange = anim; }
       }
@@ -584,7 +623,7 @@ function WorldView({ id }: { id: string }) {
         }
         f.x = gl.x; f.y = -gl.y; f.heading = gl.psi; f.course = gl.landed ? gl.psi : gl.course; f.glideAlt = gl.z; f.glideLanded = gl.landed;
         if (!gl.landed && gl.z > runStat.current.peakZ) runStat.current.peakZ = gl.z;
-        if (gl.landed && !wasLanded.current) { setTrimPitch(0); setTrimRoll(0); setTrimYaw(0); setMouseFly(false);
+        if (gl.landed && !wasLanded.current) { if (perf.on) perf.f.ev += ' LAND'; setTrimPitch(0); setTrimRoll(0); setTrimYaw(0); setMouseFly(false);
           {
             const ls = landingScore(gl.impact, s.world.terrainAt(Math.round(f.x), Math.round(f.y)) === WATER), now = Date.now();   // a soft landing earns points, a hard one costs them
             let u = upRef.current, bonus = ls.bonus, saved: 'insurance' | 'float' | null = null;
@@ -653,7 +692,10 @@ function WorldView({ id }: { id: string }) {
       const tiltNow = L.tool === 'fly' ? L.tilt * altK * (1 - 0.5 * dive) : 0;
       // the plane must never slide down behind the instrument: how far it sits below the middle of the view (last frame) against the instrument's top says how much of the look-ahead to give up
       let yMax = H * 0.88;
-      if (f.mode === 'glide' && !L.hideUi && L.showInst) { const ie = document.querySelector('.world-inst'); if (ie) yMax = Math.min(yMax, ie.getBoundingClientRect().top - el.getBoundingClientRect().top - 30); }
+      if (f.mode === 'glide' && !L.hideUi && L.showInst) {   // (measured a few times a second: reading the page's layout every frame forces it to be worked out each time)
+        if (now - instMeasured > 300) { instMeasured = now; const ie = document.querySelector('.world-inst'); instLimit = ie ? ie.getBoundingClientRect().top - el.getBoundingClientRect().top - 30 : Infinity; }
+        yMax = Math.min(yMax, instLimit);
+      }
       const py = planeY.current;
       if (!gl.landed && py > yMax) lookTrim = Math.max(0, lookTrim - dt * (0.9 + ((py - yMax) / H) * 8)); else if (py < yMax - 50) lookTrim = Math.min(1, lookTrim + dt * 0.6);
       const look = 0 * lookTrim;   // (no look-ahead with speed)
@@ -799,7 +841,7 @@ function WorldView({ id }: { id: string }) {
         const key = `${n.stick ? 1 : 0}${n.stone ? 1 : 0}${n.brk ? 1 : 0}|${bush ? `${bush.x},${bush.y}` : ''}|${bv ? `${bv.id}:${bv.full > 0 ? 1 : 0}:${trust}` : ''}`;
         if (key !== actKey.current) { actKey.current = key; const a: Act = { dam: n, bush, beaver: bv ? { id: bv.id, sex: bv.sex, full: bv.full > 0, trust } : null }; actRef.current = a; setAct(a); }
       }
-      s.eco.step(dt); s.eco.easeClouds(dt);                                                              // the world keeps living while you fly
+      mark('before'); s.eco.step(dt); s.eco.easeClouds(dt); mark('eco');                                                              // the world keeps living while you fly
       for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; }   // keep showing the old picture until the new one is ready
       s.eco.dirty.clear();
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
@@ -817,6 +859,7 @@ function WorldView({ id }: { id: string }) {
         g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, VW, VH);
       }
 
+      mark('camera');
       // ground: chunks that never existed are built first, then changed ones, within ~6 ms a frame (at least one);
       // a changed chunk keeps its old picture on screen meanwhile, so nothing flashes
       const decos: Deco[] = [], glChunks: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[] = [];
@@ -830,19 +873,19 @@ function WorldView({ id }: { id: string }) {
       let built = 0;
       const nearest = (a: [number, number], b: [number, number]) => Math.hypot((a[0] + 0.5) * CHUNK - camX, (a[1] + 0.5) * CHUNK - camY) - Math.hypot((b[0] + 0.5) * CHUNK - camX, (b[1] + 0.5) * CHUNK - camY);
       missing.sort(nearest);                                                         // the ground under you first, the horizon last
-      const budget = aim.current.on && f.mode === 'glide' ? 12 : 6;                  // (holding a throw: the view is about to drop to the ground, so build faster)
+      const budget = frames < 150 ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5;   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
       for (const [cx, cy] of [...missing, ...stale]) {
-        if (built > 0 && performance.now() - t0 > budget) break;
-        chunks.current.set(tileKey(cx, cy), buildChunk(cx, cy)); built++;
+        if (performance.now() - t0 >= budget) break;
+        if (stepChunk(cx, cy, t0 + budget)) built++;
       }
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
       if (f.mode === 'glide' && useGL && performance.now() - t0 < 3) {
         const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [];
         for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (!chunks.current.has(tileKey(cx, cy))) near.push([cx, cy]);
         near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
-        for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; chunks.current.set(tileKey(cx, cy), buildChunk(cx, cy)); built++; }
+        for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
       }
-      if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; }
+      if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; perf.f.build = performance.now() - t0; perf.f.built = built; mark('chunks'); }
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (!chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
@@ -976,18 +1019,19 @@ function WorldView({ id }: { id: string }) {
         // ---- the 3D view: the same things the flat map draws, placed in the world and seen through the camera ----------------------
         const G = glr!, ffp = fp!, cdrop = G.cell(SHEET.drop[0], SHEET.drop[1]), cplane = G.cell(SHEET.plane[0], SHEET.plane[1]);
         const at = G.atlas, cells = at.clouds.slice(0, cloudSprites.length), pickCell = (n: number) => cells[Math.abs(Math.floor(n)) % cells.length], ex = G.eye[0], ey = G.eye[1], lim2 = (G.reach * 0.98) * (G.reach * 0.98);
-        const px0 = f.x, py0 = f.y;   // (how far things are drawn is measured from the plane, not from the camera: the free view's camera stands off to one side, and the distance would change with where it is)
+        const dens = L.decoDensity * (L.resAuto ? autoK : 1), px0 = f.x, py0 = f.y;   // (how far things are drawn is measured from the plane, not from the camera: the free view's camera stands off to one side, and the distance would change with where it is)
         const far = (x: number, y: number) => (x - px0) * (x - px0) + (y - py0) * (y - py0) > lim2;
         // heights above the ground, in tiles: layer 10 (low) 4 .. layer 1 (high) 22, for the plane and the clouds alike, so a plane on layer 5 flies between
         // the clouds of layer 4 and 6. Nothing goes above the camera (it hangs about 28 tiles up, lower when it is tipped back).
         const capH = Math.max(-G.eye[2] * 0.88, fpvK > 0.002 || poseK.current > 0 ? 24 : 0);   // (on foot the eye is low, but the clouds still hang where they did)
         const cloudH = (ly: number) => 4 + (10 - ly) * 2;   // (the clouds hang where they hang, however close the camera comes: zoomed in under them they are simply out of the view)
         const eyeH = -G.eye[2], nearFade = (x: number, y: number, h: number) => Math.max(0, Math.min(1, (Math.hypot(x - ex, y - ey, h - eyeH) - 3) / 8));   // (a cloud the camera is passing through thins out instead of filling the screen)
+        { const rc = L.resScale / 100; glScale = L.resAuto ? Math.min(glScale, rc) : rc; }   // (the resolution setting is the ceiling; with auto on it still drops by itself when frames are slow)
         G.resize(W, H, dpr * glScale, glCv);
         { G.setHour(s.hour); const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders;
         G.begin();
-        G.ground(glChunks, CHUNK);
+        { const g0 = performance.now(); G.ground(glChunks, CHUNK); if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
         if (++glFrames % 40 === 0) G.prune(k => chunks.current.has(k));
 
         if (L.showRivers) for (const rk of s.eco.riverTiles) { const rx = keyX(rk) + 0.5, ry = keyY(rk) + 0.5; if (far(rx, ry) || !ffp.inside(rx, ry, 1)) continue; G.flat('decal', rx, ry, 0.02, 0.5, 0.5, 0, -1, at.dot, 0.51, 0.9, 1, 0.45); }
@@ -1009,6 +1053,7 @@ function WorldView({ id }: { id: string }) {
           else if (m.grounded > 0) G.flat('decal', m.x, m.y, 0.03, 0.7, 0.7, Math.cos(m.rot), Math.sin(m.rot), m.kind === 1 ? at.maple : at.leaf, 1, 1, 1, Math.min(1, 1.5 - m.grounded));
           else G.flat('blend', m.x, m.y, m.h, 0.7, 0.7, Math.cos(m.rot), Math.sin(m.rot), m.kind === 1 ? at.maple : at.leaf, 1, 1, 1, a, Math.sin(m.age * 3 + m.ph) * 0.9, Math.cos(m.age * 2.3 + m.ph) * 0.6);
         }
+        mark('gl-setup');
         if (Tv >= 9) for (const st of stonesIn(s.world.seed, ffp.minX, ffp.minY, ffp.maxX, ffp.maxY)) {   // stones stand up like banners, facing the camera (a sprite that lies flat would show only its edge)
           if (pickedStones.has(st.key) || far(st.x, st.y) || !ffp.inside(st.x, st.y, 1) || s.world.terrainAt(Math.round(st.x), Math.round(st.y)) === WATER) continue;
           if (L.billboards) G.flat('decal', st.x, st.y - 0.04, 0.015, 0.7, 0.22, 0, -1, at.shadow, 0, 0, 0, 0.22);
@@ -1047,8 +1092,10 @@ function WorldView({ id }: { id: string }) {
             else if (b.carry) { const dx = ex - b.x, dy = ey - b.y, dl = Math.hypot(dx, dy) || 1; G.board('solid', b.x + (dx / dl) * 0.06 + G.R[0] * side * 0.45, b.y + (dy / dl) * 0.06 + G.R[1] * side * 0.45, hop + (swim ? 0 : bh * 0.25), 0.6, 0.6, true, b.carry === 'stick' ? at.stick : at.stone); }   // what it carries, held out in front
           }
         }
+        mark('stones-sticks');
         if (Tv >= 9) for (const d of decos) {                                          // trees, bushes and rocks stand on their tile, facing the camera (not when zoomed far out: they are a pixel or two, and thousands of them cost more than the ground)
           const wx = d.x + 0.5, wy = d.y + 1;
+          if (hash01(d.x, d.y, 5) * 100 >= dens) continue;   // (the density setting thins the trees, bushes and rocks out, the same ones each time)
           if (far(wx, wy) || !ffp.inside(wx, wy, d.scale) || (s.world.kind === 'lakedistrict' && (wx - px0) * (wx - px0) + (wy - py0) * (wy - py0) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
           if (L.billboards) G.flat('decal', wx, wy - 0.04, 0.015, d.scale * 0.64, d.scale * 0.2, 0, -1, at.shadow, 0, 0, 0, 0.22);
           G.board('solid', wx, wy, -bottomPad(img, d.cell) * d.scale, d.scale, d.scale, true, G.cell(d.cell[0], d.cell[1]));   // (sunk by the empty rows under the art, so a bush or rock sits on the ground instead of hovering)
@@ -1085,6 +1132,7 @@ function WorldView({ id }: { id: string }) {
           if (fpvK < 0.3 || (!walking && !aiming && !launchActive && !gl.landed && gl.z > 2.5) || (launchActive && Math.hypot(f.x - launchCam.current!.x, f.y - launchCam.current!.y) > 5)) { if (G.hasModel) G.drawModel(f.x, f.y, hP, hdx, hdy, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35, 2.4, sa, 0.12, 0.25, glide && !gl.landed ? { f: gl.fwd, u: gl.top } : undefined); else G.flat('solid', f.x, f.y, hP, 2, 2, hdx, hdy, cplane, 1, 1, 1, 1, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35); }
         }
 
+        mark('decos');
         // water-cycle clouds and the rain under them
         G.skyMode = true;
         {
@@ -1150,6 +1198,7 @@ function WorldView({ id }: { id: string }) {
         }, s.world.seed, f.x, f.y, hP, anim, sphOff);
         G.skyMode = false;
         // hoops: upright discs standing in the air, gold until the plane has flown through, then a faint green; a shadow on the ground shows where
+        mark('beavers-clouds');
         for (const hp of hoopsIn(s.world.seed, ffp.minX - 5, ffp.minY - 5, ffp.maxX + 5, ffp.maxY + 5)) {
           if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || (hp.x - px0) * (hp.x - px0) + (hp.y - py0) * (hp.y - py0) > HOOP_VIEW * HOOP_VIEW) continue;   // (hoops are seen to 100 tiles, however far the ground is drawn)
           const done = hoopsDone.has(hp.key), tx = -Math.sin(hp.angle), ty = Math.cos(hp.angle);
@@ -1169,6 +1218,7 @@ function WorldView({ id }: { id: string }) {
           }
         }
         G.end();
+        mark('hoops-model-end'); if (perf.on) { perf.f.gpu = G.gpuWaitMs(); perf.gpu = Math.max(perf.gpu, perf.f.gpu); mark('gpuwait'); }   // (it makes the frame wait for the GPU, so the readout itself slows things down a little)
         pp = G.projectAgl(f.x, f.y, hP) ?? pp; pg = G.projectAgl(shx, shy, 0) ?? pg; planeY.current = pp[1];
       } else {
       // the river lines the clouds are drawn to (a debug view in Android, a toggle here)
@@ -1543,11 +1593,26 @@ function WorldView({ id }: { id: string }) {
           if (glide && L.hints) for (const th of thermalsIn(thermalEnv(), f.x - span, f.y - span, f.x + span, f.y + span, gl.t, 0)) if (th.w > 0.3) marks.push({ x: th.x, y: th.y, kind: 'heat', r: th.r });
           drawMinimap(mini.current, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks); }
         }
-      if (saveAcc >= 45) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) perf.persist = Math.max(perf.persist, performance.now() - p0); }
+      mark('overlay');
+      if (saveAcc >= 45) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) { perf.persist = Math.max(perf.persist, performance.now() - p0); perf.f.persist = performance.now() - p0; } }
       if (perf.on) {
-        perf.work = Math.max(perf.work, performance.now() - w0);
-        if (now - perf.since > 2000) { perf.txt = `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  save ${perf.persist.toFixed(0)}ms`; const hp = ((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576; if (perfStat.heap - hp > 2) perfStat.gcN++; perfStat.heap = hp; perf.txt += `\nreact ${perfStat.r}/${perfStat.rMax.toFixed(0)}ms  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}ms  heap ${hp.toFixed(0)}MB gc ${perfStat.gcN}`; perf.txt += `\nwhy ${perfStat.why}`; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.since = now; perf.gap = perf.work = perf.build = perf.persist = 0; perf.builtN = 0; }
-        ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `10px ${PXF}`; ctx.fillStyle = '#0009'; ctx.fillRect(4, H / 2 - 12, 330, 46); ctx.fillStyle = '#fff'; perf.txt.split('\n').forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 14)); ctx.restore();
+        perf.work = Math.max(perf.work, performance.now() - w0); perf.f.work = performance.now() - w0;
+        if (now - perf.since > 2000) {   // the readout, a few short lines (worst values of the last 2 s)
+          const hp = ((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576; if (perfStat.heap - hp > 2) perfStat.gcN++; perfStat.heap = hp;
+          const avg = Object.entries(perf.ph).map(([k, v]) => `${k} ${(v / Math.max(1, perf.n)).toFixed(1)}`);
+          perf.txt = [
+            `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
+            `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}`,
+            `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
+            `why ${perfStat.why}`,
+            `avg ms/frame:`,
+            avg.slice(0, 3).join('  '), avg.slice(3, 6).join('  '), avg.slice(6, 9).join('  '), avg.slice(9).join('  '),
+          ].filter(Boolean).join('\n');
+          perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
+          perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
+        }
+        (window as unknown as { __perfTxt?: string }).__perfTxt = perf.txt;
+        ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `8px ${PXF}`; ctx.fillStyle = '#0009'; const lines = [...perf.txt.split('\n'), ...perf.hitches.map(h => '! ' + h)]; ctx.fillRect(4, H / 2 - 12, Math.min(W - 8, 400), 14 + lines.length * 11); ctx.fillStyle = '#fff'; lines.forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 11)); ctx.restore();
       }
       workMs += performance.now() - w0; workN++;
     };
@@ -1810,16 +1875,29 @@ function WorldView({ id }: { id: string }) {
               </div>
               <div className="world-slider"><span>{t('worldCamDistance')}</span><PixelSlider min={tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0} max={MAX_CAMERA_DISTANCE} step={1} value={Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)} onChange={setCamDist} label={t('worldCamDistance')} valueText={String(Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0))} /><b>{Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)}</b></div>
               {initial.kind === 'lakedistrict' && <div className="world-slider"><span>{t('worldWalkDist')}</span><PixelSlider min={25} max={200} step={25} value={walkDist} onChange={setWalkDist} label={t('worldWalkDist')} valueText={`${walkDist}%`} /><b>{walkDist}</b></div>}
-              <div className="world-slider"><span>{t('worldDrawDist')}</span><PixelSlider min={10} max={initial.kind === 'lakedistrict' ? 500 : 150} step={10} value={drawDist} onChange={setDrawDist} label={t('worldDrawDist')} valueText={`${drawDist}%`} /><b>{drawDist}</b></div>
               <div className="world-slider"><span>{t('worldTilt')}</span><PixelSlider min={0} max={16} step={1} value={tilt} onChange={setTilt} label={t('worldTilt')} valueText={String(tilt)} /><b>{tilt}</b></div>
               {showInfo && <div className="muted small">{t('worldCamTip')}</div>}
             </div>
             <div className="card world-card">
+              <h2 className="subtitle">{t('worldSecGraphics')}</h2>
+              <div className="row world-tools">
+                {(['low', 'med', 'high'] as const).map(k => <PixelButton key={k} size="compact" scale={1} variant={gfxPreset === k ? 'green' : 'red'} aria-pressed={gfxPreset === k} onClick={() => applyGfx(GFX_PRESETS[k])}>{t(k === 'low' ? 'worldGfxLow' : k === 'med' ? 'worldGfxMed' : 'worldGfxHigh')}</PixelButton>)}
+                <PixelButton size="compact" scale={1} variant={gfxPreset === 'custom' ? 'green' : 'red'} aria-pressed={gfxPreset === 'custom'} disabled>{t('worldGfxCustom')}</PixelButton>
+              </div>
+              <div className="world-slider"><span>{t('worldRes')}</span><PixelSlider min={40} max={100} step={5} value={resScale} onChange={setResScale} label={t('worldRes')} valueText={`${resScale}%`} /><b>{resScale}%</b></div>
+              <div className="row world-tools"><PixelButton size="compact" scale={1} variant={resAuto ? 'green' : 'red'} aria-pressed={resAuto} onClick={() => setResAuto(v => !v)}>{t('worldResAuto')}</PixelButton></div>
+              <div className="world-slider"><span>{t('worldFpsCap')}</span><PixelSlider min={0} max={3} step={1} value={[0, 30, 45, 60].indexOf(fpsCap) < 0 ? 0 : [0, 30, 45, 60].indexOf(fpsCap)} onChange={v => setFpsCap([0, 30, 45, 60][v])} label={t('worldFpsCap')} valueText={fpsCap ? String(fpsCap) : t('worldFpsOff')} /><b>{fpsCap ? fpsCap : t('worldFpsOff')}</b></div>
+              <div className="world-slider"><span>{t('worldDrawDist')}</span><PixelSlider min={10} max={initial.kind === 'lakedistrict' ? 500 : 150} step={10} value={drawDist} onChange={setDrawDist} label={t('worldDrawDist')} valueText={`${drawDist}%`} /><b>{drawDist}</b></div>
+              <div className="world-slider"><span>{t('worldDecoDensity')}</span><PixelSlider min={20} max={100} step={10} value={decoDensity} onChange={setDecoDensity} label={t('worldDecoDensity')} valueText={`${decoDensity}%`} /><b>{decoDensity}%</b></div>
+              <div className="row world-tools">
+                <PixelButton size="compact" scale={1} variant={shaders ? 'green' : 'red'} aria-pressed={shaders} onClick={() => setShaders(v => !v)}>{t('worldShaders')}</PixelButton>
+                <PixelButton size="compact" scale={1} variant={decoClouds ? 'green' : 'red'} aria-pressed={decoClouds} onClick={() => setDecoClouds(c => !c)}>{t('worldClouds')}</PixelButton>
+              </div>
+            </div>
+            <div className="card world-card">
               <h2 className="subtitle">{t('worldSecDisplay')}</h2>
               <div className="row world-tools">
-              <PixelButton size="compact" scale={1} variant={shaders ? 'green' : 'red'} aria-pressed={shaders} onClick={() => setShaders(v => !v)}>{t('worldShaders')}</PixelButton>
               <PixelButton size="compact" scale={1} variant={gl3d ? 'green' : 'red'} aria-pressed={gl3d} onClick={() => setGl3d(v => !v)}>{t('worldGl3d')}</PixelButton>
-              <PixelButton size="compact" scale={1} variant={decoClouds ? 'green' : 'red'} aria-pressed={decoClouds} onClick={() => setDecoClouds(c => !c)}>{t('worldClouds')}</PixelButton>
               <PixelButton size="compact" scale={1} variant={billboards ? 'green' : 'red'} aria-pressed={billboards} onClick={() => setBillboards(v => !v)}>{t('worldBillboards')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={showInst ? 'green' : 'red'} aria-pressed={showInst} onClick={() => setShowInst(v => !v)}>{t('worldInstruments')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={hints ? 'green' : 'red'} aria-pressed={hints} onClick={() => setHints(v => !v)}>{t('worldThermalHints')}</PixelButton>

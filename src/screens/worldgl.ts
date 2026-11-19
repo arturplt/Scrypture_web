@@ -380,6 +380,9 @@ export class WorldGL {
   reach = 60; fogStart = 30;
   /** The draw distance setting: 1 = the usual cap (320 tiles) on how far the ground is drawn when the horizon is in view. */
   drawK = 1;
+  /** (the ?perf readout: the longest time one frame spent making new chunk textures and meshes, and how many it made) */
+  madeMs = 0; madeN = 0; oneMs = 0;
+  private gbuf: Float32Array | null = null; private gdrawn: WebGLTexture[] = [];   // (the flat chunks' quads, all at once)
   /** On foot: how far the real chunks reach, as a multiple of the usual 200 tiles (the options slider). */
   walkK = 1;
   /** How far the sky clouds reach (tiles): the far plane goes out to it and the blended sprites fade into the haze over this distance, not the ground's. */
@@ -635,12 +638,16 @@ export class WorldGL {
       area += x * b[1] - b[0] * y;
     }
     const sgn = area >= 0 ? 1 : -1;                                       // the polygon's winding, so "inside" is the same side of every edge
+    // (each edge's start and unit direction are worked out once here: `inside` is asked for thousands of sprites a frame)
+    const eax: number[] = [], eay: number[] = [], enx: number[] = [], eny: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], len = Math.hypot(ex, ey);
+      if (len < 1e-6) continue;
+      eax.push(a[0]); eay.push(a[1]); enx.push(sgn * ex / len); eny.push(sgn * ey / len);
+    }
+    const ne = eax.length;
     const inside = (x: number, y: number, m: number) => {
-      for (let i = 0; i < n; i++) {
-        const a = pts[i], b = pts[(i + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], len = Math.hypot(ex, ey);
-        if (len < 1e-6) continue;
-        if (sgn * (ex * (y - a[1]) - ey * (x - a[0])) / len < -m) return false;
-      }
+      for (let i = 0; i < ne; i++) if (enx[i] * (y - eay[i]) - eny[i] * (x - eax[i]) < -m) return false;
       return true;
     };
     if (this.fpvK > 0.002) {                                              // on foot the fan of rays is thin close to the eye: take everything round the eye in front of it, too
@@ -787,27 +794,60 @@ export class WorldGL {
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);                // the flat map's water colour, under every ground tile
     gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0);
     const e = 0.03;                                                              // a hair of overlap hides cracks between chunks
-    for (const c of list) {
-      let ent = this.chunkTex.get(c.key);
-      if (!ent || ent.cv !== c.cv) {
-        if (ent) { gl.deleteTexture(ent.tex); }
-        ent = { cv: c.cv, tex: this.makeTexture(c.cv, true), mesh: ent?.mesh, vao: ent?.vao };
-        this.chunkTex.set(c.key, ent);
+    // a new chunk costs a texture (read back, uploaded, mip-mapped) and, on hills, a mesh: far too much for one frame when a lot come in at once (flying fast, a camera jump).
+    // So only a few are made each frame, the nearest first (at least one, then while ~3 ms last); the rest are skipped this frame and drawn once their turn comes.
+    let pending: typeof list | null = null;
+    for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || ent.cv !== c.cv || (this.terrain && !ent.vao)) (pending ??= []).push(c); }
+    let made = 0;
+    if (pending) {
+      const ex = this.eye[0], ey = this.eye[1];
+      pending.sort((a, b) => Math.hypot((a.cx + 0.5) * chunkTiles - ex, (a.cy + 0.5) * chunkTiles - ey) - Math.hypot((b.cx + 0.5) * chunkTiles - ex, (b.cy + 0.5) * chunkTiles - ey));
+      const t0 = performance.now();
+      for (const c of pending) { if (made > 0 && performance.now() - t0 > 3) break; made++; const e0 = performance.now(); this.ensureChunk(c, chunkTiles); this.oneMs = Math.max(this.oneMs, performance.now() - e0); }
+      this.madeMs = Math.max(this.madeMs, performance.now() - t0); this.madeN += made;
+    }
+    if (this.terrain) {
+      for (const c of list) {
+        const ent = this.chunkTex.get(c.key);
+        if (!ent) continue;   // (its turn has not come yet)
+        gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles);
       }
-      if (this.terrain) { gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles); continue; }
-      const x0 = c.cx * chunkTiles - e, y0 = c.cy * chunkTiles - e, x1 = (c.cx + 1) * chunkTiles + e, y1 = (c.cy + 1) * chunkTiles + e;
-      const b = this.buf;
-      b.set([x0, y0, 0, 0, 0, 1, 1, 1, 1, x1, y0, 0, 1, 0, 1, 1, 1, 1, x1, y1, 0, 1, 1, 1, 1, 1, 1, x0, y1, 0, 0, 1, 1, 1, 1, 1]);
-      gl.bindTexture(gl.TEXTURE_2D, ent.tex);
-      gl.bufferData(gl.ARRAY_BUFFER, b.subarray(0, 4 * FLOATS), gl.DYNAMIC_DRAW);
-      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    } else {   // flat chunks: every quad goes up in one buffer (one upload, not one per chunk), then one small draw each, each with its own texture
+      const need = Math.min(MAX_QUADS, list.length) * 4 * FLOATS;
+      if (!this.gbuf || this.gbuf.length < need) this.gbuf = new Float32Array(need);
+      const b = this.gbuf, drawn = this.gdrawn; drawn.length = 0; let o = 0;
+      for (const c of list) {
+        const ent = this.chunkTex.get(c.key);
+        if (!ent || drawn.length >= MAX_QUADS) continue;
+        const x0 = c.cx * chunkTiles - e, y0 = c.cy * chunkTiles - e, x1 = (c.cx + 1) * chunkTiles + e, y1 = (c.cy + 1) * chunkTiles + e;
+        b[o++] = x0; b[o++] = y0; b[o++] = 0; b[o++] = 0; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
+        b[o++] = x1; b[o++] = y0; b[o++] = 0; b[o++] = 1; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
+        b[o++] = x1; b[o++] = y1; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
+        b[o++] = x0; b[o++] = y1; b[o++] = 0; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
+        drawn.push(ent.tex);
+      }
+      if (drawn.length) {
+        gl.bufferData(gl.ARRAY_BUFFER, b.subarray(0, o), gl.DYNAMIC_DRAW);
+        for (let i = 0; i < drawn.length; i++) { gl.bindTexture(gl.TEXTURE_2D, drawn[i]); gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, i * 12); }
+      }
     }
     if (this.terrain) { gl.bindVertexArray(null); this.endTerrain(); }
     gl.uniform1f(this.loc.uTerr, 0);
   }
 
+  /** Make (or remake, when the chunk's picture was redrawn) a chunk's texture; the mesh of a hilly chunk is built by its first draw. */
+  private ensureChunk(c: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }, chunkTiles: number) {
+    const gl = this.gl; let ent = this.chunkTex.get(c.key);
+    if (!ent || ent.cv !== c.cv) {
+      if (ent) gl.deleteTexture(ent.tex);
+      ent = { cv: c.cv, tex: this.makeTexture(c.cv, true), mesh: ent?.mesh, vao: ent?.vao };
+      this.chunkTex.set(c.key, ent);
+    }
+    if (this.terrain && !ent.vao) this.prepTerrain(c, ent, chunkTiles);
+  }
+
   /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. */
-  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, n: number) {
+  private prepTerrain(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, n: number) {
     const gl = this.gl, T = this.terrain!, side = n + 1;
     if (!this.terrIbo) {
       const idx = new Uint16Array(n * n * 6);
@@ -831,7 +871,12 @@ export class WorldGL {
       gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh!); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo);
       gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
-    } else gl.bindVertexArray(ent.vao);
+    }
+  }
+  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, n: number) {
+    const gl = this.gl;
+    if (!ent.vao) this.prepTerrain(c, ent, n);
+    gl.bindVertexArray(ent.vao!);
     gl.drawElements(gl.TRIANGLES, n * n * 6, gl.UNSIGNED_SHORT, 0);
   }
   /** Back to the shared buffers the sprites are written into. */
@@ -979,6 +1024,13 @@ export class WorldGL {
   }
 
   /** Draw what was queued: decals, then solid sprites, then the blended ones back to front. */
+  /** (the ?perf readout) Wait for the GPU to finish everything queued so far, by reading one pixel back, and say how long that took in ms: the GPU's own time for the frame, which the game's timers cannot see. */
+  gpuWaitMs(): number {
+    const gl = this.gl, t0 = performance.now(), px = new Uint8Array(4);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return performance.now() - t0;
+  }
+
   end() {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
