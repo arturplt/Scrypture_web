@@ -92,7 +92,10 @@ function LakeGate({ id }: { id: string }) {
   return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{state === 'wait' ? t('worldLakeLoading') : t('worldMissing')}</p></div>;
 }
 
+const perfStat = { why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
 function WorldView({ id }: { id: string }) {
+  const rStart = performance.now();
+  useEffect(() => { perfStat.r++; perfStat.rMax = Math.max(perfStat.rMax, performance.now() - rStart); });
   const { t } = useI18n();
   const saved0 = useAppState(s => s.worlds.list.find(w => w.id === id)!);
   const initial = useRef(saved0.kind === 'lakedistrict' && !lakeOnMap(Math.floor(saved0.plane.x), Math.floor(saved0.plane.y), 4) ? { ...saved0, plane: { ...lakeSpawnFor(saved0.map ?? 'lakes') } } : saved0).current;   // (a Lake District world saved out past the map's edge starts at the spawn again)   // read once: the sim owns the state while open
@@ -399,14 +402,13 @@ function WorldView({ id }: { id: string }) {
     if (!ready) return;
     const cv = canvas.current!, el = stage.current!, ctx = cv.getContext('2d')!, img = sheet.current!;
     const s = sim.current!;
-    let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windSync = 0, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lookTrim = 1, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
+    let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windSync = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lookTrim = 1, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
     let W = 1, H = 1, dpr = 1;
     let styleKey = '';
     const glCv = glCanvas.current!;
     let glr: WorldGL | null = null, glFailed = false, glFrames = 0;
     const hoopsDone = new Set<string>();   // the hoops passed this visit
     // the 3D canvas drops its resolution when frames are slow (and creeps back up when they are quick): fill rate is what runs out first on a phone
-    const predG = newGlider(0, 0, 0);   // scratch plane for the aim's path
     let glScale = 1, frameEma = 1 / 60, scaleClock = 0, lastScaleChange = 0;
     const pickedSticks = sim.current!.beavers.picked.sticks, pickedStones = sim.current!.beavers.picked.stones;   // shared with the beavers: what they take is gone for the player
     const pickFx: { x: number; y: number; a: number; age: number; stone: boolean; berry?: boolean }[] = [];   // a stick that has just been picked up: it hops up, spins and fades
@@ -463,9 +465,12 @@ function WorldView({ id }: { id: string }) {
     const thermalEnv = () => { tEnv.hour = s.hour; tEnv.warm = Math.max(0.6, Math.min(1.4, 1 + (s.eco.temperature - BASE_TEMPERATURE) / 25)); return tEnv; };
 
     let workMs = 0, workN = 0, lastStrike = 0, flashK = 0;
+    if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
+    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, builtN: 0, since: 0, txt: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const w0 = performance.now();
+      if (perf.on) { if (perf.lastNow) perf.gap = Math.max(perf.gap, now - perf.lastNow); perf.lastNow = now; }
       syncAcc += 1;
       if (syncAcc >= 20) { syncAcc = 0; const m = measure(); if (m.w !== W || m.h !== H || Math.min(2, window.devicePixelRatio || 1) !== dpr) fit(); }   // belt and braces: a canvas that disagrees with its box is refitted within a third of a second
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -494,7 +499,10 @@ function WorldView({ id }: { id: string }) {
         windT += dt; windAcc += dt;
         if (windAcc >= 0.25) {
           windAcc = 0; const nw = naturalWind(s.world.seed, windT + windT0); s.eco.wind = { ...s.eco.wind, strength: nw.strength, dir: nw.dir }; L.wind = { ...L.wind, strength: nw.strength, dir: nw.dir };
-          windSync += 1; if (windSync >= 2) { windSync = 0; setWind(w => ({ ...w, strength: nw.strength, dir: nw.dir })); }
+          // the dial turns and changes colour straight on the element; React (a re-render of this whole screen, a visible hitch) is only told when what it prints changes: the letter, or the strength by half a step
+          const dEl = windDial.current; if (dEl) { dEl.style.setProperty('--dir', `${-nw.dir}rad`); dEl.style.setProperty('--h', String(Math.round(200 - nw.strength * 22))); }
+          const letter = Math.round((((nw.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8;
+          if (letter !== windShown.letter || Math.abs(nw.strength - windShown.strength) >= 0.5) { windShown = { letter, strength: nw.strength }; setWind(w => ({ ...w, strength: nw.strength, dir: nw.dir })); }
         }
       }
       frameEma += (dt - frameEma) * 0.04; scaleClock += dt;
@@ -823,6 +831,7 @@ function WorldView({ id }: { id: string }) {
         if (built > 0 && performance.now() - t0 > 6) break;
         chunks.current.set(tileKey(cx, cy), buildChunk(cx, cy)); built++;
       }
+      if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; }
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (!chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
@@ -1146,25 +1155,6 @@ function WorldView({ id }: { id: string }) {
             const c = G.projectAgl(pl.x, pl.y, pl.kind === 'lake' ? 5 : 7);
             if (c && c[0] > 40 && c[0] < W - 40 && c[1] > 20 && c[1] < H - 20) placeLabels.push({ x: c[0], y: c[1], text: pl.kind === 'summit' ? `${pl.name} ${pl.m} m` : pl.name, d: d / max, summit: pl.kind === 'summit' });
           }
-        }
-        // aiming a throw: the path the plane will fly from here, as dots along it with a ring where it comes down (power and heading as they are right now)
-        if (aiming) {
-          const pwr = Math.max(launchMinPower(upRef.current.launch), aimPower(aim.current.t)), pwv = s.eco.windSpeed * 1.5, pwd = s.eco.wind.dir;
-          const pgr = s.world.kind === 'lakedistrict' ? (x: number, y: number) => s.world.groundZAt(x, -y) : undefined;   // (the hills the path crosses: it lands where the real plane will)
-          const penv = { windX: Math.cos(pwd) * pwv, windY: Math.sin(pwd) * pwv, ground: pgr, air: (x: number, y: number, t: number) => airVertical(tenv, x, -y, t) };
-          const pc = { pitch: 0, roll: 0, yaw: 0, freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 };
-          launchPlane(predG, gl.x, gl.y, gl.psi, pwr, launchHeight(upRef.current.launch));
-          if (pgr) predG.gnd = pgr(gl.x, gl.y);
-          let last: [number, number] = [gl.x, -gl.y];
-          for (let i = 1; i <= 36 && !predG.landed; i++) {
-            stepGlider(predG, pc, penv, 0.15);
-            last = [predG.x, -predG.y];
-            const al = 0.95 - i * 0.018, hh = Math.min(predG.z * 0.18, 40), away = Math.hypot(predG.x - gl.x, predG.y - gl.y);
-            if (away < 6) continue;                                           // (the first stretch is right at the eye: it would only be a blur in front of the face)
-            { const ds = 0.45 + away * 0.025; G.board('blend', predG.x, -predG.y, hh, ds, ds, false, at.dot, 1, 0.9, 0.45, Math.min(al + 0.05, (away - 6) / 6)); }
-            if (i % 2 === 0) G.flat('decal', predG.x, -predG.y, 0.03, 0.25, 0.25, 0, -1, at.dot, 0, 0, 0, 0.3);
-          }
-          if (predG.landed) G.flat('decal', last[0], last[1], 0.04, 3, 3, 0, -1, at.ring, 1, 0.85, 0.3, 0.9);
         }
         G.end();
         pp = G.projectAgl(f.x, f.y, hP) ?? pp; pg = G.projectAgl(shx, shy, 0) ?? pg; planeY.current = pp[1];
@@ -1541,7 +1531,12 @@ function WorldView({ id }: { id: string }) {
           if (glide && L.hints) for (const th of thermalsIn(thermalEnv(), f.x - span, f.y - span, f.x + span, f.y + span, gl.t, 0)) if (th.w > 0.3) marks.push({ x: th.x, y: th.y, kind: 'heat', r: th.r });
           drawMinimap(mini.current, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks); }
         }
-      if (saveAcc >= 12) { saveAcc = 0; persist(); }
+      if (saveAcc >= 12) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) perf.persist = Math.max(perf.persist, performance.now() - p0); }
+      if (perf.on) {
+        perf.work = Math.max(perf.work, performance.now() - w0);
+        if (now - perf.since > 2000) { perf.txt = `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  save ${perf.persist.toFixed(0)}ms`; const hp = ((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576; if (perfStat.heap - hp > 2) perfStat.gcN++; perfStat.heap = hp; perf.txt += `\nreact ${perfStat.r}/${perfStat.rMax.toFixed(0)}ms  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}ms  heap ${hp.toFixed(0)}MB gc ${perfStat.gcN}`; perf.txt += `\nwhy ${perfStat.why}`; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.since = now; perf.gap = perf.work = perf.build = perf.persist = 0; perf.builtN = 0; }
+        ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `10px ${PXF}`; ctx.fillStyle = '#0009'; ctx.fillRect(4, H / 2 - 12, 330, 46); ctx.fillStyle = '#fff'; perf.txt.split('\n').forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 14)); ctx.restore();
+      }
       workMs += performance.now() - w0; workN++;
     };
 
@@ -1622,6 +1617,13 @@ function WorldView({ id }: { id: string }) {
   };
   const TILE_CELL: Record<Terrain, readonly [number, number]> = { 0: SHEET.water, 1: SHEET.sand, 2: SHEET.grass };
 
+  const perfWhy = useRef<Record<string, unknown>>({});   // (?perf: which state made this screen render again)
+  useEffect(() => {
+    if (!/perf/.test(location.href)) return;
+    const now: Record<string, unknown> = { saved0, scores, coins, act, pickToast, up, mode, trimPitch, trimRoll, trimYaw, pitch, wind, zoomPos, onFoot, fullUi, burnPop, runResult, paused, camMode, hideUi, instSize, shopOpen, miniScale };
+    const ch = Object.keys(now).filter(k => perfWhy.current[k] !== undefined && perfWhy.current[k] !== now[k]);
+    perfWhy.current = now; if (ch.length) perfStat.why = [...new Set([...perfStat.why.split(','), ...ch])].filter(Boolean).join(',');
+  });
   return (
     <div ref={root} onDragStart={e => e.preventDefault()} className={`screen world ${panelOpen ? 'open' : ''} ${hideUi || lookUi ? 'hideui' : ''} ${lookUi ? 'lookui' : ''}`} style={{ '--sheet-img': `url(${SHEET_URL})`, '--mz': miniSize } as CSSProperties}>
       <div ref={stage} className={`world-stage ${tool === 'paint' ? 'paint' : ''}`} onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={onStageUp} onPointerCancel={onStageUp}>
