@@ -9,7 +9,7 @@ import {
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
   BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
 } from '../domain';
-import { actions, useAppState } from '../data/hooks';
+import { actions, store, useAppState } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
 import { PixelButton } from '../ui/PixelButton';
@@ -76,10 +76,10 @@ const DECO_LAYERS = [
 const DECO_ALTITUDE = [8.5, 6.5, 4.5, 2.5];
 
 export function WorldMap({ id }: { id: string }) {
-  const saved = useAppState(s => s.worlds.list.find(w => w.id === id));
+  const w0 = useAppState(s => { const w = s.worlds.list.find(x => x.id === id); return w ? (w.kind ?? 'procedural') : ''; });   // (a primitive: saves and cloud sync must not re-render the whole world screen)
   const { t } = useI18n();
-  if (!saved) return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{t('worldMissing')}</p></div>;
-  return saved.kind === 'lakedistrict' ? <LakeGate id={id} /> : <WorldView key={id} id={id} />;
+  if (!w0) return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{t('worldMissing')}</p></div>;
+  return w0 === 'lakedistrict' ? <LakeGate id={id} /> : <WorldView key={id} id={id} />;
 }
 
 /** The Lake District's map is an image: wait for it before the world is built. */
@@ -97,7 +97,7 @@ function WorldView({ id }: { id: string }) {
   const rStart = performance.now();
   useEffect(() => { perfStat.r++; perfStat.rMax = Math.max(perfStat.rMax, performance.now() - rStart); });
   const { t } = useI18n();
-  const saved0 = useAppState(s => s.worlds.list.find(w => w.id === id)!);
+  const saved0 = useRef(store.getState().worlds.list.find(w => w.id === id)!).current;   // read once: a subscription would re-render the screen on every save
   const initial = useRef(saved0.kind === 'lakedistrict' && !lakeOnMap(Math.floor(saved0.plane.x), Math.floor(saved0.plane.y), 4) ? { ...saved0, plane: { ...lakeSpawnFor(saved0.map ?? 'lakes') } } : saved0).current;   // (a Lake District world saved out past the map's edge starts at the spawn again)   // read once: the sim owns the state while open
   const scores = useAppState(s => s.worlds.list.find(w => w.id === id)?.scores) ?? NO_SCORES;   // this world's leaderboard
   const scoresRef = useRef<RunScore[]>(scores); scoresRef.current = scores;
@@ -1531,7 +1531,7 @@ function WorldView({ id }: { id: string }) {
           if (glide && L.hints) for (const th of thermalsIn(thermalEnv(), f.x - span, f.y - span, f.x + span, f.y + span, gl.t, 0)) if (th.w > 0.3) marks.push({ x: th.x, y: th.y, kind: 'heat', r: th.r });
           drawMinimap(mini.current, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks); }
         }
-      if (saveAcc >= 12) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) perf.persist = Math.max(perf.persist, performance.now() - p0); }
+      if (saveAcc >= 45) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) perf.persist = Math.max(perf.persist, performance.now() - p0); }
       if (perf.on) {
         perf.work = Math.max(perf.work, performance.now() - w0);
         if (now - perf.since > 2000) { perf.txt = `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  save ${perf.persist.toFixed(0)}ms`; const hp = ((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576; if (perfStat.heap - hp > 2) perfStat.gcN++; perfStat.heap = hp; perf.txt += `\nreact ${perfStat.r}/${perfStat.rMax.toFixed(0)}ms  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}ms  heap ${hp.toFixed(0)}MB gc ${perfStat.gcN}`; perf.txt += `\nwhy ${perfStat.why}`; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.since = now; perf.gap = perf.work = perf.build = perf.persist = 0; perf.builtN = 0; }
@@ -1540,9 +1540,10 @@ function WorldView({ id }: { id: string }) {
       workMs += performance.now() - w0; workN++;
     };
 
+    let savedExplored = -1;   // (the explored list is big: it is only written, and so only synced to the cloud, when it grew)
     const persist = () => {
       const f = s.flight;
-      actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, wind: { ...s.eco.wind }, plane: { x: f.x, y: f.y, heading: f.heading, pitch: f.pitch }, explored: [...s.explored].slice(0, 20000), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
+      const grew = s.explored.size !== savedExplored; savedExplored = s.explored.size; actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, wind: { ...s.eco.wind }, plane: { x: f.x, y: f.y, heading: f.heading, pitch: f.pitch }, ...(grew ? { explored: [...s.explored].slice(0, 20000) } : {}), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
     };
     raf = requestAnimationFrame(frame);
     const onHide = () => persist();
@@ -1620,7 +1621,7 @@ function WorldView({ id }: { id: string }) {
   const perfWhy = useRef<Record<string, unknown>>({});   // (?perf: which state made this screen render again)
   useEffect(() => {
     if (!/perf/.test(location.href)) return;
-    const now: Record<string, unknown> = { saved0, scores, coins, act, pickToast, up, mode, trimPitch, trimRoll, trimYaw, pitch, wind, zoomPos, onFoot, fullUi, burnPop, runResult, paused, camMode, hideUi, instSize, shopOpen, miniScale };
+    const now: Record<string, unknown> = { scores, coins, act, pickToast, up, mode, trimPitch, trimRoll, trimYaw, pitch, wind, zoomPos, onFoot, fullUi, burnPop, runResult, paused, camMode, hideUi, instSize, shopOpen, miniScale };
     const ch = Object.keys(now).filter(k => perfWhy.current[k] !== undefined && perfWhy.current[k] !== now[k]);
     perfWhy.current = now; if (ch.length) perfStat.why = [...new Set([...perfStat.why.split(','), ...ch])].filter(Boolean).join(',');
   });
