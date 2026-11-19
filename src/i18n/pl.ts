@@ -920,6 +920,7 @@ export const pl: Record<Key, string> = {
   "worldEcoByWalk": "Kałuża przeszła",
   "worldEcoByPaint": "Namalowane",
   "worldEcoByDam": "Stawy przy tamach",
+  "worldEcoByStream": "Strumienie z deszczu",
   "worldEcoBeavers": "Bobry",
   "worldEcoHauled": "Zniesione patyki i kamienie",
   "worldEcoDams": "Ukończone tamy",

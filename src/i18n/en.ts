@@ -919,6 +919,7 @@ export const en = {
   "worldEcoByWalk": "Puddle moved",
   "worldEcoByPaint": "Painted",
   "worldEcoByDam": "Dam ponds",
+  "worldEcoByStream": "Rain streams",
   "worldEcoBeavers": "Beavers",
   "worldEcoHauled": "Sticks and stones hauled",
   "worldEcoDams": "Dams finished",

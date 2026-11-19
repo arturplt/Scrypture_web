@@ -34,7 +34,7 @@ const TOTALS = [
 
 /** The plain counters of the tally (not the per-rule split). */
 type Count = Exclude<keyof EcoTally, 'toWaterBy'>;
-const CAUSE_LABEL: Record<WaterCause, Key> = { rain: 'worldEcoByRain', shore: 'worldEcoByShore', surrounded: 'worldEcoBySurrounded', settle: 'worldEcoBySettle', river: 'worldEcoByRiver', walk: 'worldEcoByWalk', paint: 'worldEcoByPaint', dam: 'worldEcoByDam' };
+const CAUSE_LABEL: Record<WaterCause, Key> = { rain: 'worldEcoByRain', shore: 'worldEcoByShore', surrounded: 'worldEcoBySurrounded', settle: 'worldEcoBySettle', river: 'worldEcoByRiver', walk: 'worldEcoByWalk', paint: 'worldEcoByPaint', dam: 'worldEcoByDam', stream: 'worldEcoByStream' };
 
 interface Snap { c: Census; tally: EcoTally; at: number; hour: number; area: { w: number; h: number } }
 interface Sample { at: number; water: number; sand: number; green: number; wood: number }

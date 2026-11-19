@@ -13,6 +13,8 @@
  *  - Android's evaporation numbers were "fast for testing" but still needed minutes; `EVAP_SPEED` speeds them up so a lake visibly
  *    shrinks while you watch.
  */
+import { Pond, POND_MAX, type PondEnv } from './hydrology';
+import { setPondSurface, lakeWaterAt, LAKE_WATER, LAKE_RIVER } from './lakedistrict';
 import { hash01, GRASS, SAND, WATER, DECO_BUSH, DECO_CONIFER, DECO_DECIDUOUS, CHUNK, tileKey, keyX, keyY, plainTile, type World, type Terrain, type TileState, chunkOf } from './worldgen';
 
 export const LAYER_CAPACITY = [1, 2, 3, 5, 8, 13, 8, 21, 3, 1];       // layers 1..10
@@ -39,6 +41,17 @@ export const BUDGET_SPAN = 0.03;                 // a region this far (as a shar
 export const REFILL_CHANCE = 0.1;                // rain on land near a lake grows that lake's shore this often (times the region's shortage)
 export const SHORE_CHANCE = 0.3;                 // rain on water grows the shore at most this often (times how much water the region is short of)
 export const IMPORT_EVERY = 20, IMPORT_BELOW = 6;   // every 20 s, while fewer than 6 clouds are up, one drifts in from upwind (dry land would never see rain otherwise)
+// Hilly worlds: rain runs downhill (see `runoff`). A packet of runoff walks to lower ground; tiles it crosses often turn into streams.
+export const RUNOFF_BASE = 0.12, RUNOFF_SLOPE = 0.5;   // chance a rained-on tile sheds a packet: this plus RUNOFF_SLOPE per metre of drop to its lowest neighbour (at most 0.7 in all)
+export const MAX_PACKETS = 80, PACKET_STEPS = 80;      // packets walking at once, and how far one goes
+export const STREAM_AT = 3, TRICKLE_CAP = 12, TRICKLE_DECAY = 0.04, DRY_AT = 0.5;   // passes before a tile turns to stream; the most a tile counts; lost per second; below this a stream dries
+export const MAX_STREAM_TILES = 1500;
+// Tarns: a hollow (or a small real tarn) is a pond with a water level that rain raises and the sun lowers (see `tarnAt`).
+export const TARN_VOL = 0.5, TARN_RAIN = 0.05;        // volume (tile-metres) a packet of runoff adds, and rain falling straight on a tarn
+export const TARN_EVAP = 0.0006;                      // volume a tarn loses per tile of its area per second
+export const TARN_BODY_MAX = 150, MAX_TARNS = 60;     // a real lake bigger than this is left alone; tarns alive at once
+export const TARN_MIN_TILES = 6, TARN_MAX_TILES = 40, TARN_MIN_DEPTH = 1;   // a hollow must hold 6 to 40 tiles and be a metre deep at its rim (the map is full of one-tile dips and shallow valley floors that are not tarns)
+export const PIT_DEPTH = 0.02;                        // metres every neighbour must stand above a hollow for it to hold water
 export const STALL_TICKS = 120;                  // a channel that has not grown for this many river ticks (60 s) is given up
 export const FIRE_TICK = 0.25;                  // seconds per fire update
 export const MAX_FIRES = 400;                    // tiles burning at once (more simply do not catch)
@@ -83,6 +96,7 @@ export function flammability(st: TileState): number {
 /** Seconds a tile burns: grass flashes over, a bush lasts longer, a tree longer still the bigger it has grown. */
 export const fuelOf = (st: TileState) => (st.d === DECO_BUSH ? 5 : st.d ? 6 + 2 * st.s : st.v === 1 ? 2.5 : 2);
 const N4: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const N8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const NEIGH8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 /** Sun-driven temperature: warmest at noon, coldest at midnight, plus heat waves and cold snaps. */
@@ -112,9 +126,9 @@ export interface EcoTally {
  * grew the nearest shore, `surrounded` the periodic 3-water-sides sweep, `settle` a tile between water and the other land type was filled
  * (no tile art for it), `river` a channel grew, `walk` a lone tile moved, `paint` the paint tool, `dam` a pond grew behind a beaver dam.
  */
-export type WaterCause = 'rain' | 'shore' | 'surrounded' | 'settle' | 'river' | 'walk' | 'paint' | 'dam';
-export const WATER_CAUSES: WaterCause[] = ['rain', 'shore', 'surrounded', 'settle', 'river', 'walk', 'paint', 'dam'];
-export const newTally = (): EcoTally => ({ evaporated: 0, rained: 0, toWater: 0, fromWater: 0, grown: 0, strikes: 0, ignited: 0, burnt: 0, imported: 0, toWaterBy: { rain: 0, shore: 0, surrounded: 0, settle: 0, river: 0, walk: 0, paint: 0, dam: 0 } });
+export type WaterCause = 'rain' | 'shore' | 'surrounded' | 'settle' | 'river' | 'walk' | 'paint' | 'dam' | 'stream';
+export const WATER_CAUSES: WaterCause[] = ['rain', 'shore', 'surrounded', 'settle', 'river', 'walk', 'paint', 'dam', 'stream'];
+export const newTally = (): EcoTally => ({ evaporated: 0, rained: 0, toWater: 0, fromWater: 0, grown: 0, strikes: 0, ignited: 0, burnt: 0, imported: 0, toWaterBy: { rain: 0, shore: 0, surrounded: 0, settle: 0, river: 0, walk: 0, paint: 0, dam: 0, stream: 0 } });
 
 export class Ecosystem {
   readonly world: World;
@@ -161,6 +175,15 @@ export class Ecosystem {
   connections: Connection[] = [];
   private sandCells = new Map<number, { n: number; sx: number; sy: number }>();
   private riverAcc = 0;
+  /** Hilly worlds: runoff on its way downhill, how often each tile has been crossed lately, and the stream tiles rain made. */
+  private packets: { x: number; y: number; n: number }[] = [];
+  private trickle = new Map<number, number>();
+  readonly streams = new Set<number>();
+  /** Tarns: ponds without a dam. `tarnOf` finds the one a tile belongs to; `noTarn` remembers water that is not a small lake. */
+  readonly tarns = new Set<{ pond: Pond; vol: number }>();
+  private tarnOf = new Map<number, { pond: Pond; vol: number }>();
+  private noTarn = new Set<number>();
+  private runoffAcc = 0;
   private migrateAcc = 0;
   /** Tiles that changed since the last time the renderer asked (to redraw the chunks that hold them). */
   readonly dirty = new Set<number>();
@@ -219,7 +242,7 @@ export class Ecosystem {
   paint(x: number, y: number, t: Terrain) { this.put(x, y, plainTile(t)); }
   private put(x: number, y: number, s: TileState) {
     const was = this.world.terrainAt(x, y);
-    if (this.world.kind === 'lakedistrict' && (s.t === WATER) !== (was === WATER) && this.cause !== 'paint' && this.cause !== 'dam') return;   // a real map's lakes and shores stay where they are: no rain puddles on the fells, no rivers wandering, no drying up (beaver dams and the paint tool still make ponds)
+    if (this.world.kind === 'lakedistrict' && (s.t === WATER) !== (was === WATER) && this.cause !== 'paint' && this.cause !== 'dam' && this.cause !== 'stream') return;   // a real map's lakes and shores stay where they are: no rain puddles on the fells, no rivers wandering, no drying up (beaver dams and the paint tool still make ponds)
     this.world.set(x, y, s); this.mark(x, y);
     this.knownVersion = this.world.version;
     if (was !== s.t) {
@@ -306,9 +329,9 @@ export class Ecosystem {
     this.importAcc += dt;
     if (this.importAcc >= IMPORT_EVERY) { this.importAcc = 0; this.importCloud(); }
     this.riverAcc += dt;
-    if (this.riverAcc >= RIVER_TICK) { this.riverAcc = 0; this.connectPuddles(); this.flowRivers(); }
+    if (this.riverAcc >= RIVER_TICK) { this.riverAcc = 0; if (this.hilly) { this.dryStreams(); this.stepTarns(); } else { this.connectPuddles(); this.flowRivers(); } }
     this.migrateAcc += dt;
-    if (this.migrateAcc >= MIGRATE_TICK) { this.migrateAcc = 0; this.migrateSingles(); }
+    if (this.migrateAcc >= MIGRATE_TICK) { this.migrateAcc = 0; if (this.hilly) this.runoff(); else this.migrateSingles(); }
     if (this.strikes.length) { for (const b of this.strikes) b.age += dt; this.strikes = this.strikes.filter(b => b.age < STRIKE_LIFE); }
     this.fireAcc += dt;
     if (this.fireAcc >= FIRE_TICK) { if (this.fires.size) this.stepFires(this.fireAcc); this.fireAcc = 0; }
@@ -416,6 +439,50 @@ export class Ecosystem {
     this.by('dam', () => this.expandWater(x, y));
     return this.tally.toWater > before;
   }
+  /** A hilly world: ponds follow the ground (see hydrology.ts) instead of the region budget. */
+  get hilly() { return this.world.kind === 'lakedistrict'; }
+  /** What a pond asks about the ground; `ok` says which tiles it may flood (the dam's upstream side). */
+  pondEnv(ok: (x: number, y: number) => boolean): PondEnv {
+    return { h: (x, y) => this.world.metresAt(x, y), wet: (x, y) => this.terrainAt(x, y) === WATER, ok, lake: (x, y) => lakeWaterAt(x, y) === LAKE_WATER };
+  }
+  private redrawPond(p: Pond, extra?: [number, number]) {
+    setPondSurface(p.tiles, p.level);
+    for (const [x, y] of p.tiles) this.mark(x, y);
+    if (extra) this.mark(extra[0], extra[1]);
+  }
+  /** The pond floods its next tile, the whole sheet rising to that ground. True if it did. */
+  growHeightPond(p: Pond): boolean {
+    const t = p.grow(); if (!t) return false;
+    this.by('dam', () => this.put(t[0], t[1], plainTile(WATER)));
+    this.redrawPond(p);
+    return true;
+  }
+  /** A full pond (its next ground is a rim over which the water runs out) lets some run on downhill from there: a packet of runoff from just outside the rim. */
+  spillHeightPond(p: Pond): void {
+    if (p.spill && p.spillTo && this.packets.length < MAX_PACKETS) this.packets.push({ x: p.spillTo[0], y: p.spillTo[1], n: 0 });
+  }
+  /** The pond gives its highest tile back to the land, if it stands above its cap (a broken dam). True if it did. */
+  drainHeightPond(p: Pond): boolean {
+    if (!p.over) return false;
+    const t = p.shrink(); if (!t) return false;
+    setPondSurface([t], null);
+    this.by('dam', () => this.put(t[0], t[1], plainTile(this.world.generatedTerrain(t[0], t[1]) === WATER ? SAND : this.world.generatedTerrain(t[0], t[1]))));
+    this.redrawPond(p, t);
+    return true;
+  }
+  /** A saved pond coming back: take over the water tiles it had (made water joined to the seed, on its side of the dam). */
+  adoptPond(p: Pond): void {
+    const found: [number, number][] = [], seen = new Set<number>(), stack: [number, number][] = [[p.sx, p.sy]];
+    while (stack.length && found.length < POND_MAX) {
+      const [x, y] = stack.pop()!, k = tileKey(x, y);
+      if (seen.has(k)) continue; seen.add(k);
+      const made = this.terrainAt(x, y) === WATER && this.world.generatedTerrain(x, y) !== WATER;
+      if (!made && (x !== p.sx || y !== p.sy)) continue;
+      if (made && p.okTile(x, y)) found.push([x, y]);
+      for (const [dx, dy] of N4) stack.push([x + dx, y + dy]);
+    }
+    p.adopt(found); this.redrawPond(p);
+  }
   /** How much water the region of (x, y) is short of its target, as a share of its tiles (negative: it has too much). */
   waterShortage(x: number, y: number): number { const r = this.region(x, y); return (r.target - r.cur) / (REGION * REGION); }
   /**
@@ -450,7 +517,9 @@ export class Ecosystem {
         const pull = this.budgetPull(x, y), budget = pull > 0 ? Math.max(0.05, 1 - pull) : 1 - 2 * pull;   // a region short of water nearly stops drying, one over its target dries faster
         const pts = (this.water.get(k) ?? 0) + BASE_EVAPORATION * EVAP_SPEED * temp * sizeFactor * budget * dt;
         if (pts >= EVAPORATION_THRESHOLD) {   // a grass shore dries to grass: sand there would start a beach all round the lake (see `settle`)
-          this.tally.evaporated++; this.put(x, y, plainTile(this.touches(x, y, GRASS) && !this.touches(x, y, SAND) ? GRASS : SAND)); this.spawnCloud(x + 0.5, y + 0.5, 0.5 + this.rng() * 0.5); }
+          this.tally.evaporated++;
+          if (this.hilly) { this.water.set(k, 0); this.spawnCloud(x + 0.5, y + 0.5, 0.5 + this.rng() * 0.5); continue; }   // a real map's lakes, streams and dam ponds feed clouds but keep their water (streams dry by their own rule, ponds by their level)
+          this.put(x, y, plainTile(this.touches(x, y, GRASS) && !this.touches(x, y, SAND) ? GRASS : SAND)); this.spawnCloud(x + 0.5, y + 0.5, 0.5 + this.rng() * 0.5); }
         else this.water.set(k, pts);
       }
     }
@@ -563,6 +632,8 @@ export class Ecosystem {
         }
         this.rainOn(x, y);
       }
+      if (land && this.hilly) this.shed(x, y);
+      else if (!land && this.hilly) { const tn = this.tarnOf.get(k); if (tn) tn.vol = Math.min(tn.vol + TARN_RAIN, 40); }
     }
   }
 
@@ -815,6 +886,159 @@ export class Ecosystem {
         key = `${c.layer}:${Math.floor(c.x)}:${Math.floor(c.y)}`;
       }
       taken.add(key);
+    }
+  }
+
+  // ---- rain runs downhill (hilly worlds) ---------------------------------------------------------------------------------------
+
+  /** Ground height in metres. */
+  private gh(x: number, y: number) { return this.world.metresAt(x, y); }
+  /**
+   * Where water on (x, y) goes next: the steepest way down of the 8 neighbours (a diagonal step is 1.41 tiles long, so it needs 1.41 times the drop),
+   * each slope eased a little up or down by a fixed hash of the tile pair, so near-equal ways down take turns and the line winds instead of running
+   * straight along the grid. Null at a pit or on flat ground (nothing lower).
+   */
+  private downhill(x: number, y: number): [number, number] | null {
+    const h = this.gh(x, y); let best: [number, number] | null = null, bs = 0;
+    for (const [dx, dy] of N8) {
+      const drop = h - this.gh(x + dx, y + dy); if (drop <= 0) continue;
+      const score = (drop / (dx && dy ? 1.414 : 1)) * (0.8 + 0.4 * hash01(x, y, (x + dx) * 31 + (y + dy), 5));
+      if (score > bs) { bs = score; best = [x + dx, y + dy]; }
+    }
+    return best;
+  }
+  /** Rain on land: a steeper tile sheds more of it. A packet of runoff starts from the tile. */
+  private shed(x: number, y: number) {
+    if (this.packets.length >= MAX_PACKETS) return;
+    const nb = this.downhill(x, y); if (!nb) return;                 // a pit keeps its rain
+    const drop = this.gh(x, y) - this.gh(nb[0], nb[1]);
+    if (this.rng() < RUNOFF_BASE + Math.min(0.58, drop * RUNOFF_SLOPE)) this.packets.push({ x, y, n: 0 });
+  }
+  /** One step for every packet: it walks to its lowest neighbour and counts the tile; it ends in water, or at a pit (where the count turns the pit to a puddle). */
+  private runoff() {
+    if (!this.packets.length) return;
+    const keep: typeof this.packets = [];
+    for (const p of this.packets) {
+      const nb = this.downhill(p.x, p.y);
+      if (!nb) { this.feedTarn(p.x, p.y); continue; }                 // a hollow: its water collects there
+      p.x = nb[0]; p.y = nb[1];
+      if (this.terrainAt(p.x, p.y) === WATER) { this.feedTarn(p.x, p.y); continue; }   // it joined a stream, pond or lake (a small lake takes it in)
+      this.cross(p.x, p.y);
+      if (++p.n < PACKET_STEPS) keep.push(p);
+    }
+    this.packets = keep;
+  }
+  private tarnWater(x: number, y: number) { return this.terrainAt(x, y) === WATER && this.tarnOf.has(tileKey(x, y)); }
+  /**
+   * The tarn at (x, y), made if there is none: a small real lake (up to TARN_BODY_MAX tiles of the map's lake water) starts from its own
+   * water, a hollow on land (every neighbour higher) starts empty at its lowest tile. Anything else (a stream, a dam pond, a big lake) is none.
+   */
+  private tarnAt(x: number, y: number): { pond: Pond; vol: number } | null {
+    const k = tileKey(x, y), had = this.tarnOf.get(k);
+    if (had || this.noTarn.has(k) || this.tarns.size >= MAX_TARNS || !this.inArea(x, y)) return had ?? null;
+    const env = this.pondEnv(() => true);
+    let pond: Pond;
+    if (this.terrainAt(x, y) === WATER) {
+      const body: [number, number][] = [], seen = new Set<number>([k]), stack: [number, number][] = [[x, y]];
+      while (stack.length && body.length <= TARN_BODY_MAX) {
+        const [bx, by] = stack.pop()!;
+        if (this.terrainAt(bx, by) !== WATER || lakeWaterAt(bx, by) !== LAKE_WATER) continue;
+        body.push([bx, by]);
+        for (const [dx, dy] of N4) { const nk = tileKey(bx + dx, by + dy); if (!seen.has(nk)) { seen.add(nk); stack.push([bx + dx, by + dy]); } }
+      }
+      if (!body.length || body.length > TARN_BODY_MAX) { if (this.noTarn.size > 20000) this.noTarn.clear(); for (const sk of seen) this.noTarn.add(sk); return null; }
+      pond = new Pond(env, body[0][0], body[0][1], Infinity, true); pond.setBase(body);
+    } else {
+      const h = this.gh(x, y);
+      if (N8.some(([dx, dy]) => this.gh(x + dx, y + dy) < h + PIT_DEPTH)) { this.noTarn.add(k); return null; }
+      const probe = new Pond(env, x, y, Infinity, true);
+      while (probe.tiles.length <= TARN_MAX_TILES && probe.grow()) { /* fills, to see how big the hollow is */ }
+      const rim = probe.spill ? this.gh(probe.spill[0], probe.spill[1]) : Infinity;
+      if (!probe.spill || probe.tiles.length < TARN_MIN_TILES || probe.tiles.length > TARN_MAX_TILES || rim - h < TARN_MIN_DEPTH) { this.noTarn.add(k); return null; }
+      pond = new Pond(env, x, y, Infinity, true);
+    }
+    const tarn = { pond, vol: 0 };
+    this.tarns.add(tarn);
+    for (const [tx, ty] of pond.tiles) this.tarnOf.set(tileKey(tx, ty), tarn);
+    this.tarnOf.set(k, tarn);
+    return tarn;
+  }
+  /** A packet of runoff reached (x, y): the tarn there takes it in. */
+  private feedTarn(x: number, y: number) {
+    const t = this.tarnAt(x, y);
+    if (t) t.vol = Math.min(t.vol + TARN_VOL, 40);
+  }
+  /**
+   * Every river tick: a tarn loses water to the sun, floods its next tile when it holds enough to lift its whole sheet to that ground, and
+   * gives its highest tile back when it has lost enough. A full tarn (its next ground is a rim it would spill over) sends what comes in
+   * on as runoff from the spill tile, which feeds a beck.
+   */
+  private stepTarns() {
+    for (const t of this.tarns) {
+      const p = t.pond;
+      t.vol = Math.max(-20, t.vol - TARN_EVAP * Math.max(1, p.tiles.length) * RIVER_TICK);
+      const up = p.cost();
+      if (up !== null) {
+        if (t.vol >= up) { const x = p.next()!; if (this.growTarn(t, x)) t.vol -= up; }
+        else { const dn = p.downCost(); if (dn !== null && t.vol <= -dn) { this.drainTarn(t); t.vol += dn; } }
+      } else if (p.spill && p.spillTo && t.vol >= 1) {
+        t.vol -= 1;
+        if (this.packets.length < MAX_PACKETS) this.packets.push({ x: p.spillTo[0], y: p.spillTo[1], n: 0 });
+      } else { const dn = p.downCost(); if (dn !== null && t.vol <= -dn) { this.drainTarn(t); t.vol += dn; } }
+    }
+  }
+  private growTarn(t: { pond: Pond; vol: number }, at: [number, number]): boolean {
+    if (!t.pond.grow()) return false;
+    this.by('stream', () => this.put(at[0], at[1], plainTile(WATER)));
+    this.tarnOf.set(tileKey(at[0], at[1]), t);
+    this.redrawPond(t.pond);
+    return true;
+  }
+  private drainTarn(t: { pond: Pond; vol: number }) {
+    const tile = t.pond.shrink(); if (!tile) return;
+    setPondSurface([tile], null);
+    this.tarnOf.delete(tileKey(tile[0], tile[1]));
+    this.by('stream', () => this.put(tile[0], tile[1], plainTile(this.world.generatedTerrain(tile[0], tile[1]))));
+    this.redrawPond(t.pond, tile);
+    if (!t.pond.tiles.length) this.tarns.delete(t);
+  }
+  /** Is there a natural river (one the map has) on a side of this tile? */
+  private touchesRiver(x: number, y: number) {
+    return N4.some(([dx, dy]) => this.terrainAt(x + dx, y + dy) === WATER && lakeWaterAt(x + dx, y + dy) === LAKE_RIVER);
+  }
+  /**
+   * A packet crossed a tile: the ground is wet there for as long as it is crossed (wet grass, not water). Only a tile crossed STREAM_AT times
+   * lately that touches a natural river turns to water: the runoff has found the river and widens its mouth by that one tile.
+   */
+  private cross(x: number, y: number) {
+    const k = tileKey(x, y), n = Math.min(TRICKLE_CAP, (this.trickle.get(k) ?? 0) + 1);
+    this.trickle.set(k, n);
+    this.wetUntil.set(k, this.clock + WET_TIME);
+    if (n >= STREAM_AT && this.terrainAt(x, y) !== WATER && this.streams.size < MAX_STREAM_TILES && this.inArea(x, y) && this.touchesRiver(x, y)) {
+      this.by('stream', () => this.put(x, y, plainTile(WATER)));
+      if (this.terrainAt(x, y) === WATER) {
+        this.streams.add(k); this.riverTiles.add(k); this.riverVersion++;
+        let lv = Infinity;                                                          // the tile is a bank, higher than the river: dig it down to the river's own level, or it stands as a blue ledge
+        for (const [dx, dy] of N4) if (this.terrainAt(x + dx, y + dy) === WATER && lakeWaterAt(x + dx, y + dy) === LAKE_RIVER) lv = Math.min(lv, this.gh(x + dx, y + dy));
+        if (lv < Infinity) { setPondSurface([[x, y]], lv); this.mark(x, y); }
+      }
+    }
+  }
+  /** Counts fade; a stream no longer fed dries back to the ground the generator made. */
+  private dryStreams() {
+    const f = TRICKLE_DECAY * RIVER_TICK;
+    for (const [k, n] of this.trickle) {
+      const v = n - f;
+      if (v <= 0) { this.trickle.delete(k); continue; }
+      this.trickle.set(k, v);
+      if (v >= STREAM_AT - 1) this.wetUntil.set(k, this.clock + WET_TIME);        // a runnel (crossed again and again) stays wet while it is kept fed; a single trickle dries as the rain's own wet does
+    }
+    for (const k of this.streams) {
+      if ((this.trickle.get(k) ?? 0) >= DRY_AT) continue;
+      const x = keyX(k), y = keyY(k);
+      this.streams.delete(k); this.riverTiles.delete(k); this.riverVersion++;
+      setPondSurface([[x, y]], null);
+      if (this.terrainAt(x, y) === WATER && this.world.generatedTerrain(x, y) !== WATER) this.by('stream', () => this.put(x, y, plainTile(this.world.generatedTerrain(x, y))));
     }
   }
 

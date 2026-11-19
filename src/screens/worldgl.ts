@@ -46,7 +46,8 @@ float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
 float isWater(vec3 c) { return smoothstep(0.05, 0.10, c.b - c.g) * smoothstep(0.18, 0.28, c.g - c.r); }
 float waterAt(vec2 uv, vec2 dx, vec2 dy) { vec4 s = textureGrad(uTex, uv, dx, dy); return isWater(mix(uBase.rgb, s.rgb, s.a)); }
 void main() {
-  if (uFar > 0.5) { float fd = distance(vPos.xy, uEye.xy); if (fd < uHole || fd > uHoleMax) discard; }     // the far meshes: each only in its ring, none where the real chunks are
+  if (uFar > 0.5) { float fd = distance(vPos.xy, uEye.xy); if (fd < uHole || fd > uHoleMax) discard; }
+  else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0 && distance(vPos.xy, uEye.xy) > uHoleMax) discard;   // a chunk ends where the far mesh begins (a chunk past that would poke through it in patches)     // the far meshes: each only in its ring, none where the real chunks are
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
   vec3 tn = vec3(0.0, 0.0, -1.0);
   float flatK = 1.0;                                                         // how level the ground is here: the water's ripples and glitter only lie on level water, a steep bank is plain colour
@@ -352,6 +353,11 @@ export class WorldGL {
   private farOn = false;
   /** The painted mountain range and tree line round the horizon: on a hilly world (which has real fells of its own) only low down, under 50 m above sea level. */
   private skyline = true;
+  /** How far from the eye every visible chunk is built (set by the map each frame; Infinity = all of them). The far mesh's hole is never wider than this, so ground whose chunk is still being built is covered by the far mesh instead of left empty. */
+  cover = Infinity;
+  /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
+  capD = 1e5;
+  private coverSm = Infinity;
   private nearReach = 0;                                          // how far the real chunks reach when the far mesh covers the rest (0 = as far as `reach`)
   private baseH = 0;
   private sm: Record<string, number> = {}; private smAt = 0; private camDt = 0.016;   // the camera's smoothed ground heights (see smooth)                                              // the ground height under the camera's target
@@ -791,7 +797,7 @@ export class WorldGL {
   ground(list: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[], chunkTiles: number) {
     const gl = this.gl;
     this.groundFrames++;
-    if (this.farOn && this.farMesh) this.drawFar();
+    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHoleMax, this.coverSm * 0.9 + 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);                // the flat map's water colour, under every ground tile
     gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0);
@@ -907,17 +913,23 @@ export class WorldGL {
     this.endTerrain();
   }
   private drawFar() {
-    const gl = this.gl, stride = FLOATS * 4, hole = this.nearReach * 0.9;
+    const gl = this.gl, stride = FLOATS * 4;
+    const want = Math.min(this.nearReach, this.cover);
+    this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
+    const hole = this.coverSm * 0.9;
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
     gl.uniform1f(this.loc.uFar, 1);
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
     const kk = Math.max(1, this.drawK), rings = [[hole, hole + 260 * kk], [hole + 240 * kk, hole + 820 * kk], [hole + 800 * kk, 1e9]];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)   // (the rings overlap a little: no crack where two levels meet)
+    gl.enable(gl.POLYGON_OFFSET_FILL);
     this.farMesh!.forEach((f, i) => {
+      gl.polygonOffset(-3 + i * 1.5, -3 + i * 1.5);                       // (where two levels overlap the finer one wins every pixel, so they never fight)
       gl.uniform1f(this.loc.uHole, rings[i][0]); gl.uniform1f(this.loc.uHoleMax, rings[i][1]);
       gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
       gl.drawElements(gl.TRIANGLES, f.n, gl.UNSIGNED_INT, 0);
     });
+    gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.uniform1f(this.loc.uFar, 0);
     this.endTerrain();
   }

@@ -920,6 +920,7 @@ export const la: Record<Key, string> = {
   "worldEcoByWalk": "Lacuna migravit",
   "worldEcoByPaint": "Picta",
   "worldEcoByDam": "Stagna aggerum",
+  "worldEcoByStream": "Rivi ex pluvia",
   "worldEcoBeavers": "Castores",
   "worldEcoHauled": "Bacula et lapides portati",
   "worldEcoDams": "Aggeres perfecti",

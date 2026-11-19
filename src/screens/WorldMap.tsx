@@ -49,6 +49,7 @@ const TILT_RAD = 1.1;   // radians of tipping per unit of tilt (slider step / 10
 /** The slider's 0..16 as a tilt unit (x TILT_RAD radians): steps 1-8 are tenths (up to about 50 degrees), 9-16 go on to about 62 degrees. */
 const tiltUnit = (n: number) => (n <= 8 ? n / 10 : 0.8 + (n - 8) * 0.0225);
 const TILT_CAP = 0.98;
+const MAX_REAL = 320;   // chunks asked for at once in the 3D view (about 80 MB of pictures); past that the far mesh covers the ground
 const DECO_VIEW = 100;   // tiles: how far trees, bushes and rocks are built on a hilly world
 const HOOP_VIEW = 100;   // tiles: how far hoops, rain clouds and their rain are drawn, whatever the draw distance
 const LAKE_START_ALT = 50, LAKE_START_SPEED = 7;   // the Lake District starts in flight: metres above the ground, and ground speed in m/s
@@ -804,7 +805,15 @@ function WorldView({ id }: { id: string }) {
         const rawFp = fp;
         fp = { minX: Math.min(rawFp.minX, f.x - NR), maxX: Math.max(rawFp.maxX, f.x + NR), minY: Math.min(rawFp.minY, f.y - NR), maxY: Math.max(rawFp.maxY, f.y + NR), inside: (x: number, y: number, m: number) => (Math.abs(x - f.x) <= NR + m && Math.abs(y - f.y) <= NR + m) || rawFp.inside(x, y, m) };
         const wide = fp;
-        chunkVis = (cx: number, cy: number) => wide.inside((cx + 0.5) * CHUNK, (cy + 0.5) * CHUNK, CHUNK * 0.75);
+        const base = (cx: number, cy: number) => wide.inside((cx + 0.5) * CHUNK, (cy + 0.5) * CHUNK, CHUNK * 0.75);
+        // At a long draw distance more chunks are in view than the chunk budget holds (the held ones are dropped, farthest first, then asked for again: the edge of the real ground jumped about every frame). So ask only for the nearest MAX_REAL; the far mesh covers the rest, and the limit eases (4 tiles a frame), never jumps.
+        const ds: number[] = [];
+        for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (base(cx, cy)) ds.push(Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY));
+        ds.sort((a, b) => a - b);
+        const want = ds.length > MAX_REAL ? ds[MAX_REAL - 1] : 1e5, cur = glr!.capD;
+        glr!.capD = cur + Math.max(-4, Math.min(4, want - cur));
+        const capD = glr!.capD;
+        chunkVis = (cx: number, cy: number) => base(cx, cy) && Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) <= capD;
       } else {
         // What the stage really shows, as a quad on the canvas: its four corners taken back through the tip and the turn. The canvas is a bigger
         // rectangle than that, so everything (ground chunks, trees, clouds, the ecosystem's watched area) is only handled where this quad reaches.
@@ -879,6 +888,7 @@ function WorldView({ id }: { id: string }) {
         if (performance.now() - t0 >= budget) break;
         if (stepChunk(cx, cy, t0 + budget)) built++;
       }
+      if (glr) { let cover = Infinity; for (const [cx, cy] of missing) if (!chunks.current.has(tileKey(cx, cy))) cover = Math.min(cover, Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) - CHUNK); glr.cover = Math.min(Math.max(0, cover), glr.capD); }   // (the far mesh covers the ground whose chunks are not built yet: no gap between the chunks and the far hills)
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
       if (f.mode === 'glide' && useGL && performance.now() - t0 < 3) {
         const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [];

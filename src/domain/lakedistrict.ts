@@ -113,9 +113,26 @@ export function setLakeData(w: number, h: number, rgba: ArrayLike<number>, credi
   for (let i = 0; i < w * h; i++) { heightM[i] = (rgba[i * 4] * 256 + rgba[i * 4 + 1]) / 10; water[i] = rgba[i * 4 + 2]; }
   data = { w, h, heightM, water, corners: new Float32Array(0), credits, map, tileM: LAKE_MAPS[map].tileM, stretch: LAKE_MAPS[map].stretch };
   data.corners = cornerGrid(data);
+  pondOrig.clear();
   return data;
 }
 export const lakeData = (): LakeData | null => data;
+
+/** Corners held at a pond's water level (index -> the ground height they had), so a drained pond gives the ground back. */
+const pondOrig = new Map<number, number>();
+const pondCorners = (d: LakeData, x: number, y: number) => {
+  const W = d.w + 1, out: number[] = [];
+  for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) { const cx = x + i + (d.w >> 1), cy = y + j + (d.h >> 1); if (cx >= 0 && cy >= 0 && cx < W && cy < d.h + 1) out.push(cy * W + cx); }
+  return out;
+};
+/** Flatten the corners of these tiles to a water level in metres (a pond is a flat sheet, like a lake), or give the ground back with `level = null`. */
+export function setPondSurface(tiles: readonly (readonly [number, number])[], level: number | null): void {
+  const d = data; if (!d) return;
+  for (const [x, y] of tiles) for (const k of pondCorners(d, x, y)) {
+    if (level === null) { const o = pondOrig.get(k); if (o !== undefined) { d.corners[k] = o; pondOrig.delete(k); } }
+    else { if (!pondOrig.has(k)) pondOrig.set(k, d.corners[k]); d.corners[k] = level; }
+  }
+}
 export const lakeReady = (map?: LakeMapId): boolean => data !== null && (!map || data.map === map);
 /** The map that is loaded (the big one before any has been). */
 export const lakeMapId = (): LakeMapId => data?.map ?? 'lakes';
@@ -287,20 +304,20 @@ export function lakeOnMap(x: number, y: number, m = 0): boolean { const d = data
 export interface FarMesh { cols: number; rows: number; step: number; pos: Float32Array; col: Float32Array; idx: Uint32Array }
 export function lakeFarMesh(step = 8): FarMesh | null {
   const d = data; if (!d) return null;
-  const cols = Math.ceil(d.w / step) + 1, rows = Math.ceil(d.h / step) + 1, n = cols * rows, hgt = new Float32Array(n), wet = new Uint8Array(n);
+  const cols = Math.ceil(d.w / step) + 1, rows = Math.ceil(d.h / step) + 1, n = cols * rows, hgt = new Float32Array(n), wet = new Uint8Array(n), riv = new Float32Array(n);
   const px = (i: number) => i * step - ox(d), py = (j: number) => j * step - oy(d), half = step >> 1;
   for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-    let land = 0, water = 0, level = Infinity, tot = 0;
+    let land = 0, water = 0, level = Infinity, tot = 0, sum = 0, nLand = 0, rivers = 0;
     for (let y = py(j) - half; y < py(j) + half; y++) for (let x = px(i) - half; x < px(i) + half; x++) {
       tot++;
       if (x < -ox(d) || y < -oy(d) || x >= d.w - ox(d) || y >= d.h - oy(d)) { water++; level = 0; continue; }   // (beyond the map: sea)
       const q = (y + oy(d)) * d.w + x + ox(d);
       if (d.water[q] === LAKE_WATER) { water++; if (d.heightM[q] < level) level = d.heightM[q]; }
-      else if (d.heightM[q] > land) land = d.heightM[q];
+      else { if (d.heightM[q] > land) land = d.heightM[q]; sum += d.heightM[q]; nLand++; if (d.water[q] === LAKE_RIVER) rivers++; }
     }
     const k = j * cols + i;
-    wet[k] = water * 2 > tot ? 1 : 0;
-    hgt[k] = wet[k] ? (level === Infinity ? 0 : level) : land;
+    wet[k] = water * 2 > tot ? 1 : 0; riv[k] = rivers / tot;
+    hgt[k] = wet[k] ? (level === Infinity ? 0 : level) : step <= 4 && nLand ? sum / nLand : land;   // (the fine mesh takes the block's mean: its highest point would stand over the real ground at the edge of the chunks, a visible step; the coarse ones keep the peaks)
   }
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), lerp = (a: number, b: number, t: number) => a + (b - a) * t;
   const H = (i: number, j: number) => hgt[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))] / d.tileM * d.stretch;
@@ -316,6 +333,10 @@ export function lakeFarMesh(step = 8): FarMesh | null {
     else if (m < 450) { const t = (m - 150) / 300; r = lerp(0.30, 0.40, t); g = lerp(0.46, 0.44, t); b = lerp(0.13, 0.20, t); }
     else if (m < 750) { const t = (m - 450) / 300; r = lerp(0.40, 0.52, t); g = lerp(0.44, 0.47, t); b = lerp(0.20, 0.42, t); }
     else { r = 0.60; g = 0.60; b = 0.60; }
+    if (!wet[k] && riv[k] > 0 && step <= 12) {   // rivers: a stream is narrower than a block, so the block takes a share of the water's colour in proportion to how much of it is river (the vertices blend it into a streak that follows the river)
+      const t = Math.min(0.85, riv[k] * step * 0.6);
+      r = lerp(r, 0.06, t); g = lerp(g, 0.42, t); b = lerp(b, 0.55, t);
+    }
     const s = wet[k] ? 1 : sh;
     col[k * 3] = Math.min(1, r * s); col[k * 3 + 1] = Math.min(1, g * s); col[k * 3 + 2] = Math.min(1, b * s);
   }

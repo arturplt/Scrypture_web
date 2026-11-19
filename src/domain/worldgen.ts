@@ -13,7 +13,7 @@
  *    ecosystem changed a tile keeps every other decoration where it was.
  */
 
-import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, LAKE_LAND, groundTiles, groundZ, type WorldKind } from './lakedistrict';
+import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, type WorldKind } from './lakedistrict';
 
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
@@ -281,6 +281,8 @@ export class World {
   }
   /** Ground height in tiles at a point (0 on the flat procedural worlds), and in glider metres. */
   heightAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundTiles(px, py) : 0; }
+  /** Real ground height in metres at a tile's centre (0 on the flat worlds). */
+  metresAt(x: number, y: number): number { return this.kind === 'lakedistrict' ? lakeMetresAt(x, y) : 0; }
   groundZAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundZ(px, py) : 0; }
   generatedTerrain(x: number, y: number): Terrain {
     const cx = chunkOf(x), cy = chunkOf(y);

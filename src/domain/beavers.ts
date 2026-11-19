@@ -5,6 +5,8 @@
  * A finished dam holds water: its region aims for more water (`Ecosystem.addWaterTarget`) and a pond grows beside it.
  * Positions are in tiles (y south, like the map); a tile's centre is at its whole coordinates.
  */
+import { Pond, DAM_TILE_SHARE, POND_MIN } from './hydrology';
+import { lakeWaterAt, LAKE_WATER, lakeData } from './lakedistrict';
 import { hash01, tileKey, WATER, DECO_NONE, DECO_BUSH, type World } from './worldgen';
 import { isBerryBush } from './berries';
 import { isNight } from './sky';
@@ -14,6 +16,10 @@ import { MAX_DAM_TILES, MAX_TRUSTED, BURROW_STICKS, ADULT_AGE, OLD_AGE, DEATH_AG
 
 export const COLONY_CELL = 48, COLONY_CHANCE = 0.6;
 export const DAM_REACH = 16;             // how far from its seed point a colony looks for water to dam
+/** How high a dam stands, in metres: a share of the map's tile width (1.5 m on the 10 m map, 7.5 m on the 50 m one). */
+const damHeight = () => DAM_TILE_SHARE * (lakeData()?.tileM ?? 10);
+export const HILL_REACH = 32;           // hilly worlds: a colony looks this far from its seed point for a valley to dam (the streams are few and a dam needs the right valley)
+export const DAM_RUN = 12, DAM_MAX_LEN = 24;   // hilly worlds: a dam runs on over low ground up to this far each side of the stream, and at most this long in all
 export const DAM_MAX_SPAN = 6;           // tiles of water a dam can cross
 export const DAM_STICKS = 2, DAM_STONES = 1;   // what one dam tile takes
 export const HAUL_REACH = 60;            // how far from the burrow a beaver goes for a stick or stone (about 45 of each lie that near on dry land; a lake colony finds only a few stones)
@@ -55,6 +61,7 @@ export interface Colony {
   px: number; py: number;                // where the pond grows from (one side of the dam)
   done: boolean;
   pondAcc: number;
+  pond?: Pond;                           // on a hilly world: the pond as a water level behind the dam (see hydrology.ts)
   trust: number;                         // 0..MAX_TRUST: how often the player has fed this colony
   pending: boolean;                      // reserved for a beaver that is on its way: no beavers yet, and not abandoned
   abandoned: boolean;                    // its last beaver died: the burrow and dam stay (and start to decay, B4)
@@ -156,11 +163,26 @@ export class BeaversManager {
 
   private water(x: number, y: number) { return this.world.terrainAt(x, y) === WATER; }
 
+  /** The pond a dam at these tiles holds (its crest is the lowest bed it crosses plus DAM_HEIGHT: water goes over the lowest point), seeded at (px, py): it floods only the seed's side of the dam, up to the dam's crest. */
+  private makePond(dam: { x: number; y: number }[], px: number, py: number): Pond {
+    const horiz = dam.length > 1 ? dam[0].y === dam[1].y : py !== dam[0].y, lx = dam[0].x, ly = dam[0].y;   // the dam is one straight line: along x (constant y) or along y; the seed is on one side of it
+    const ok = horiz ? (_x: number, y: number) => (y - ly) * (py - ly) > 0 : (x: number) => (x - lx) * (px - lx) > 0;
+    return new Pond(this.eco.pondEnv(ok), px, py, Math.min(...dam.map(d => this.world.metresAt(d.x, d.y))) + damHeight(), true);   // (true: it stops where its water would run out over low ground, instead of standing above it)
+  }
+  /** A dam stands or falls: a hilly world's pond gets its crest back or loses it (and drains tile by tile), a flat one moves its region's water target. */
+  private holds(c: Colony, yes: boolean) {
+    if (this.eco.hilly) {
+      c.pond ??= this.makePond(c.dam, c.px, c.py);
+      c.pond.cap = yes ? Math.min(...c.dam.map(d => this.world.metresAt(d.x, d.y))) + damHeight() : -Infinity;
+    } else this.eco.addWaterTarget(c.px, c.py, yes ? POND_TILES : -POND_TILES);
+  }
+
   /**
    * A stretch of water to dam near (cx, cy): a straight run of 1..6 water tiles with land at both ends and water on both sides
    * of it (so it cuts a channel or a neck, not a corner of a bay). River lines are preferred, then the nearest.
    */
   private findSite(cx: number, cy: number): { tiles: [number, number][]; px: number; py: number } | null {
+    if (this.eco.hilly) return this.findSiteHilly(cx, cy);
     let best: { tiles: [number, number][]; px: number; py: number } | null = null, bestScore = Infinity;
     for (let y = cy - DAM_REACH; y <= cy + DAM_REACH; y++) for (let x = cx - DAM_REACH; x <= cx + DAM_REACH; x++) {
       if (!this.water(x, y)) continue;
@@ -175,8 +197,50 @@ export class BeaversManager {
         const [mx, my] = tiles[tiles.length >> 1];
         const score = Math.hypot(mx - cx, my - cy) + (river ? 0 : DAM_REACH) + tiles.length;
         if (score >= bestScore) continue;
-        const side = hash01(mx, my, this.world.seed & 0xffff, 404) < 0.5 ? 1 : -1;
+        let side = hash01(mx, my, this.world.seed & 0xffff, 404) < 0.5 ? 1 : -1;
+        if (this.eco.hilly) {                                           // the pond lies uphill of the dam, and must be big enough to be worth it
+          side = this.world.metresAt(mx + dy * 2, my + dx * 2) >= this.world.metresAt(mx - dy * 2, my - dx * 2) ? 1 : -1;
+          if (this.makePond(tiles.map(([x, y]) => ({ x, y })), mx + dy * 2 * side, my + dx * 2 * side).estimate() < POND_MIN) continue;
+        }
         bestScore = score; best = { tiles, px: mx + dy * 2 * side, py: my + dx * 2 * side };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * A hilly world: the dam is one straight line across the valley. It starts at a stream tile and runs on both ways over every tile lower than the
+   * crest (the stream's bed plus the dam's height), until the ground rises to the crest on each side, so water cannot go round it. Of all the streams
+   * and both directions near (cx, cy), the one that fills the biggest pond with the least dam (fewest tiles per tile of water, then the nearest) wins.
+   * The pond lies on the higher side. Null if no dam of at most DAM_MAX_LEN tiles holds a pond of POND_MIN tiles.
+   */
+  private findSiteHilly(cx: number, cy: number): { tiles: [number, number][]; px: number; py: number } | null {
+    const h = (x: number, y: number) => this.world.metresAt(x, y);
+    let best: { tiles: [number, number][]; px: number; py: number } | null = null, bestScore = Infinity;
+    for (let y = cy - HILL_REACH; y <= cy + HILL_REACH; y++) for (let x = cx - HILL_REACH; x <= cx + HILL_REACH; x++) {
+      if (!this.water(x, y) || lakeWaterAt(x, y) === LAKE_WATER) continue;
+      const river = this.eco.riverTiles.has(tileKey(x, y)) || lakeWaterAt(x, y) !== 0;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        const crest = h(x, y) + damHeight();
+        const run = (sg: 1 | -1): [number, number][] | null => {
+          const out: [number, number][] = [];
+          for (let i = 1; i <= DAM_RUN; i++) {
+            const tx = x + dx * i * sg, ty = y + dy * i * sg;
+            if (lakeWaterAt(tx, ty) === LAKE_WATER) return null;       // a lake is not dammed here
+            if (h(tx, ty) >= crest && !this.water(tx, ty)) return out; // high ground: the dam ends against it
+            out.push([tx, ty]);
+          }
+          return null;                                                  // never met high ground: the valley is too wide
+        };
+        const a = run(-1), b = run(1);
+        if (!a || !b || a.length + b.length + 1 > DAM_MAX_LEN) continue;
+        const tiles: [number, number][] = [...a.reverse(), [x, y], ...b];
+        const up = h(x + dy * 2, y + dx * 2) >= h(x - dy * 2, y - dx * 2) ? 1 : -1;
+        const px = x + dy * 2 * up, py = y + dx * 2 * up;
+        const est = this.makePond(tiles.map(([tx, ty]) => ({ x: tx, y: ty })), px, py).estimate();
+        if (est < POND_MIN) continue;
+        const score = tiles.length / est + Math.hypot(x - cx, y - cy) * 0.02 + (river ? 0 : 1);
+        if (score < bestScore) { bestScore = score; best = { tiles, px, py }; }
       }
     }
     return best;
@@ -200,13 +264,14 @@ export class BeaversManager {
    */
   found(key: string, cx: number, cy: number, settle = true): Colony | null {
     if (this.colonies.has(key)) return this.colonies.get(key)!;
-    const near = this.orphans.filter(d => Math.abs(d.x - cx) <= DAM_REACH + DAM_MAX_SPAN && Math.abs(d.y - cy) <= DAM_REACH + DAM_MAX_SPAN);
+    const near = this.orphans.filter(d => Math.abs(d.x - cx) <= HILL_REACH + DAM_MAX_LEN && Math.abs(d.y - cy) <= DAM_REACH + DAM_MAX_LEN);
     let dam: DamTile[], px: number, py: number;
     if (near.length) {
       this.orphans = this.orphans.filter(d => !near.includes(d));
       dam = near;
       const m = dam[dam.length >> 1], across = dam.length > 1 && dam[1].x !== dam[0].x;   // the dam runs east-west: the pond lies north or south
-      const side = hash01(m.x, m.y, this.world.seed & 0xffff, 404) < 0.5 ? 1 : -1;
+      let side = hash01(m.x, m.y, this.world.seed & 0xffff, 404) < 0.5 ? 1 : -1;
+      if (this.eco.hilly) side = this.world.metresAt(m.x + (across ? 0 : 2), m.y + (across ? 2 : 0)) >= this.world.metresAt(m.x - (across ? 0 : 2), m.y - (across ? 2 : 0)) ? 1 : -1;
       px = m.x + (across ? 0 : 2 * side); py = m.y + (across ? 2 * side : 0);
     } else {
       const site = this.findSite(cx, cy);
@@ -220,7 +285,7 @@ export class BeaversManager {
     this.savedTrust.delete(key); this.savedBurrows.delete(key); this.savedAbandoned.delete(key);
     this.colonies.set(key, c);
     // a saved dam holds water if it was ever finished (every tile has its stone: the stone goes on last) and has not given way since
-    if (dam.every(d => d.stones >= DAM_STONES) && !damBroken(c)) { c.done = true; this.eco.addWaterTarget(c.px, c.py, POND_TILES); }
+    if (dam.every(d => d.stones >= DAM_STONES) && !damBroken(c)) { c.done = true; this.holds(c, true); if (c.pond) this.eco.adoptPond(c.pond); }
     const sp = this.savedPop.get(key);
     this.savedPop.delete(key);
     if (settle && !c.abandoned) for (const o of sp ?? [{ sex: 'm' as const, age: ADULT_AGE }, { sex: 'f' as const, age: ADULT_AGE }]) this.spawn(c, o.sex, o.age);
@@ -314,7 +379,7 @@ export class BeaversManager {
     if (!left.length) return;
     const d = rain ? left.reduce((a, b) => (b.sticks < a.sticks ? b : a)) : left[Math.floor(this.rng() * left.length)];
     d.sticks--; this.tally.leaked++; this.dirty = true;
-    if (damBroken(c)) { c.done = false; this.eco.addWaterTarget(c.px, c.py, -POND_TILES); this.tally.damsBroken++; }
+    if (damBroken(c)) { c.done = false; this.holds(c, false); this.tally.damsBroken++; }
   }
   /** Daytime with the clock on: time to be in the burrow. */
   private resting() { return this.dayNight && !isNight(this.eco.hour); }
@@ -409,7 +474,7 @@ export class BeaversManager {
     if (kind === 'stick') d.sticks++; else d.stones++;
     this.dirty = true;
     if (damTileDone(d)) this.tally.damTiles++;
-    if (!c.done && c.dam.every(damTileDone)) { c.done = true; this.tally.damsDone++; this.eco.addWaterTarget(c.px, c.py, POND_TILES); }
+    if (!c.done && c.dam.every(damTileDone)) { c.done = true; this.tally.damsDone++; this.holds(c, true); }
     return true;
   }
 
@@ -443,7 +508,7 @@ export class BeaversManager {
       if (!c.dam.some(d => (d.sticks || d.stones) && Math.hypot(d.x - x, d.y - y) <= GIVE_RADIUS)) continue;
       let sticks = 0, stones = 0;
       for (const d of c.dam) { sticks += d.sticks; stones += d.stones; d.sticks = 0; d.stones = 0; }
-      if (c.done) { c.done = false; this.eco.addWaterTarget(c.px, c.py, -POND_TILES); this.tally.damsBroken++; }
+      if (c.done) { c.done = false; this.holds(c, false); this.tally.damsBroken++; }
       c.trust = Math.max(0, c.trust - BREAK_TRUST_LOSS); this.dirty = true;
       return { sticks: Math.ceil(sticks / 2), stones: Math.ceil(stones / 2) };
     }
@@ -592,7 +657,9 @@ export class BeaversManager {
           if (fed && (c.litterAcc += dt) >= LITTER_WAIT) { c.litterAcc = 0; this.birth(c, mine.length); }
         } else c.litterAcc = 0;
       }
-      if (c.done && (c.pondAcc += dt) >= POND_TICK) { c.pondAcc = 0; if (this.eco.growPond(c.px, c.py)) this.tally.pond++; }
+      if (this.eco.hilly) {
+        if (c.pond && (c.pondAcc += dt) >= POND_TICK) { c.pondAcc = 0; if (c.done ? this.eco.growHeightPond(c.pond) : this.eco.drainHeightPond(c.pond)) this.tally.pond++; else if (c.done) this.eco.spillHeightPond(c.pond); }
+      } else if (c.done && (c.pondAcc += dt) >= POND_TICK) { c.pondAcc = 0; if (this.eco.growPond(c.px, c.py)) this.tally.pond++; }
     }
     for (const b of this.beavers.slice()) if (awake.has(b.colony)) this.stepBeaver(b, this.colonies.get(b.colony)!, dt);
     this.reap();
