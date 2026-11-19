@@ -15,6 +15,7 @@ import { navigate } from '../router';
 import { PixelButton } from '../ui/PixelButton';
 import { PixelFrame } from '../ui/PixelFrame';
 import { BurnFire, BURN_SECONDS } from './BurnFire';
+import { holdSync } from '../data/cloud';
 import { PixelSlider } from '../ui/PixelSlider';
 import { createAudioEngine, type AudioEngine } from '../audio/engine';
 import { Icon } from '../ui/misc';
@@ -494,7 +495,7 @@ function WorldView({ id }: { id: string }) {
     const tEnv: ThermalEnv = { seed: s.world.seed, hour: 0, warm: 1, heatAt };
     const thermalEnv = () => { tEnv.hour = s.hour; tEnv.warm = Math.max(0.6, Math.min(1.4, 1 + (s.eco.temperature - BASE_TEMPERATURE) / 25)); return tEnv; };
 
-    let lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0, instMeasured = 0, instLimit = Infinity;
+    let flyHeld = false, lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0, instMeasured = 0, instLimit = Infinity;
     if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
     const mark = (k: string) => { if (!perf.on) return; const t = performance.now(); perf.ph[k] = (perf.ph[k] ?? 0) + (t - perf.pt); perf.pt = t; };   // (?perf: where the frame's time goes, averaged over 2 s)
     const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, ev: '' }, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
@@ -893,6 +894,11 @@ function WorldView({ id }: { id: string }) {
       }
       if (chunks.current.size > (cx1 - cx0 + 1) * (cy1 - cy0 + 1) * 3) {                // drop the far chunks; they rebuild exactly from the seed
         for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) chunks.current.delete(key); }
+      }
+      const heldCap = Math.max(240, Math.ceil(glChunks.length * 1.25) + 40);   // (never fewer than what is on screen, or they would be dropped and rebuilt every frame)
+      if (chunks.current.size > heldCap) {   // a hard cap: every chunk's picture is 256 KB of memory, and a phone has to hold the GPU copies as well; the farthest from the plane go first
+        const far = [...chunks.current.keys()].sort((a, b) => Math.hypot(keyX(b) - chunkOf(f.x), keyY(b) - chunkOf(f.y)) - Math.hypot(keyX(a) - chunkOf(f.x), keyY(a) - chunkOf(f.y)));
+        for (const k of far.slice(0, chunks.current.size - (heldCap - 40))) chunks.current.delete(k);
       }
 
       // shared by both views: the plane's state, thermals, the sky's drift
@@ -1594,7 +1600,8 @@ function WorldView({ id }: { id: string }) {
           drawMinimap(mini.current, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks); }
         }
       mark('overlay');
-      if (saveAcc >= 45) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) { perf.persist = Math.max(perf.persist, performance.now() - p0); perf.f.persist = performance.now() - p0; } }
+      { const fl = f.mode === 'glide' && !gl.landed; if (fl !== flyHeld) { flyHeld = fl; holdSync(fl); if (!fl && saveAcc >= 10) saveAcc = 45; } }   // (in flight the cloud sync waits and the periodic save is put off: both come when the plane lands)
+      if (saveAcc >= 45 && !flyHeld) { saveAcc = 0; const p0 = performance.now(); persist(); if (perf.on) { perf.persist = Math.max(perf.persist, performance.now() - p0); perf.f.persist = performance.now() - p0; } }
       if (perf.on) {
         perf.work = Math.max(perf.work, performance.now() - w0); perf.f.work = performance.now() - w0;
         if (now - perf.since > 2000) {   // the readout, a few short lines (worst values of the last 2 s)
@@ -1603,11 +1610,14 @@ function WorldView({ id }: { id: string }) {
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}`,
+            `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)`,
+            `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)`,
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
             `why ${perfStat.why}`,
             `avg ms/frame:`,
             avg.slice(0, 3).join('  '), avg.slice(3, 6).join('  '), avg.slice(6, 9).join('  '), avg.slice(9).join('  '),
           ].filter(Boolean).join('\n');
+          (window as unknown as { __instMs?: number }).__instMs = 0;
           perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
           perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
         }
@@ -1629,7 +1639,7 @@ function WorldView({ id }: { id: string }) {
     const unlock = () => eng?.unlock();
     const blip = (e: Event) => { if (e.target instanceof Element && e.target.closest('button')) eng?.play('blip'); };   // every button in the world screen clicks
     addEventListener('keydown', unlock); addEventListener('pointerdown', unlock); addEventListener('click', blip);
-    return () => { removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
+    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
   }, [ready, id]);
 
   // paint tool

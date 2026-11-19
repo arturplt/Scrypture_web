@@ -190,7 +190,10 @@ export async function syncNow(): Promise<void> {
 }
 
 // ---- when to sync
-const schedule = (ms: number) => { clearTimeout(timer); timer = setTimeout(() => void syncNow(), ms); };
+let held = false, heldPending = false;
+/** A game can hold the sync while it needs every frame (the paperplane in flight): what changes meanwhile is synced as soon as it is let go. */
+export function holdSync(on: boolean) { held = on; if (!on && heldPending) { heldPending = false; schedule(600); } }
+const schedule = (ms: number) => { if (held) { heldPending = true; return; } clearTimeout(timer); timer = setTimeout(() => void syncNow(), ms); };
 
 store.subscribe(() => {
   const s = store.getState();
@@ -202,7 +205,7 @@ store.subscribe(() => {
 });
 if (typeof document !== 'undefined') {
   // leaving the page: save now; coming back: pick up what the other device did
-  document.addEventListener('visibilitychange', () => { clearTimeout(timer); void syncNow(); });
+  document.addEventListener('visibilitychange', () => { clearTimeout(timer); heldPending = false; void syncNow(); });
   window.addEventListener('online', () => void syncNow());
 }
 

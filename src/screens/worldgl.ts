@@ -340,7 +340,8 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { cv: HTMLCanvasElement; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }>();
+  private chunkTex = new Map<number, { cv: HTMLCanvasElement; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject; used?: number }>();
+  private groundFrames = 0;   // (counts the ground draws: a chunk's GPU copy that has not been drawn for a few seconds is freed)
   /** Ground height in tiles under a point (a hilly world: the Lake District); null = flat ground at 0. Set it before the first frame. */
   terrain: ((x: number, y: number) => number) | null = null;
   /** While true, sprites are placed at heights above sea level (the clouds), not above the ground under them. */
@@ -789,6 +790,7 @@ export class WorldGL {
   /** Draw the chunks (each a ground-sized quad textured with its canvas). New or rebuilt canvases are uploaded once. */
   ground(list: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[], chunkTiles: number) {
     const gl = this.gl;
+    this.groundFrames++;
     if (this.farOn && this.farMesh) this.drawFar();
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);                // the flat map's water colour, under every ground tile
@@ -810,7 +812,7 @@ export class WorldGL {
       for (const c of list) {
         const ent = this.chunkTex.get(c.key);
         if (!ent) continue;   // (its turn has not come yet)
-        gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles);
+        ent.used = this.groundFrames; gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles);
       }
     } else {   // flat chunks: every quad goes up in one buffer (one upload, not one per chunk), then one small draw each, each with its own texture
       const need = Math.min(MAX_QUADS, list.length) * 4 * FLOATS;
@@ -819,6 +821,7 @@ export class WorldGL {
       for (const c of list) {
         const ent = this.chunkTex.get(c.key);
         if (!ent || drawn.length >= MAX_QUADS) continue;
+        ent.used = this.groundFrames;
         const x0 = c.cx * chunkTiles - e, y0 = c.cy * chunkTiles - e, x1 = (c.cx + 1) * chunkTiles + e, y1 = (c.cy + 1) * chunkTiles + e;
         b[o++] = x0; b[o++] = y0; b[o++] = 0; b[o++] = 0; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
         b[o++] = x1; b[o++] = y0; b[o++] = 0; b[o++] = 1; b[o++] = 0; b[o++] = 1; b[o++] = 1; b[o++] = 1; b[o++] = 1;
@@ -919,9 +922,12 @@ export class WorldGL {
     this.endTerrain();
   }
 
+  /** (the ?perf readout) how many chunk textures are held on the GPU */
+  get texCount() { return this.chunkTex.size; }
+
   /** Free the textures of chunks that are gone. */
   prune(has: (key: number) => boolean) {
-    for (const [k, e] of this.chunkTex) if (!has(k)) { this.gl.deleteTexture(e.tex); if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k); }
+    for (const [k, e] of this.chunkTex) if (!has(k) || this.groundFrames - (e.used ?? this.groundFrames) > 240) { this.gl.deleteTexture(e.tex); if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k); }
   }
 
   /** A quad from its centre and two half-axes (world vectors), textured with `uv`, tinted `rgba`. */
