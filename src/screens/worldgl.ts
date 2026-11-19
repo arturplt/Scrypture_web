@@ -573,7 +573,7 @@ export class WorldGL {
       r = [-c.upY, c.upX, 0];                                             // (the right-hand side is level, whatever the pitch)
       const hasFar = !!T && !!this.farMesh;
       if (hasFar) this.nearReach = mix(this.reach, 200 * this.walkK);                       // the real chunks reach 140 tiles; the far mesh shows the rest of the map, hazing out at 560
-      this.reach = mix(this.reach, T ? (hasFar ? FAR_REACH : 240 * this.walkK) : 48); this.fogStart = mix(this.fogStart, T ? (hasFar ? Math.max(500, 300 * this.walkK) : 180 * this.walkK) : 44); this.farOn = hasFar;   // (a hilly world shows far: fells and lakes kilometres off. The flat worlds keep their short haze)   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
+      this.reach = mix(this.reach, T ? (hasFar ? FAR_REACH : 240 * this.walkK) : 140 * Math.max(1, this.drawK)); this.fogStart = mix(this.fogStart, T ? (hasFar ? Math.max(500, 300 * this.walkK) : 180 * this.walkK) : 125 * Math.max(1, this.drawK)); this.farOn = hasFar;   // (a hilly world shows far: fells and lakes kilometres off. The flat worlds keep their short haze)   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
       this.fogStart = Math.max(this.fogStart, this.reach * 0.9);   // (the blend from the flying view's haze to the walking one must not pass through a close fog: the haze only ever sits in the last tenth of the reach)
       near = mix(near, hasFar ? 0.15 : 0.05); far = mix(far, this.reach * 1.6);
     }

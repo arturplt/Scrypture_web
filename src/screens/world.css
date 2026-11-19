@@ -130,7 +130,7 @@
 .wui-acro > span { display: block; width: 100%; text-align: center; white-space: nowrap; line-height: 1; padding-left: 1px; }   /* (the border is thin so the four letters fit inside it and sit in the middle) */   /* the aerobatics switch sits to the left of the instrument */
 .wui-acro[aria-pressed="true"] { color: #fff; }
 .wui-boostside * { pointer-events: auto; }
-.world-mousebtn { position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; padding: 0; }
+.world-mousebtn { touch-action: none; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; padding: 0; }
 
 
 /* a phone held sideways: the instruments (small, in one row along the bottom) and a small minimap; the throw button stays too, to fly again after landing */
@@ -365,6 +365,18 @@
 /* the zoom slider under the camera buttons: phones only; up is closer */
 .wui-zoom { display: none; }
 @media (pointer: coarse) {
-  .wui-zoom { display: block; justify-self: center; pointer-events: auto; touch-action: none; writing-mode: vertical-lr; direction: rtl; width: calc(28 * var(--u)); height: calc(120 * var(--u)); margin: 0; accent-color: #ffc233; }
+  .wui-zoom { display: block; position: relative; justify-self: center; pointer-events: auto; touch-action: none; width: calc(20 * var(--u)); height: calc(120 * var(--u)); container-type: size; background: none; -webkit-tap-highlight-color: transparent; }
+  .wui-zoom .slider { position: absolute; left: 50%; top: 50%; width: 100cqh; transform: translate(-50%, -50%) rotate(-90deg); }
+  .wui-zoom .slider { height: calc(20 * var(--u)); }
+  .wui-zoom .slider-thumb { width: calc(20 * var(--u)); left: calc(var(--v) * (100% - 20 * var(--u))); }
+  .wui-zoom .slider input { pointer-events: none; }   /* the wrapper takes the drag itself (a rotated native range is unreliable on touch) */
   .world.hideui .wui-zoom { display: none; }
 }
+
+/* burned: fire eats the view (BurnFire: a shader for the burn, the game's flames on its front), then the game-over box with the Respawn button */
+.world-burn { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; pointer-events: auto; overflow: hidden; }
+.world-burn canvas.burn-em { inset: 0; width: 100%; height: 100%; image-rendering: auto; }
+.world-burn canvas { position: absolute; image-rendering: pixelated; pointer-events: none; }   /* (BurnFire sets each canvas to a whole number of its pixels, bottom left) */
+.world-burnbox { position: relative; z-index: 1; pointer-events: auto; animation: world-pop 0.4s steps(4); }
+.world-burnwrap { position: relative; z-index: 1; }
+.world-throwcol { display: flex; flex-direction: column; align-items: stretch; gap: calc(6 * var(--u)); }   /* Throw above Shop, in one column between the two joysticks */

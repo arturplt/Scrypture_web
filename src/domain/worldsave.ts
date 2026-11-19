@@ -39,6 +39,7 @@ export interface SavedWorld {
   hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number };
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
   scores?: RunScore[];            // this world's leaderboard (best runs first)
+  burned?: number;                // how many times fire or lightning has burned the plane (and sent it back to the start)
   boosts?: number;                // boosts in hand, carried over from run to run (and between visits)
   shop?: { launch: number; paper: number; insurance: number; float: number; double: number };   // what was bought in the shop (see shop.ts)
   sticks?: string[];              // keys of the sticks already picked up (see sticks.ts)
@@ -152,7 +153,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
       hour: clamp(fin(w.hour, 12), 0, 23.999),
       wind: { enabled: wind.enabled !== false, strength: clamp(fin(wind.strength, dw.strength), 0, 10), dir: fin(wind.dir, dw.dir) },
       plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45) },
-      scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), shop: sanitizeShop(w.shop),
+      scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), burned: clamp(Math.round(fin(w.burned, 0)), 0, 1e6), shop: sanitizeShop(w.shop),
       sticks: (Array.isArray(w.sticks) ? w.sticks : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),
       stones: (Array.isArray(w.stones) ? w.stones : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),
       beavers: sanitizeBeavers(w.beavers), berries: sanitizeBerries(w.berries),

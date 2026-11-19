@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALT_MAX, BOOST_COOLDOWN, BOOST_TIME, boostPlane, launchPlane, GROUND_ALT, START_BOOSTS, hoopBoost, HOOP_SPEED, STALL_SPEED, THERMAL_CELL, TRIM_SPEED, airVertical, newGlider, setBank, stepGlider, thermalsIn, throwPlane, type GlideControls, type GlideEnv, type ThermalEnv } from './glider';
+import { hullDipM, ALT_MAX, BOOST_COOLDOWN, BOOST_TIME, boostPlane, launchPlane, GROUND_ALT, START_BOOSTS, hoopBoost, HOOP_SPEED, STALL_SPEED, THERMAL_CELL, TRIM_SPEED, airVertical, newGlider, setBank, stepGlider, thermalsIn, throwPlane, type GlideControls, type GlideEnv, type ThermalEnv } from './glider';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
 const none: GlideControls = { pitch: 0, roll: 0, yaw: 0 };
@@ -221,5 +221,17 @@ describe('a wet plane', () => {
     expect(g.landed).toBe(true); expect(g.wet).toBeGreaterThan(0.85);
     throwPlane(g, 0, 0, 0); expect(g.wet).toBeGreaterThan(0.85);
     expect(Math.hypot(g.vx, g.vy, g.vz)).toBeLessThan(TRIM_SPEED * 1.2 * 0.85);
+  });
+});
+
+describe('hitbox', () => {
+  it('a nose dive lands while its centre is still above the ground (the nose touched first)', () => {
+    const g = newGlider(0, 0, 0, 40); let prev = g.z;
+    for (let i = 0; i < 60 * 30 && !g.landed; i++) { prev = g.z; stepGlider(g, { pitch: -1, roll: 0, yaw: 0 }, still, 1 / 60); }
+    expect(g.landed).toBe(true); expect(prev).toBeGreaterThan(1);
+  });
+  it('a level plane still flies down to the ground', () => {
+    expect(hullDipM(0, 0)).toBe(0);
+    const g = newGlider(0, 0, 0, 3); run(g, none, still, 0.2); expect(g.landed).toBe(false);
   });
 });

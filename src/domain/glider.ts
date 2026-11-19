@@ -121,6 +121,10 @@ export function boostPlane(g: Glider): boolean {
 /** The ground launch: the plane is held just above the ground (1 m) while the player aims, then let go with a speed and a climb that grow with the hold (power 0..1).
  *  It shoots up, arcs over and settles into a steady glide by itself: the wing is eased to carry 1 g for a few seconds (as after a boost), so the speed turns into height without looping. */
 export const GROUND_ALT = 1, LAUNCH_EASE = 4;
+/** The paper plane's hitbox. The model is drawn this many view tiles per metre of height, and a tilted wing tip or nose dips up to HULL_DIP tiles below its centre (the view lifts the plane by that much, so keep the two together). */
+export const VIEW_TILES_PER_M = 0.18, HULL_DIP = 1.2;
+/** How far (m) the lowest point of the plane hangs below its centre at this bank and pitch: it touches down when the centre is this high, not at 0. */
+export const hullDipM = (phi: number, pitch: number) => Math.min(HULL_DIP, Math.abs(Math.sin(phi)) + Math.abs(Math.sin(pitch))) / VIEW_TILES_PER_M;
 export function launchPlane(g: Glider, x: number, y: number, heading: number, power: number, z0 = GROUND_ALT) {
   const p = Math.max(0, Math.min(1, power)), v = (TRIM_SPEED * (2 + 3.4 * p)) / (1 + 0.3 * g.wet), up = 0.45 + 0.3 * p;
   g.x = x; g.y = y; g.z = z0; g.psi = heading; g.phi = 0; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0;
@@ -276,7 +280,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   const energy = g.z + (g.gnd ?? 0) + (g.vx * g.vx + g.vy * g.vy + g.vz * g.vz) / (2 * G);
   g.energyRate = energyRateFilter(g, energy, dt);
   g.airLift = w;
-  if (g.z <= 0) { g.impact = { sink: Math.max(0, -g.vz), speed: Math.hypot(g.vx, g.vy), bank: Math.abs(g.phi) }; g.z = 0; g.landed = true; g.vx = g.vy = g.vz = 0; }
+  if (g.z <= 0 || (g.vz <= 0 && g.z <= hullDipM(g.phi, g.pitch))) { g.impact = { sink: Math.max(0, -g.vz), speed: Math.hypot(g.vx, g.vy), bank: Math.abs(g.phi) }; g.z = 0; g.landed = true; g.vx = g.vy = g.vz = 0; }
 }
 
 /** The path's direction e has changed by d (as a fraction of the speed): turn the wing axis by the same turn (the least one that takes e to e + d). */
