@@ -35,7 +35,7 @@ import { SaveIcon } from './ui/SaveIcon';
 import { Notices } from './ui/Notices';
 import { Keyboard } from './ui/Keyboard';
 import { useI18n } from './i18n/useT';
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useEffect } from 'react';
 import { useUi } from './ui/useUi';
 import { useChipVars } from './ui/chips';
@@ -104,6 +104,8 @@ export function App() {
   const { t, lang } = useI18n();
   const textScale = useAppState(s => s.settings.textScale);
   const navRef = useRef<HTMLElement>(null);
+  const [navHidden, setNavHidden] = useState(() => { try { return localStorage.getItem('navHidden') === '1'; } catch { return false; } });
+  const toggleNav = (v: boolean) => { setNavHidden(v); try { localStorage.setItem('navHidden', v ? '1' : '0'); } catch { /* private mode */ } };
   const wantFullscreen = useAppState(s => s.settings.fullscreen);
   const chips = useAppState(s => s.settings.chips);
   const chipStyle = useChipVars(chips);
@@ -161,12 +163,12 @@ export function App() {
   useLayoutEffect(() => {
     const el = navRef.current;
     if (!el) { if (playing) document.documentElement.style.setProperty('--nav-clear', '0px'); return; }
-    const set = () => { const h = Math.ceil(el.getBoundingClientRect().height); document.documentElement.style.setProperty('--nav-clear', `${h + 8}px`); document.documentElement.style.setProperty('--nav-h', `${h}px`); };
+    const set = () => { const h = Math.ceil(el.getBoundingClientRect().height); document.documentElement.style.setProperty('--nav-clear', navHidden && !device && !rail ? '32px' : `${h + 8}px`); document.documentElement.style.setProperty('--nav-h', `${h}px`); };
     set();
     const ro = new ResizeObserver(set);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [onboarded, playing, device]);
+  }, [onboarded, playing, device, rail, navHidden]);
   // Tab switch: the page slides in from the side of the new tab and overshoots a little before settling (the bar's selector slides too, below)
   const prevRoute = useRef(route);
   const contentRef = useRef<HTMLElement | null>(null);
@@ -211,9 +213,22 @@ export function App() {
   }, [route, slide, nav.items, nav.labels, nav.plate, navPreview, rail, device, onboarded, playing, reduceMotion]);
   const banner = !persistent && <div className="banner" role="alert">{t('storageWarning')}</div>;
   if (!onboarded) return <div className="app">{banner}<main className="content"><Onboarding /></main><Keyboard /></div>;
+  // swipe the bar down to tuck it away (the click that ends such a swipe is swallowed)
+  const swipe = useRef<{ y: number; done: boolean } | null>(null);
+  const swipeProps = {
+    onPointerDown: (e: React.PointerEvent) => { swipe.current = { y: e.clientY, done: false }; },
+    onPointerMove: (e: React.PointerEvent) => { const s = swipe.current; if (s && !s.done && e.clientY - s.y > 28) { s.done = true; toggleNav(true); } },
+    onPointerUp: () => { setTimeout(() => { swipe.current = null; }, 0); },
+    onPointerCancel: () => { swipe.current = null; },
+    onClickCapture: (e: React.MouseEvent) => { if (swipe.current?.done) { e.preventDefault(); e.stopPropagation(); } },
+  };
+  const canHide = !device && !rail && !navPreview;
   const navEl = !playing && (
-      <nav className="nav" aria-label={t('mainNav')} ref={navRef}>
-        <PixelFrame theme={navFrame} scale={1} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} data-slide={slide ? '' : undefined} {...plate}>
+      <nav className={`nav ${canHide && navHidden ? 'nav-hidden' : ''}`} aria-label={t('mainNav')} ref={navRef}>
+        {canHide && navHidden && <button type="button" className="nav-toggle" aria-label={t('navShow')} onClick={() => toggleNav(false)}>
+          <img src="/assets/raw/arrow_stone_up.png" alt="" />
+        </button>}
+        <PixelFrame theme={navFrame} scale={1} {...(canHide ? swipeProps : {})} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} data-slide={slide ? '' : undefined} {...plate}>
           {slide && !navPreview && <span className="nav-sel" ref={selRef} aria-hidden="true" />}
           {navPreview ? <>
             <button className="nav-btn" onClick={() => navigate('/apps')} aria-label={t('back')}>

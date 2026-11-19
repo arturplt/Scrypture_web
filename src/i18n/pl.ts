@@ -382,6 +382,8 @@ export const pl: Record<Key, string> = {
   "fullscreenOffHint": "Pełny ekran jest wyłączony: aplikacja nie uruchomi się na pełnym ekranie.",
   "fullscreenUnsupported": "Pełny ekran nie jest dostępny w tej przeglądarce. Na iPhonie użyj Udostępnij > Dodaj do ekranu początkowego.",
   "mainNav": "Główna",
+  "navHide": "Ukryj menu",
+  "navShow": "Pokaż menu",
   "chatButton": "Czat",
   "hungryTapHay": "Bóbr jest głodny! Dotknij siana, aby go nakarmić.",
   "hungryCollectHay": "Bóbr jest głodny! Zbierz trochę siana.",

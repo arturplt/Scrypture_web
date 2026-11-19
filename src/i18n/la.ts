@@ -382,6 +382,8 @@ export const la: Record<Key, string> = {
   "fullscreenOffHint": "Plena visio exstincta est: applicatio in plena visione non incipiet.",
   "fullscreenUnsupported": "Plena visio in hoc navigatro non praesto est. In iPhone, utere Share > Adde ad Domum.",
   "mainNav": "Principalis",
+  "navHide": "Tabulam occulta",
+  "navShow": "Tabulam ostende",
   "chatButton": "Colloquium",
   "hungryTapHay": "Bóbr esurit! Tange faenum ut eum pascas.",
   "hungryCollectHay": "Bóbr esurit! Collige faenum.",

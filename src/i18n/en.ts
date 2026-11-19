@@ -381,6 +381,8 @@ export const en = {
   "fullscreenOffHint": "Full screen is off: the app will not start in full screen.",
   "fullscreenUnsupported": "Full screen is not available in this browser. On iPhone, use Share > Add to Home Screen.",
   "mainNav": "Main",
+  "navHide": "Hide the menu",
+  "navShow": "Show the menu",
   "chatButton": "Chat",
   "hungryTapHay": "Bóbr is hungry! Tap the hay to feed him.",
   "hungryCollectHay": "Bóbr is hungry! Collect some hay.",
