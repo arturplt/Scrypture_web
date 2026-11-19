@@ -210,7 +210,7 @@ export function App() {
     return () => ro.disconnect();
   }, [route, slide, nav.items, nav.labels, nav.plate, navPreview, rail, device, onboarded, playing, reduceMotion]);
   const banner = !persistent && <div className="banner" role="alert">{t('storageWarning')}</div>;
-  if (!onboarded) return <div className="app">{banner}<main className="content"><Onboarding /></main></div>;
+  if (!onboarded) return <div className="app">{banner}<main className="content"><Onboarding /></main><Keyboard /></div>;
   const navEl = !playing && (
       <nav className="nav" aria-label={t('mainNav')} ref={navRef}>
         <PixelFrame theme={navFrame} scale={1} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} data-slide={slide ? '' : undefined} {...plate}>

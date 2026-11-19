@@ -5,7 +5,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { PixelButton } from '../ui/PixelButton';
 import { useT } from '../i18n/useT';
 import { LANGS, LANG_NAMES, type Key } from '../i18n';
-import { useUi } from '../ui/useUi';
+import { PenScene } from '../ui/PenScene';
 
 type Page = { kind: 'language' | 'name' | 'story'; title: Key; message: Key };
 const PAGES: Page[] = [
@@ -14,6 +14,7 @@ const PAGES: Page[] = [
   { kind: 'story', title: 'welcomeBuilder', message: 'welcomeBuilderMessage' },
   { kind: 'story', title: 'buildYourDam', message: 'buildYourDamMessage' },
   { kind: 'story', title: 'levelUpTitle', message: 'levelUpMessage' },
+  { kind: 'story', title: 'grimoriumTitle', message: 'grimoriumMessage' },
   { kind: 'story', title: 'trackYourProgress', message: 'trackYourProgressMessage' },
 ];
 
@@ -33,31 +34,32 @@ function Typewriter({ text }: { text: string }) {
 
 export function Onboarding() {
   const t = useT();
-  const { px } = useUi();
   const language = useAppState(s => s.settings.language);
   const [page, setPage] = useState(0);
   const [name, setName] = useState('');
+  const [say, setSay] = useState<string | null>(null);   // Bóbr's reply to a tap on the locked Latin button
   const clean = name.trim();
   const p = PAGES[page];
   const last = page === PAGES.length - 1;
   const canNext = p.kind !== 'name' || clean.length > 0;
-  const title = t(p.title, { name: clean || 'Builder' });
+  const title = say ?? t(p.title, { name: clean || 'Builder' });
 
   function next() {
     if (!canNext) return;
     if (p.kind === 'name') actions.setUser({ name: clean });
     if (last) { actions.setUser({ onboarded: true }); navigate('/tasks'); return; }
-    setPage(page + 1);
+    setSay(null); setPage(page + 1);
   }
 
   return (
     <div className="onboarding">
       <PixelFrame theme="green_bev" scale={1} className="ob-sprite">
-        <img className="pixel" src="/assets/raw/bobr_ancient.png" width={px(192)} height={px(192)} alt="Ancient Bóbr" />
+        <PenScene />
+        <PixelFrame theme="green_bev" scale={1} className="ob-bubble" role="heading" aria-level={1}>{title}</PixelFrame>
+        <img className="pixel ob-bobr" src="/assets/raw/bobr_ancient.png" alt="Ancient Bóbr" />
       </PixelFrame>
-      <PixelFrame theme="green_bev" scale={1} className="ob-title"><h1 className="ob-h1">{title}</h1></PixelFrame>
       <PixelFrame theme="green_bev" scale={1} className="ob-body">
-        <Typewriter text={t(p.message)} />
+        {p.kind !== 'language' && <Typewriter text={t(p.message)} />}
         {p.kind === 'name' && (
           <input value={name} maxLength={20} onChange={e => setName(e.target.value)} placeholder={t('enterYourName')} autoFocus
             onKeyDown={e => e.key === 'Enter' && next()} aria-label={t('enterYourName')} />
@@ -65,10 +67,11 @@ export function Onboarding() {
         {p.kind === 'language' && (
           <div className="langs" role="group" aria-label={t('language')}>
             {LANGS.map(l => {
-              const locked = l === 'LA'; // Latin unlocks after 10 tasks, so it can never be picked here
+              const locked = l === 'LA';   // Latin unlocks after 10 tasks, so it can never be picked here: Bóbr says so instead
               return (
-                <button key={l} className={`seg ${language === l ? 'on' : ''}`} aria-pressed={language === l} disabled={locked} onClick={() => actions.setSettings({ language: l })}>
-                  {LANG_NAMES[l]}{locked ? ` - ${t('latinLocked', { n: 0 })}` : ''}
+                <button key={l} className={`seg ${language === l ? 'on' : ''}`} aria-pressed={language === l} aria-disabled={locked || undefined} style={locked ? { opacity: 0.55 } : undefined}
+                  onClick={() => { if (locked) { setSay(t('latinLockedShort')); return; } setSay(null); actions.setSettings({ language: l }); }}>
+                  {LANG_NAMES[l]}
                 </button>
               );
             })}
@@ -76,10 +79,10 @@ export function Onboarding() {
         )}
       </PixelFrame>
 
-      <div className="dots" aria-hidden>{PAGES.map((_, i) => <span key={i} className={i === page ? 'on' : ''} />)}</div>
       <div className="row between">
-        <PixelButton scale={1} variant="red" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('previous')}</PixelButton>
-        <PixelButton scale={1} disabled={!canNext} onClick={next}>{last ? t('begin') : t('next')}</PixelButton>
+        <PixelButton scale={1} size="compact" variant="red" disabled={page === 0} onClick={() => { setSay(null); setPage(page - 1); }}>{t('previous')}</PixelButton>
+        <div className="dots" aria-hidden>{PAGES.map((_, i) => <span key={i} className={i === page ? 'on' : ''} />)}</div>
+        <PixelButton scale={1} size="compact" disabled={!canNext} onClick={next}>{last ? t('begin') : t('next')}</PixelButton>
       </div>
     </div>
   );
