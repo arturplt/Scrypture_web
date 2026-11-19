@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>jank test</title>
+<style>body{margin:0;background:#111;color:#fff;font:13px monospace}#c{display:block;width:100%;height:30vh;background:#222}button{font:14px monospace;margin:4px;padding:8px}pre{margin:6px;white-space:pre-wrap}</style></head>
+<body>
+<div>
+<button onclick="mode('plain')">1 plain</button>
+<button onclick="mode('gl')">2 + WebGL clear</button>
+<button onclick="mode('c2d')">3 + 2D canvas</button>
+<button onclick="mode('both')">4 + both</button>
+</div>
+<canvas id="c" width="400" height="300"></canvas>
+<pre id="out"></pre>
+<script>
+// A plain frame-time test, no game: if the same long gaps show up here, they come from the phone or the browser, not from the game.
+let m = 'plain', last = performance.now(), t0 = last, gaps = [], big = [], n = 0, gl = null, g2 = null;
+const cv = document.getElementById('c'), out = document.getElementById('out');
+function mode(k) { m = k; gaps = []; big = []; n = 0; t0 = performance.now(); last = t0;
+  gl = (k === 'gl' || k === 'both') ? (document.createElement('canvas').getContext('webgl')) : null;
+  g2 = (k === 'c2d' || k === 'both') ? cv.getContext('2d') : null; if (gl) { const c = gl.canvas; c.width = 400; c.height = 300; c.style.cssText = 'display:block;width:100%;height:30vh'; document.body.insertBefore(c, out); } }
+function tick(now) {
+  requestAnimationFrame(tick);
+  const g = now - last; last = now; n++; gaps.push(g); if (gaps.length > 600) gaps.shift();
+  if (g > 100) { big.unshift(g.toFixed(0) + 'ms @' + ((now - t0) / 1000).toFixed(1) + 's'); big.length = Math.min(big.length, 12); }
+  if (gl) { gl.clearColor((n % 60) / 60, 0.3, 0.5, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+  if (g2) { g2.fillStyle = '#' + ((n * 2654435) & 0xffffff).toString(16).padStart(6, '0'); g2.fillRect(0, 0, 400, 300); for (let i = 0; i < 300; i++) g2.fillRect((i * 37 + n) % 400, (i * 91) % 300, 8, 8); }
+  if (n % 30 === 0) { const s = [...gaps].sort((a, b) => a - b); out.textContent = `mode ${m}  cores ${navigator.hardwareConcurrency}  mem ${navigator.deviceMemory || '?'}GB\nframes ${n}  p50 ${s[s.length >> 1].toFixed(1)}  p99 ${s[Math.floor(s.length * .99)].toFixed(1)}  max ${s[s.length - 1].toFixed(0)}\nlong gaps (>100 ms):\n${big.join('\n')}`; }
+}
+requestAnimationFrame(tick);
+</script></body></html>
