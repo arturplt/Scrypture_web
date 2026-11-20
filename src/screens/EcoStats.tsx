@@ -30,6 +30,8 @@ const KINDS = [
 const TOTALS = [
   ['evaporated', 'worldEcoEvaporated'], ['toWater', 'worldEcoToWater'], ['fromWater', 'worldEcoFromWater'], ['rained', 'worldEcoRained'],
   ['grown', 'worldEcoGrown'], ['imported', 'worldEcoImported'], ['strikes', 'worldEcoStrikes'], ['ignited', 'worldEcoIgnited'], ['burnt', 'worldEcoBurnt'],
+  ['doused', 'worldEcoDoused'], ['damped', 'worldEcoDamped'], ['fireClouds', 'worldEcoFireClouds'], ['fireRain', 'worldEcoFireRain'],
+  ['irrigated', 'worldEcoIrrigated'], ['becks', 'worldEcoBecks'], ['bankRocks', 'worldEcoBankRocks'],
 ] as const satisfies readonly [Count, Key][];
 
 /** The plain counters of the tally (not the per-rule split). */

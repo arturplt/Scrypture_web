@@ -157,11 +157,11 @@ const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : 
 
 /** A plain-text table of soak rows (every `every` minutes, and the last one), for the console and ROADMAP.md. */
 export function soakTable(rows: SoakRow[], every = 5): string {
-  const head = ['min', 'water', 'sand', 'grass', 'flower', 'bush', 'tree', 'size', 'fire', 'char', 'cloud', 'rain', 'river', 'evap', 'wet+', 'grow', 'bolt', 'burnt'];
+  const head = ['min', 'water', 'sand', 'grass', 'flower', 'bush', 'tree', 'size', 'fire', 'char', 'cloud', 'rain', 'river', 'evap', 'wet+', 'grow', 'bolt', 'burnt', 'doused', 'damped', 'fclouds', 'frain', 'irrig', 'beck', 'rocks'];
   const lines = [head.map(h => h.padStart(6)).join('')];
   const pick = rows.filter((r, i) => r.minute % every === 0 || i === rows.length - 1);
   for (const r of pick) {
-    const cells = [r.minute, pct(r.water, r.tiles), pct(r.sand, r.tiles), pct(r.grass, r.tiles), pct(r.flowers, r.tiles), pct(r.bushes, r.tiles), pct(r.trees, r.tiles), r.woodScale.toFixed(2), r.burning, r.charred, r.clouds, r.raining, r.rivers, r.tally.evaporated, r.tally.toWater, r.tally.grown, r.tally.strikes, r.tally.burnt];
+    const cells = [r.minute, pct(r.water, r.tiles), pct(r.sand, r.tiles), pct(r.grass, r.tiles), pct(r.flowers, r.tiles), pct(r.bushes, r.tiles), pct(r.trees, r.tiles), r.woodScale.toFixed(2), r.burning, r.charred, r.clouds, r.raining, r.rivers, r.tally.evaporated, r.tally.toWater, r.tally.grown, r.tally.strikes, r.tally.burnt, r.tally.doused, r.tally.damped, r.tally.fireClouds, r.tally.fireRain, r.tally.irrigated, r.tally.becks, r.tally.bankRocks];
     lines.push(cells.map(c => String(c).padStart(6)).join(''));
   }
   return lines.join('\n');

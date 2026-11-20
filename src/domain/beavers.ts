@@ -19,7 +19,7 @@ export const DAM_REACH = 16;             // how far from its seed point a colony
 /** How high a dam stands, in metres: a share of the map's tile width (1.5 m on the 10 m map, 7.5 m on the 50 m one). */
 const damHeight = () => DAM_TILE_SHARE * (lakeData()?.tileM ?? 10);
 export const HILL_REACH = 32;           // hilly worlds: a colony looks this far from its seed point for a valley to dam (the streams are few and a dam needs the right valley)
-export const DAM_RUN = 12, DAM_MAX_LEN = 24;   // hilly worlds: a dam runs on over low ground up to this far each side of the stream, and at most this long in all
+export const DAM_RUN = 20, DAM_MAX_LEN = 40;   // hilly worlds: a dam runs on over low ground up to this far each side of the stream, and at most this long in all
 export const DAM_MAX_SPAN = 6;           // tiles of water a dam can cross
 export const DAM_STICKS = 2, DAM_STONES = 1;   // what one dam tile takes
 export const HAUL_REACH = 60;            // how far from the burrow a beaver goes for a stick or stone (about 45 of each lie that near on dry land; a lake colony finds only a few stones)
@@ -235,7 +235,7 @@ export class BeaversManager {
         const a = run(-1), b = run(1);
         if (!a || !b || a.length + b.length + 1 > DAM_MAX_LEN) continue;
         const tiles: [number, number][] = [...a.reverse(), [x, y], ...b];
-        const up = h(x + dy * 2, y + dx * 2) >= h(x - dy * 2, y - dx * 2) ? 1 : -1;
+        const up = h(x + dy * 6, y + dx * 6) >= h(x - dy * 6, y - dx * 6) ? 1 : -1;   // (rivers run downhill: the water gathers on the upstream side, judged over a few tiles so a bump does not fool it)
         const px = x + dy * 2 * up, py = y + dx * 2 * up;
         const est = this.makePond(tiles.map(([tx, ty]) => ({ x: tx, y: ty })), px, py).estimate();
         if (est < POND_MIN) continue;

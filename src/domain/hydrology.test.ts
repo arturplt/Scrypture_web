@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Pond, DAM_TILE_SHARE, POND_MAX, type PondEnv } from './hydrology';
-import { World, WATER, GRASS, SAND, keyX, keyY } from './worldgen';
+import { World, WATER, GRASS, SAND, keyX, keyY, tileKey } from './worldgen';
 import { setLakeData, lakeMetresAt, groundTiles, LAKE_RIVER } from './lakedistrict';
 import { Ecosystem } from './ecosystem';
 import { BeaversManager, POND_TICK, damBroken, type Picked } from './beavers';
@@ -102,12 +102,13 @@ describe('rain on the Lake District ground', () => {
     for (let i = 0; i < 40; i++) { (e as any).packets.push({ x: sx, y: sy, n: 0 }); }
     const path: [number, number][] = [];
     for (let t = 0; t < 120; t += 0.2) { e.step(0.2); }
-    // the ground along the line the packets took is wet (grass, not water); only the tile where it meets the real stream at x = 0 turns to water
+    // the ground along the line the packets took is wet (grass, not water) except where a steady line of runoff has cut a beck; the tile where it meets the real stream at x = 0 turns to water too
+    const becks = (e as any).becks as Set<number>;
     const wet = [...e.wetUntil.keys()].map(k => [keyX(k), keyY(k)] as [number, number]).filter(([x, y]) => x > 0 && x < sx && y >= sy - 2 && y <= sy + 40);   // (it winds: steepest of 8 ways, so it drifts south as it goes west)
     expect(wet.length).toBeGreaterThan(5);
-    for (const [x, y] of wet.filter(([x]) => x > 1)) expect(w.terrainAt(x, y)).not.toBe(WATER);
+    for (const [x, y] of wet.filter(([x]) => x > 1)) if (!becks.has(tileKey(x, y))) expect(w.terrainAt(x, y)).not.toBe(WATER);
     const made = [...e.streams].map(k => [keyX(k), keyY(k)] as [number, number]);
-    for (const [x, y] of made) { expect(w.terrainAt(x, y)).toBe(WATER); expect(Math.abs(x)).toBeLessThanOrEqual(1); }
+    for (const [x, y] of made) { expect(w.terrainAt(x, y)).toBe(WATER); if (!becks.has(tileKey(x, y))) expect(Math.abs(x)).toBeLessThanOrEqual(1); }
     expect(made.length).toBeGreaterThan(0);
     void path;
     // no more rain: the counts fade and the stream dries to the ground the generator made

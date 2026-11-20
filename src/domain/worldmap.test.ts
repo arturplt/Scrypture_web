@@ -428,8 +428,8 @@ describe('thunder and fire', () => {
     let trees = 0, other = 0;
     for (let y = -12; y <= 12; y++) for (let x = -12; x <= 12; x++) { const st = w.stateAt(x, y); if (st.d) trees++; if (Math.max(Math.abs(x), Math.abs(y)) > 4 && st.t !== SAND) other++; }
     expect(e.fires.size).toBe(0);
-    expect(trees).toBeLessThan(20);                                     // nearly all 81 burnt
-    expect(other).toBe(0);                                              // and the sand around it is untouched
+    expect(trees).toBeLessThan(50);                                     // most of the 81 burnt (the fire calls its own rain now, which saves some: 34 here)
+    expect(other).toBeLessThan(25);                                     // and the fire fed nothing outside the forest (only the rain it called turns a few sand tiles to grass: 10 here)
   });
   it('runs downwind faster than upwind', () => {
     let east = 0, west = 0;
@@ -458,6 +458,6 @@ describe('thunder and fire', () => {
     e.ignite(-10, 0); e.ignite(-10, 1); e.ignite(-9, 0); burn(e, 30);
     let water = 0, sand = 0; for (let y = -20; y <= 20; y++) for (let x = -20; x <= 20; x++) { const t = w.terrainAt(x, y); if (t === WATER) water++; if (t === SAND) sand++; }
     expect(e.scorched.size).toBeGreaterThan(50);
-    expect(water).toBeLessThan(60); expect(sand).toBeLessThan(40);     // (49 to start with; the shore evaporates and rain adds the odd tile, but nothing floods: ash as sand gave hundreds. Some sand is left where the lake dried; it used to be flooded back by `settle`)
+    expect(water).toBeLessThan(80); expect(sand).toBeLessThan(160);     // (49 to start with; the shore evaporates and rain, now including the rain the fire calls, adds the odd tile, but nothing floods: ash as sand gave hundreds. The rain the fire calls floods about 19 puddles, and `settle` sands their shores: 126 sand here against 0 before. Some sand is left where the lake dried; it used to be flooded back by `settle`)
   });
 });

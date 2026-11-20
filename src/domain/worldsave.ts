@@ -36,7 +36,7 @@ export interface SavedWorld {
   map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m)
   kind?: 'procedural' | 'lakedistrict';   // the Lake District is a real map (see lakedistrict.ts); a world without this is procedural
   changes: SavedTile[];
-  hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number };
+  hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
   scores?: RunScore[];            // this world's leaderboard (best runs first)
   burned?: number;                // how many times fire or lightning has burned the plane (and sent it back to the start)
@@ -53,7 +53,7 @@ export type SavedDam = [number, number, number, number];
 export const ADULT_AGE = 360, OLD_AGE = 2160, DEATH_AGE = 2760;   // seconds of age (60 s is a world day): grown at 6 days, old at 36, dead at 46; the stages are in beavers.ts
 export const BURROW_STICKS = 6;   // sticks a burrow takes before it counts as a home
 export interface SavedBeavers { dams: SavedDam[]; trust?: [string, number][]; burrows?: [string, number, number, number][]; pop?: [string, number, number][]; abandoned?: string[] }   // pop: a colony's beavers as colony key, sex (0 male, 1 female), age; only for colonies that are not the plain seed pair   // burrows: colony key, place, sticks laid   // trust: per colony key, how often the player has fed it (0..5)
-export const MAX_DAM_TILES = 400, MAX_TRUSTED = 400;
+export const MAX_DAM_TILES = 600, MAX_TRUSTED = 400;
 export function sanitizeBeavers(raw: unknown): SavedBeavers {
   const dams: SavedDam[] = [], seen = new Set<number>();
   const list = typeof raw === 'object' && raw !== null && Array.isArray((raw as any).dams) ? (raw as any).dams : [];
@@ -152,7 +152,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
       createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes,
       hour: clamp(fin(w.hour, 12), 0, 23.999),
       wind: { enabled: wind.enabled !== false, strength: clamp(fin(wind.strength, dw.strength), 0, 10), dir: fin(wind.dir, dw.dir) },
-      plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45) },
+      plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45), ...(plane.landed === true ? { landed: true } : {}) },
       scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), burned: clamp(Math.round(fin(w.burned, 0)), 0, 1e6), shop: sanitizeShop(w.shop),
       sticks: (Array.isArray(w.sticks) ? w.sticks : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),
       stones: (Array.isArray(w.stones) ? w.stones : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),

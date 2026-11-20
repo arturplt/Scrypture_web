@@ -29,7 +29,7 @@ import type { Key, TFn } from '../i18n';
 import { WorldGL, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
-import { flammability, SCORCH_COOLDOWN, WET_TIME } from '../domain/ecosystem';
+import { flammability, SCORCH_COOLDOWN, WET_TIME, RAIN_SCALE, rainRadius } from '../domain/ecosystem';
 import { BeaversManager, MAX_TRUST, isHome, type Haul } from '../domain/beavers';
 import { BerryPatch } from '../domain/berries';
 import maleIdleUrl from '../assets/male_idle.png';
@@ -291,7 +291,7 @@ function WorldView({ id }: { id: string }) {
     const s = sim.current!;
     if (mode === 'glide' && !startedLanded.current) {   // (opening the world: no throw, the plane starts landed, Throw ready)
       startedLanded.current = true;
-      if (s.world.kind === 'lakedistrict') { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); s.flight.glideAlt = LAKE_START_ALT; s.flight.glideLanded = false; }   // the Lake District opens in the air: 50 m up, 7 m/s, level
+      if (s.world.kind === 'lakedistrict' && !initial.plane.landed) { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); s.flight.glideAlt = LAKE_START_ALT; s.flight.glideLanded = false; }   // the Lake District opens in the air: 50 m up, 7 m/s, level (unless it was saved on the ground: then it stays there, on foot)
       else { s.glider.landed = true; s.glider.z = 0; s.glider.vx = s.glider.vy = s.glider.vz = 0; s.glider.impact = null; s.flight.glideAlt = 0; s.flight.glideLanded = true; }
       runStat.current = { startZ: s.glider.z, peakZ: s.glider.z };
     } else if (mode === 'glide') { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading); s.flight.glideAlt = s.glider.z; s.flight.glideLanded = false; runStat.current = { startZ: s.glider.z, peakZ: s.glider.z }; }
@@ -1158,7 +1158,7 @@ function WorldView({ id }: { id: string }) {
             if (far((c.rx ?? c.x), (c.ry ?? c.y)) || !ffp.inside((c.rx ?? c.x), (c.ry ?? c.y), size + reach + 3) || Math.hypot((c.rx ?? c.x) - px0, (c.ry ?? c.y) - py0) > HOOP_VIEW) continue;   // (clouds and their rain are seen to 100 tiles, like hoops)
             if (cells.length) G.board('blend', (c.rx ?? c.x), (c.ry ?? c.y), hh, size * 1.7, size * 1.7 * CLOUD_ASPECT, false, pickCell(c.id), 1, 1, 1, Math.min(1, 0.45 + rl * 0.06 + Math.min(0.3, c.water * 0.3)) * fd * nearFade((c.rx ?? c.x), (c.ry ?? c.y), hh));
             if (c.raining) {
-              const rx = (c.rx ?? c.x) + dirX * reach, ry = (c.ry ?? c.y) + dirY * reach, spread = 0.8 + 2.4 * c.rain, rainA = 0.9 * Math.min(1, c.rain * 4) * fd;
+              const rx = (c.rx ?? c.x) + dirX * reach, ry = (c.ry ?? c.y) + dirY * reach, spread = (0.8 + 2.4 * c.rain) * RAIN_SCALE, rainA = 0.9 * Math.min(1, c.rain * 4) * fd;
               for (let i = 0; i < 10; i++) {
                 const a = hash01(c.id, i, 1) * Math.PI * 2, r = Math.sqrt(hash01(c.id, i, 2)) * spread, fall = (anim * 1.4 + hash01(c.id, i, 3)) % 1;
                 G.board('blend', rx + Math.cos(a) * r, ry + Math.sin(a) * r, (1 - fall) * hh, 1, 1, false, cdrop, 1, 1, 1, rainA);
@@ -1325,7 +1325,7 @@ function WorldView({ id }: { id: string }) {
           else g.drawImage(sp, sx - w / 2, sy - h / 2, w, h);
         }
         if (c.raining) {
-          const rx = ox + ((c.rx ?? c.x) + dirX * reach) * T, ry = oy + ((c.ry ?? c.y) + dirY * reach) * T, spread = (c.rain < 0.4 ? 1 : c.rain < 0.75 ? 2 : 3) * T;
+          const rx = ox + ((c.rx ?? c.x) + dirX * reach) * T, ry = oy + ((c.ry ?? c.y) + dirY * reach) * T, spread = rainRadius(c.rain) * T;
           g.globalAlpha = 0.9;
           for (let i = 0; i < 10; i++) {
             const a = hash01(c.id, i, 1) * Math.PI * 2, r = Math.sqrt(hash01(c.id, i, 2)) * spread, fall = (anim * 1.4 + hash01(c.id, i, 3)) % 1;
@@ -1640,7 +1640,7 @@ function WorldView({ id }: { id: string }) {
     let savedExplored = -1;   // (the explored list is big: it is only written, and so only synced to the cloud, when it grew)
     const persist = () => {
       const f = s.flight;
-      const grew = s.explored.size !== savedExplored; savedExplored = s.explored.size; actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, wind: { ...s.eco.wind }, plane: { x: f.x, y: f.y, heading: f.heading, pitch: f.pitch }, ...(grew ? { explored: [...s.explored].slice(0, 20000) } : {}), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
+      const grew = s.explored.size !== savedExplored; savedExplored = s.explored.size; actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, wind: { ...s.eco.wind }, plane: { x: f.x, y: f.y, heading: f.heading, pitch: f.pitch, ...(s.glider.landed ? { landed: true } : {}) }, ...(grew ? { explored: [...s.explored].slice(0, 20000) } : {}), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
     };
     raf = requestAnimationFrame(frame);
     const onHide = () => persist();

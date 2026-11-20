@@ -46,6 +46,12 @@ export const RUNOFF_BASE = 0.12, RUNOFF_SLOPE = 0.5;   // chance a rained-on til
 export const MAX_PACKETS = 80, PACKET_STEPS = 80;      // packets walking at once, and how far one goes
 export const STREAM_AT = 3, TRICKLE_CAP = 12, TRICKLE_DECAY = 0.04, DRY_AT = 0.5;   // passes before a tile turns to stream; the most a tile counts; lost per second; below this a stream dries
 export const MAX_STREAM_TILES = 1500;
+// Irrigation: water and runoff-wet ground feed the land around them, which climbs the vegetation ladder there (see `irrigate`).
+export const IRRIGATE_TICK = 1, IRRIGATE_SOURCES = 8;   // seconds between irrigation rounds; shore tiles worked per round (runoff and stream tiles come on top)
+export const IRRIGATE_CHANCE = 0.15, IRRIGATE_REACH = 2;   // chance a source irrigates one tile this round; how far (tiles)
+// Becks: a line of runoff crossed over and over turns into a narrow stream with stones on its banks (hilly worlds, see `makeBeck`): one tile wide, one line at a time, no other beck within BECK_GAP tiles, never beside sand.
+export const BECK_AT = 8, MAX_BECK_TILES = 300, BECK_GAP = 10;       // crossings before a tile in a line turns to beck; becks alive at once
+export const BANK_ROCK = 0.45, WATER_ROCK = 0.05;     // chance a grass tile beside a new beck tile becomes a rock; chance an irrigation round near water puts a rock instead of growth
 // Tarns: a hollow (or a small real tarn) is a pond with a water level that rain raises and the sun lowers (see `tarnAt`).
 export const TARN_VOL = 0.5, TARN_RAIN = 0.05;        // volume (tile-metres) a packet of runoff adds, and rain falling straight on a tarn
 export const TARN_EVAP = 0.0006;                      // volume a tarn loses per tile of its area per second
@@ -59,7 +65,19 @@ export const SPREAD_RATE = 0.3;                  // chance per second that a ful
 export const STRIKE_CHANCE = 0.04;               // per cloud tick, for a big cloud raining hard on a mild day
 export const STRIKE_LIFE = 0.5;                  // seconds a bolt is shown
 export const WET_TIME = 8;                       // seconds a rained-on tile stays too wet to burn
-export const SCORCH_COOLDOWN = 45;               // seconds before a burnt tile can burn again
+export const DAMP_TIME = 45;                      // after the wet (WET_TIME) the ground stays damp this long: fire spreads less and less easily as it dries
+export const SHORE_DAMP = [0.7, 0.5];            // ground next to water (1 tile away) or near it (2 tiles away) is this damp all the time
+export const DAMP_BLOCK = 0.9;                   // a fully damp tile catches this much less often
+export const FIRE_PULL = 0.3, FIRE_PULL_REACH = 30, FIRE_PULL_FULL = 1.5;   // big fires pull every cloud: strength, reach (tiles), and the pull sum (n^1.5 / d^2) at which it is full
+export const FIRE_RAIN_K = 10;                   // a cloud starts raining 1 + (fires near it) / this times as often; fires near it also stand in for its age
+export const FIRE_NEAR = 10;                     // tiles: fires this close to a cloud's rain count as "near"
+export const FIRE_CLOUD_MIN = 12;                // a fire block (8x8) with this many fires burning makes its own cloud now and then
+export const FIRE_CLOUD_COOLDOWN = 25;           // seconds before the same block makes another
+export const FIRE_CLOUD_CAP = 6;                 // fire clouds alive at once
+export const SCORCH_COOLDOWN = 45;
+export const RAIN_SCALE = 1.6;                    // how much wider the rain falls than the original 1 / 2 / 3 tile radii
+/** The radius (tiles) rain falls over, growing as the cloud's rain does (`rain` 0..1). */
+export const rainRadius = (rain: number) => (rain < 0.4 ? 1 : rain < 0.75 ? 2 : 3) * RAIN_SCALE;               // seconds before a burnt tile can burn again
 const CELL = 8;                                  // sand is summed per 8x8 block for the cloud attraction
 
 /** A planned channel from a smaller puddle to a bigger one; water grows along `path` one tile per tick. */
@@ -72,6 +90,8 @@ export interface Cloud {
   raining: boolean; rain: number; prevRain: number; rained: Set<number>;
   /** Half the clouds are drawn to sand (heat rising), like Android's attraction types; all are drawn to rivers. */
   toSand: boolean;
+  /** Made by a big fire (see `FIRE_CLOUD_MIN`). */
+  fire?: boolean;
   /** Cached attraction pull (recomputed every few ticks, applied every tick). */
   ax?: number; ay?: number;
   /** Slowly changing wander, and the eased position the picture is drawn at (the simulation steps five times a second; the picture glides between steps). */
@@ -118,6 +138,13 @@ export interface EcoTally {
   ignited: number;      // tiles set alight (by bolts, spreading and embers)
   burnt: number;        // fires that burnt out
   imported: number;     // clouds that drifted in from outside (`IMPORT_EVERY`)
+  irrigated: number;    // tiles that water or runoff-wet ground grew (the same steps as rain)
+  becks: number;        // tiles runoff turned into a beck
+  bankRocks: number;    // rocks put beside becks and other water
+  fireClouds: number;   // clouds a big fire made for itself
+  fireRain: number;     // clouds that began raining with a fire near them
+  doused: number;       // fires put out by rain or wet ground (as opposed to `burnt`: out of fuel)
+  damped: number;       // spread, ember and bolt ignitions that damp ground refused
   /** `toWater` split by the rule that did it (each flooded tile counts once, under the rule that started the change). */
   toWaterBy: Record<WaterCause, number>;
 }
@@ -128,7 +155,7 @@ export interface EcoTally {
  */
 export type WaterCause = 'rain' | 'shore' | 'surrounded' | 'settle' | 'river' | 'walk' | 'paint' | 'dam' | 'stream';
 export const WATER_CAUSES: WaterCause[] = ['rain', 'shore', 'surrounded', 'settle', 'river', 'walk', 'paint', 'dam', 'stream'];
-export const newTally = (): EcoTally => ({ evaporated: 0, rained: 0, toWater: 0, fromWater: 0, grown: 0, strikes: 0, ignited: 0, burnt: 0, imported: 0, toWaterBy: { rain: 0, shore: 0, surrounded: 0, settle: 0, river: 0, walk: 0, paint: 0, dam: 0, stream: 0 } });
+export const newTally = (): EcoTally => ({ evaporated: 0, rained: 0, toWater: 0, fromWater: 0, grown: 0, strikes: 0, ignited: 0, burnt: 0, imported: 0, irrigated: 0, becks: 0, bankRocks: 0, fireClouds: 0, fireRain: 0, doused: 0, damped: 0, toWaterBy: { rain: 0, shore: 0, surrounded: 0, settle: 0, river: 0, walk: 0, paint: 0, dam: 0, stream: 0 } });
 
 export class Ecosystem {
   readonly world: World;
@@ -178,6 +205,11 @@ export class Ecosystem {
   /** Hilly worlds: runoff on its way downhill, how often each tile has been crossed lately, and the stream tiles rain made. */
   private packets: { x: number; y: number; n: number }[] = [];
   private trickle = new Map<number, number>();
+  /** The stream tiles that are becks (a subset of `streams`: dried by the same rule). */
+  private readonly becks = new Map<number, number>();   // tile key -> the id of the line it belongs to
+  private beckLines = 0;
+  private irrigAcc = 0;
+  private cursors = new Map<string, Iterator<number>>();
   readonly streams = new Set<number>();
   /** Tarns: ponds without a dam. `tarnOf` finds the one a tile belongs to; `noTarn` remembers water that is not a small lake. */
   readonly tarns = new Set<{ pond: Pond; vol: number }>();
@@ -192,6 +224,12 @@ export class Ecosystem {
   /** Bolts still on show (newest last). */
   strikes: Strike[] = [];
   readonly wetUntil = new Map<number, number>();   // tiles the rain has wetted, and until when (the map draws them wet)
+  /** Until when each rained-on or runoff tile is still damp (wet time plus `DAMP_TIME`): `moisture` fades with it. */
+  private readonly dampUntil = new Map<number, number>();
+  /** Fires summed per 8x8 block, for the pull on clouds and for fire clouds; rebuilt at most once per `clock` value. */
+  private fireCells = new Map<number, { n: number; sx: number; sy: number }>();
+  private fireCellsAt = -1;
+  private fireCloudAt = new Map<number, number>();   // block key -> clock until which it makes no new cloud
   /** Charred tiles: tile key -> the time (`now`) the fire on it went out. Forgotten after `SCORCH_COOLDOWN`. */
   readonly scorched = new Map<number, number>();
   private fireAcc = 0;
@@ -335,6 +373,8 @@ export class Ecosystem {
     if (this.strikes.length) { for (const b of this.strikes) b.age += dt; this.strikes = this.strikes.filter(b => b.age < STRIKE_LIFE); }
     this.fireAcc += dt;
     if (this.fireAcc >= FIRE_TICK) { if (this.fires.size) this.stepFires(this.fireAcc); this.fireAcc = 0; }
+    this.irrigAcc += dt;
+    if (this.irrigAcc >= IRRIGATE_TICK) { this.irrigAcc = 0; this.irrigate(); }
     this.sweepAcc += dt;
     if (this.sweepAcc >= 3) { this.sweepAcc = 0; this.sweepFlooding(); this.pruneGrowth(); }
   }
@@ -343,6 +383,8 @@ export class Ecosystem {
   private pruneGrowth() {
     for (const [k, at] of this.lastGrow) if (this.clock - at >= GROWTH_COOLDOWN) this.lastGrow.delete(k);
     for (const [k, until] of this.wetUntil) if (until <= this.clock) this.wetUntil.delete(k);
+    for (const [k, until] of this.dampUntil) if (until <= this.clock) this.dampUntil.delete(k);
+    for (const [k, until] of this.fireCloudAt) if (until <= this.clock) this.fireCloudAt.delete(k);
     for (const [k, at] of this.scorched) if (this.clock - at >= SCORCH_COOLDOWN) this.scorched.delete(k);
   }
 
@@ -562,14 +604,15 @@ export class Ecosystem {
       this.attract(c, dt);
       if (!c.raining && c.layer < 10 && this.layerCount(c.layer) >= LAYER_CAPACITY[c.layer - 1] && this.rng() < 0.3 && this.layerCount(c.layer + 1) < LAYER_CAPACITY[c.layer]) c.layer++;
       if (!c.raining && c.water > 0.05 && c.layer >= 5) {
-        const p = layerRainChance(c.layer) * (1 + (this.wind.enabled ? this.wind.strength : 0) / 20) * Math.min(1, c.water) * Math.min(1, c.age / 20) * 0.01;
-        for (let i = 0; i < 3; i++) if (this.rng() < p) { c.raining = true; c.rain = 0.1; c.prevRain = 0; break; }
+        const rr = this.wind.enabled ? this.wind.strength : 0, near = this.fireNear(c.x + Math.cos(this.wind.dir) * rr, c.y - Math.sin(this.wind.dir) * rr);   // fires near where its rain would land
+        const p = layerRainChance(c.layer) * (1 + rr / 20) * Math.min(1, c.water) * Math.min(1, (c.age + near * 2) / 20) * (1 + near / FIRE_RAIN_K) * 0.01;
+        for (let i = 0; i < 3; i++) if (this.rng() < p) { c.raining = true; c.rain = 0.1; c.prevRain = 0; if (near > 0) this.tally.fireRain++; break; }
       }
       if (c.raining) {
         this.stepRain(c);
         // thunder: a cloud raining hard throws a bolt now and then, more from a big cloud and on a hot day; it lands in or just outside the rain
         if (c.rain >= 0.25 && this.rng() < STRIKE_CHANCE * (c.size >= 1.5 ? 1 : 0.5) * this.fireWeather()) {
-          const reach = this.wind.enabled ? this.wind.strength : 0, a = this.rng() * Math.PI * 2, r = Math.sqrt(this.rng()) * ((c.rain < 0.4 ? 1 : c.rain < 0.75 ? 2 : 3) + 4);
+          const reach = this.wind.enabled ? this.wind.strength : 0, a = this.rng() * Math.PI * 2, r = Math.sqrt(this.rng()) * (rainRadius(c.rain) + 4);
           this.strike(c.x + Math.cos(this.wind.dir) * reach + Math.cos(a) * r, c.y - Math.sin(this.wind.dir) * reach + Math.sin(a) * r, c);
         }
       }
@@ -600,7 +643,7 @@ export class Ecosystem {
     let best = 0;
     for (const c of this.clouds) {
       if (!c.raining || (layer !== undefined && layer < c.layer - 0.5)) continue;
-      const r = (c.rain < 0.4 ? 1 : c.rain < 0.75 ? 2 : 3) + 3, d = Math.hypot(x - (c.x + dx), y - (c.y + dy));
+      const r = rainRadius(c.rain) + 3, d = Math.hypot(x - (c.x + dx), y - (c.y + dy));
       if (d < r) best = Math.max(best, (1 - d / r) * (0.4 + 0.6 * c.rain));
     }
     return Math.min(1, best * 1.5);
@@ -612,12 +655,12 @@ export class Ecosystem {
     if (c.water <= 0) return;                                       // an empty cloud finishes its animation but makes no more rain
     const reach = this.wind.enabled ? this.wind.strength : 0;       // rain lands downwind of where the cloud is now
     const rx = Math.floor(c.x + Math.cos(this.wind.dir) * reach), ry = Math.floor(c.y - Math.sin(this.wind.dir) * reach);   // (floor: the tile the point is in; rounding put the rain half a tile off)
-    const radius = c.rain < 0.4 ? 1 : c.rain < 0.75 ? 2 : 3;
+    const radius = rainRadius(c.rain), span = Math.ceil(radius);
     const tiles: [number, number][] = [];
-    for (let y = -radius; y <= radius; y++) for (let x = -radius; x <= radius; x++) if (x * x + y * y <= radius * radius + 0.5) tiles.push([rx + x, ry + y]);
+    for (let y = -span; y <= span; y++) for (let x = -span; x <= span; x++) if (x * x + y * y <= radius * radius + 0.5) tiles.push([rx + x, ry + y]);
     for (const [x, y] of tiles) {
       const k = tileKey(x, y);
-      this.wetUntil.set(k, this.clock + WET_TIME); this.fires.delete(k);   // rain puts a fire out and keeps the tile from catching for a while
+      this.wetten(k); if (this.fires.delete(k)) this.tally.doused++;   // rain puts a fire out and keeps the tile from catching for a while
       if (c.rained.has(k) || c.water <= 0) continue;
       c.rained.add(k); this.tally.rained++;
       c.water -= 0.05;                                              // each new tile pays 5%; tiles already rained on cost nothing
@@ -644,6 +687,7 @@ export class Ecosystem {
     const st = this.world.stateAt(x, y);
     if (st.t === WATER) { if (this.expandBudget > 0 && this.rng() < SHORE_CHANCE * this.wantWater(x, y)) { this.expandBudget--; this.by('shore', () => this.expandWater(x, y)); } return; }   // shore growth costs a ring search each: at most 3 per cloud tick
     if (st.t === SAND) { this.tally.grown++; this.put(x, y, plainTile(GRASS)); this.spreadGrass(x, y); return; }
+    if (st.d === 0 && st.v === 2) return;                                                                                    // a rock stays a rock (it used to turn to flowers, which wiped every stone a beck had)
     if (st.d === 0 && st.v !== 1) { this.tally.grown++; this.put(x, y, { t: GRASS, v: 1, d: 0, s: 1 }); this.spreadGrass(x, y); return; }   // plain grass -> flowers
     if (st.d === 0) {                                                                                                          // flowers -> grass with a bush or tree
       const kind = [DECO_BUSH, DECO_CONIFER, DECO_DECIDUOUS][Math.floor(this.rng() * 3)];
@@ -728,6 +772,26 @@ export class Ecosystem {
 
   /** Hot, dry weather makes fire likelier and faster (0.5 on a cold night .. 1.8 in a heat wave at noon). */
   fireWeather() { return Math.max(0.5, Math.min(1.8, 1 + (this.temperature - BASE_TEMPERATURE) / 20)); }
+  /** Wet the tile: too wet to burn for `WET_TIME`, then damp (burning less and less easily) for `DAMP_TIME` more. */
+  private wetten(k: number) { this.wetUntil.set(k, this.clock + WET_TIME); this.dampUntil.set(k, this.clock + WET_TIME + DAMP_TIME); }
+  /** 0..1: how hard it is to set this tile alight. 1 while wet, fading to 0 as the damp dries; ground beside water is always damp. */
+  moisture(x: number, y: number): number {
+    if (this.isWet(x, y)) return 1;
+    let m = Math.min(1, ((this.dampUntil.get(tileKey(x, y)) ?? -Infinity) - this.clock) / DAMP_TIME);
+    if (m < 0) m = 0;
+    if (m < SHORE_DAMP[0]) {
+      let near = 3;
+      for (let dy = -2; dy <= 2 && near > 1; dy++) for (let dx = -2; dx <= 2; dx++) if (this.terrainAt(x + dx, y + dy) === WATER) { near = Math.min(near, Math.max(Math.abs(dx), Math.abs(dy))); if (near === 1) break; }
+      if (near <= 2) m = Math.max(m, SHORE_DAMP[near - 1]);
+    }
+    return m;
+  }
+  /** A chance that already came up (a spread roll, an ember, a bolt) must still get past damp ground; counts the ones that did not. */
+  private catches(x: number, y: number): boolean {
+    const m = this.moisture(x, y);
+    if (m > 0 && this.rng() < m * DAMP_BLOCK) { this.tally.damped++; return false; }
+    return true;
+  }
   isWet(x: number, y: number) { return (this.wetUntil.get(tileKey(x, y)) ?? -Infinity) > this.clock; }
 
   /** Set a tile alight. False when it cannot burn: water, sand, wet from rain, burnt a moment ago, already burning, or too many fires. */
@@ -745,7 +809,7 @@ export class Ecosystem {
   /** A bolt hits the tile holding (x, y). Trees and bushes nearly always catch, grass seldom; `force` always tries. Returns whether a fire started. */
   strike(x: number, y: number, from?: Cloud, force = false): boolean {
     const tx = Math.floor(x), ty = Math.floor(y), fl = flammability(this.world.stateAt(tx, ty));
-    const lit = fl > 0 && (force || this.rng() < fl * 1.6 * this.fireWeather()) && this.ignite(tx, ty);
+    const lit = fl > 0 && (force || (this.rng() < fl * 1.6 * this.fireWeather() && this.catches(tx, ty))) && this.ignite(tx, ty);
     this.tally.strikes++;
     this.strikes.push({ id: this.nextId++, x: tx + 0.5, y: ty + 0.5, cx: from ? from.x : tx + 0.5, cy: from ? from.y : ty + 0.5, layer: from ? from.layer : 7, age: 0, lit });
     return lit;
@@ -765,7 +829,8 @@ export class Ecosystem {
     const a = this.area, bounded = a.x1 >= a.x0;
     for (const [k, f] of [...this.fires]) {                           // (a copy: spreading adds to the map)
       const st = this.world.stateAt(f.x, f.y);
-      if (flammability(st) <= 0 || this.isWet(f.x, f.y) || (bounded && (f.x < a.x0 - 8 || f.x > a.x1 + 8 || f.y < a.y0 - 8 || f.y > a.y1 + 8))) { this.fires.delete(k); continue; }   // painted over, rained on, or far from anyone watching
+      const wet = this.isWet(f.x, f.y);
+      if (flammability(st) <= 0 || wet || (bounded && (f.x < a.x0 - 8 || f.x > a.x1 + 8 || f.y < a.y0 - 8 || f.y > a.y1 + 8))) { this.fires.delete(k); if (wet) this.tally.doused++; continue; }   // painted over, rained on, or far from anyone watching
       f.age += dt; f.fuel -= dt;
       for (const [dx, dy] of NEIGH8) {
         const nx = f.x + dx, ny = f.y + dy;
@@ -773,13 +838,51 @@ export class Ecosystem {
         const fl = flammability(this.world.stateAt(nx, ny));
         if (fl <= 0) continue;
         const diag = dx !== 0 && dy !== 0, along = (dx * wx + dy * wy) / (diag ? Math.SQRT2 : 1);   // 1 straight downwind .. -1 against it
-        if (this.rng() < fl * SPREAD_RATE * dt * hot * Math.max(0.15, 1 + 0.3 * ws * along) * (diag ? 0.6 : 1)) this.ignite(nx, ny);
+        if (this.rng() < fl * SPREAD_RATE * dt * hot * Math.max(0.15, 1 + 0.3 * ws * along) * (diag ? 0.6 : 1) && this.catches(nx, ny)) this.ignite(nx, ny);
       }
       if (ws > 2 && f.total > 4 && this.rng() < 0.012 * ws * dt * hot) {   // a burning bush or tree throws an ember a few tiles downwind
         const d = 2 + this.rng() * 2;
-        this.ignite(Math.round(f.x + wx * d), Math.round(f.y + wy * d));
+        const ex = Math.round(f.x + wx * d), ey = Math.round(f.y + wy * d);
+        if (this.catches(ex, ey)) this.ignite(ex, ey);
       }
       if (f.fuel <= 0) { this.fires.delete(k); this.burnOut(f.x, f.y, st); }
+    }
+    this.makeFireClouds();
+  }
+
+  /** Fires summed per 8x8 block (once per clock value; stale by at most a frame). */
+  private buildFireCells() {
+    if (this.fireCellsAt === this.clock) return;
+    this.fireCellsAt = this.clock;
+    this.fireCells.clear();
+    for (const f of this.fires.values()) {
+      const ck = tileKey(Math.floor(f.x / CELL), Math.floor(f.y / CELL));
+      const c = this.fireCells.get(ck);
+      if (c) { c.n++; c.sx += f.x + 0.5; c.sy += f.y + 0.5; } else this.fireCells.set(ck, { n: 1, sx: f.x + 0.5, sy: f.y + 0.5 });
+    }
+  }
+  /** Fires within `FIRE_NEAR` tiles of a point, counted by block (so a little coarse). */
+  private fireNear(x: number, y: number): number {
+    if (!this.fires.size) return 0;
+    this.buildFireCells();
+    let n = 0;
+    for (const c of this.fireCells.values()) if (Math.hypot(c.sx / c.n - x, c.sy / c.n - y) <= FIRE_NEAR) n += c.n;
+    return n;
+  }
+  /** The hot air over a big fire lifts a cloud of its own into a rain layer, upwind of the blaze so its rain lands on it. */
+  private makeFireClouds() {
+    if (this.fires.size < FIRE_CLOUD_MIN) return;
+    this.buildFireCells();
+    let alive = 0;
+    for (const c of this.clouds) if (c.fire) alive++;
+    for (const [ck, c] of this.fireCells) {
+      if (alive >= FIRE_CLOUD_CAP) return;
+      if (c.n < FIRE_CLOUD_MIN || (this.fireCloudAt.get(ck) ?? -Infinity) > this.clock || this.rng() > 0.2) continue;
+      const layer = [6, 7, 8, 9].find(l => this.layerCount(l) < LAYER_CAPACITY[l - 1]);
+      if (!layer) return;
+      const reach = this.wind.enabled ? this.wind.strength : 0;
+      this.clouds.push({ id: this.nextId++, x: c.sx / c.n - Math.cos(this.wind.dir) * reach, y: c.sy / c.n + Math.sin(this.wind.dir) * reach, layer, water: 0.4 + Math.min(0.5, c.n * 0.02), size: c.n >= 24 ? 2 : 1.5, age: 20, raining: false, rain: 0, prevRain: 0, rained: new Set(), toSand: false, fire: true });
+      this.fireCloudAt.set(ck, this.clock + FIRE_CLOUD_COOLDOWN); this.tally.fireClouds++; alive++;
     }
   }
 
@@ -791,7 +894,6 @@ export class Ecosystem {
   private burnOut(x: number, y: number, st: TileState) {
     this.scorched.set(tileKey(x, y), this.clock); this.tally.burnt++;
     if (st.d || st.v === 1) this.put(x, y, plainTile(GRASS));
-    if (st.d && this.rng() < 0.08) this.spawnCloud(x + 0.5, y + 0.5, 0.15);   // now and then the water in the wood goes up as smoke and joins the clouds
   }
 
   // ---- clouds are pulled towards sand and river lines ----------------------------------------------------------------------
@@ -823,6 +925,19 @@ export class Ecosystem {
         const wt = cell.n / (d * d); ax += (dx / d) * wt; ay += (dy / d) * wt; w += wt;
       }
       if (w >= 0.01) { const st = calm ? 0.25 : 0.2; px += (ax / w) * st; py += (ay / w) * st; }   // a little stronger than sand: rivers matter more for rain
+      if (this.fires.size) {                                         // a big fire pulls every cloud, so that its rain falls on the fire: the pull is stronger the more fire there is and the closer it is
+        this.buildFireCells();
+        const rr = calm ? 0 : this.wind.strength, ox = Math.cos(this.wind.dir) * rr, oy = -Math.sin(this.wind.dir) * rr;
+        let fx = 0, fy = 0, fw = 0;
+        for (const cell of this.fireCells.values()) {
+          if (cell.n < 3) continue;
+          const dx = cell.sx / cell.n - (c.x + ox), dy = cell.sy / cell.n - (c.y + oy), d = Math.hypot(dx, dy);
+          if (d < 0.1 || d > FIRE_PULL_REACH) continue;
+          const wt = Math.pow(cell.n, 1.5) / (d * d), soft = Math.min(1, d / 3);   // (soft: no overshooting when nearly there)
+          fx += (dx / d) * wt * soft; fy += (dy / d) * wt * soft; fw += wt;
+        }
+        if (fw >= 0.01) { const st = FIRE_PULL * Math.min(1, fw / FIRE_PULL_FULL); px += (fx / fw) * st; py += (fy / fw) * st; }
+      }
       c.ax = c.ax === undefined ? px : c.ax + (px - c.ax) * 0.3; c.ay = c.ay === undefined ? py : c.ay + (py - c.ay) * 0.3;   // (eased, so the pull never snaps to a new direction)
     }
     c.x += c.ax * k; c.y += c.ay! * k;
@@ -922,7 +1037,10 @@ export class Ecosystem {
       const nb = this.downhill(p.x, p.y);
       if (!nb) { this.feedTarn(p.x, p.y); continue; }                 // a hollow: its water collects there
       p.x = nb[0]; p.y = nb[1];
-      if (this.terrainAt(p.x, p.y) === WATER) { this.feedTarn(p.x, p.y); continue; }   // it joined a stream, pond or lake (a small lake takes it in)
+      if (this.terrainAt(p.x, p.y) === WATER) {
+        if (this.becks.has(tileKey(p.x, p.y))) { this.cross(p.x, p.y); if (++p.n < PACKET_STEPS) keep.push(p); continue; }   // a beck carries it on downhill, and stays fed
+        this.feedTarn(p.x, p.y); continue;                              // it joined a stream, pond or lake (a small lake takes it in)
+      }
       this.cross(p.x, p.y);
       if (++p.n < PACKET_STEPS) keep.push(p);
     }
@@ -1013,7 +1131,7 @@ export class Ecosystem {
   private cross(x: number, y: number) {
     const k = tileKey(x, y), n = Math.min(TRICKLE_CAP, (this.trickle.get(k) ?? 0) + 1);
     this.trickle.set(k, n);
-    this.wetUntil.set(k, this.clock + WET_TIME);
+    this.wetten(k);
     if (n >= STREAM_AT && this.terrainAt(x, y) !== WATER && this.streams.size < MAX_STREAM_TILES && this.inArea(x, y) && this.touchesRiver(x, y)) {
       this.by('stream', () => this.put(x, y, plainTile(WATER)));
       if (this.terrainAt(x, y) === WATER) {
@@ -1023,6 +1141,87 @@ export class Ecosystem {
         if (lv < Infinity) { setPondSurface([[x, y]], lv); this.mark(x, y); }
       }
     }
+    if (n >= BECK_AT && this.terrainAt(x, y) !== WATER && this.becks.size < MAX_BECK_TILES && this.streams.size < MAX_STREAM_TILES && this.inArea(x, y) && this.inLine(x, y)) { const line = this.beckSpot(x, y); if (line !== null) this.makeBeck(x, y, k, line); }
+  }
+  /** Part of a line, not a lone busy tile or a blob: two or more neighbours carry runoff (or already are stream) too. */
+  private inLine(x: number, y: number) {
+    let c = 0;
+    for (const [dx, dy] of N8) { const nk = tileKey(x + dx, y + dy); if ((this.trickle.get(nk) ?? 0) >= STREAM_AT - 1 || this.streams.has(nk)) c++; }
+    return c >= 2;
+  }
+  /** The tile becomes water at its own ground level (the beck steps down the slope), and the grass beside it may become stones. */
+  /**
+   * Where a beck may grow: it is a single line one tile wide. The tile must have no sand within 2 tiles (the shore art would force sand banks),
+   * no water beside it except the end of its own line (so it never runs alongside a river, pond or another line), and no tile of another line
+   * within BECK_GAP. Returns the line id (a new one when it starts a line), or null.
+   */
+  private beckSpot(x: number, y: number): number | null {
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (this.terrainAt(x + dx, y + dy) === SAND) return null;
+    let line: number | null = null;
+    const adj: [number, number][] = [];
+    for (const [dx, dy] of N8) {
+      if (this.terrainAt(x + dx, y + dy) !== WATER) continue;
+      const l = this.becks.get(tileKey(x + dx, y + dy));
+      if (l === undefined || (line !== null && l !== line)) return null;
+      line = l; adj.push([dx, dy]);
+      let ends = 0;                                                                    // only the end of a line may be extended, not its middle
+      for (const [ex, ey] of N8) if (this.becks.has(tileKey(x + dx + ex, y + dy + ey))) ends++;
+      if (ends >= 2) return null;
+    }
+    if (adj.length > 2 || (adj.length === 2 && Math.max(Math.abs(adj[0][0] - adj[1][0]), Math.abs(adj[0][1] - adj[1][1])) < 2)) return null;
+    for (const [bk, l] of this.becks) if (l !== line && Math.hypot(keyX(bk) - x, keyY(bk) - y) <= BECK_GAP) return null;
+    return line ?? ++this.beckLines;
+  }
+  private makeBeck(x: number, y: number, k: number, line: number) {
+    this.settling = true;                                                              // (no sand banks: the shore rule would sand the grass beside the water)
+    try { this.by('stream', () => this.put(x, y, plainTile(WATER))); } finally { this.settling = false; }
+    if (this.terrainAt(x, y) !== WATER) return;
+    this.streams.add(k); this.becks.set(k, line); this.riverTiles.add(k); this.riverVersion++; this.tally.becks++;
+    setPondSurface([[x, y]], this.gh(x, y)); this.mark(x, y);
+    for (const [dx, dy] of N8) this.bankRock(x + dx, y + dy, BANK_ROCK);
+  }
+  /** A plain or flowery grass tile may become a rock. */
+  private bankRock(x: number, y: number, chance: number): boolean {
+    const st = this.world.stateAt(x, y);
+    if (st.t !== GRASS || st.d || st.v === 2 || !this.inArea(x, y) || this.rng() >= chance) return false;
+    this.put(x, y, { t: GRASS, v: 2, d: 0, s: 1 }); this.tally.bankRocks++;
+    return true;
+  }
+
+  // ---- irrigation -------------------------------------------------------------------------------------------------------------
+
+  /** Up to `n` more values from a source, carrying on where the last call stopped (so a big lake is worked a little at a time). */
+  private take(name: string, src: () => Iterator<number>, n: number, out: number[]) {
+    let it = this.cursors.get(name) ?? src();
+    for (let i = 0; i < n; i++) {
+      let r = it.next();
+      if (r.done) { it = src(); r = it.next(); if (r.done) break; }
+      out.push(r.value);
+    }
+    this.cursors.set(name, it);
+  }
+  /** Water and wet ground feed the land around them: a few shore tiles, runoff lines and streams each round pick a tile nearby and give it a rain step. */
+  private irrigate() {
+    if (this.area.x1 < this.area.x0) return;
+    const water: number[] = [], wet: number[] = [];
+    this.take('water', () => this.water.keys(), IRRIGATE_SOURCES * 4, water);       // (most of a lake is not shore: look at more than we use)
+    this.take('trickle', () => this.trickle.keys(), 6, wet);
+    this.take('streams', () => this.streams.values(), 4, wet);
+    let used = 0;
+    for (const k of water) {
+      if (used >= IRRIGATE_SOURCES) break;
+      const x = keyX(k), y = keyY(k);
+      if (!N4.some(([dx, dy]) => this.terrainAt(x + dx, y + dy) !== WATER)) continue;
+      used++; this.irrigateAround(x, y);
+    }
+    for (const k of wet) if ((this.trickle.get(k) ?? 0) >= 2 || this.streams.has(k)) this.irrigateAround(keyX(k), keyY(k));
+  }
+  private irrigateAround(x: number, y: number) {
+    if (this.rng() >= IRRIGATE_CHANCE) return;
+    const r = 1 + Math.floor(this.rng() * IRRIGATE_REACH), a = this.rng() * Math.PI * 2, tx = Math.round(x + Math.cos(a) * r), ty = Math.round(y + Math.sin(a) * r), k = tileKey(tx, ty);
+    if (!this.inArea(tx, ty) || this.terrainAt(tx, ty) === WATER || this.fires.has(k) || this.scorched.has(k)) return;
+    if (this.bankRock(tx, ty, WATER_ROCK)) return;
+    this.tally.irrigated++; this.rainOn(tx, ty);
   }
   /** Counts fade; a stream no longer fed dries back to the ground the generator made. */
   private dryStreams() {
@@ -1031,12 +1230,12 @@ export class Ecosystem {
       const v = n - f;
       if (v <= 0) { this.trickle.delete(k); continue; }
       this.trickle.set(k, v);
-      if (v >= STREAM_AT - 1) this.wetUntil.set(k, this.clock + WET_TIME);        // a runnel (crossed again and again) stays wet while it is kept fed; a single trickle dries as the rain's own wet does
+      if (v >= STREAM_AT - 1) this.wetten(k);        // a runnel (crossed again and again) stays wet while it is kept fed; a single trickle dries as the rain's own wet does
     }
     for (const k of this.streams) {
       if ((this.trickle.get(k) ?? 0) >= DRY_AT) continue;
       const x = keyX(k), y = keyY(k);
-      this.streams.delete(k); this.riverTiles.delete(k); this.riverVersion++;
+      this.streams.delete(k); this.becks.delete(k); this.riverTiles.delete(k); this.riverVersion++;
       setPondSurface([[x, y]], null);
       if (this.terrainAt(x, y) === WATER && this.world.generatedTerrain(x, y) !== WATER) this.by('stream', () => this.put(x, y, plainTile(this.world.generatedTerrain(x, y))));
     }

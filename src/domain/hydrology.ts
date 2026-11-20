@@ -7,8 +7,8 @@
  * Pure: it only asks `PondEnv` about the ground, so it is tested with small made-up heightmaps.
  */
 export const DAM_HEIGHT = 1.5;      // metres a finished dam stands above the ground under it, on a map with 10 m tiles (see `damHeight`)
-export const DAM_TILE_SHARE = 0.15; // the dam stands this share of a tile's width high: a dam is a game-scale thing, and on a 50 m tile map a 1.5 m crest would hold no pond at all
-export const POND_MAX = 120;        // most tiles one pond floods
+export const DAM_TILE_SHARE = 0.3;  // the dam stands this share of a tile's width high: a dam is a game-scale thing, and on a 50 m tile map a 1.5 m crest would hold no pond at all
+export const POND_MAX = 300;        // most tiles one pond floods
 export const POND_MIN = 5;          // a dam site that would hold fewer tiles than this is not worth building
 
 export interface PondEnv {
