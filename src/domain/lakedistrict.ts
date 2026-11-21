@@ -67,11 +67,11 @@ const LAKES_ROADS: RoadLine[] = [
 ];
 export const LAKE_MAPS: Record<LakeMapId, LakeMapDef> = {
   lakes: {
-    id: 'lakes', name: 'Lake District', png: 'lakedistrict.png', json: 'meta.json', tileM: 50, stretch: 1.5, grid: { w: 1426, h: 1769 },
+    id: 'lakes', name: 'Lake District', png: 'lakedistrict.png', json: 'meta.json', tileM: 50, stretch: 1, grid: { w: 1426, h: 1769 },
     affine: boxAffine(-3.70, -2.60, 54.00, 54.80, 1426, 1769), spawn: { lon: -3.1096, lat: 54.3708, heading: 0 }, waters: LAKES_WATERS, roads: LAKES_ROADS,
   },
   coniston: {   // (the affine is the one the build script fitted: see public/assets/lakedistrict/coniston.json)
-    id: 'coniston', name: 'Coniston', png: 'coniston.png', json: 'coniston.json', tileM: 10, stretch: 0.5, grid: { w: 1400, h: 1500 },
+    id: 'coniston', name: 'Coniston', png: 'coniston.png', json: 'coniston.json', tileM: 10, stretch: 1, grid: { w: 1400, h: 1500 },
     affine: [6502.453579147299, 170.1256342602632, 10771.100286070534, 99.42546292999616, -11126.378197635024, 604826.7394639135], spawn: { lon: -3.0649, lat: 54.3620, heading: -Math.PI / 2 }, waters: CONISTON_WATERS, roads: [],
   },
 };

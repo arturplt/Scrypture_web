@@ -25,9 +25,9 @@ export function comboAward(c: Combo, pts: number): { pts: number; mult: number }
 /** Time passes; `alive` (a trick is going on, like skimming the ground) holds the combo open. */
 export function comboStep(c: Combo, dt: number, alive = false) { if (alive) c.t = Math.max(c.t, 1.5); else c.t = Math.max(0, c.t - dt); if (c.t <= 0) c.n = 0; }
 
-export interface TrickState { rollCum: number; rollIdle: number; prevPhi: number; prevPsi: number; loopOn: boolean; loopCum: number; loopIdle: number; loopRef: number; loopPrev: number; loopInv: boolean; loopHalf: boolean; immT: number; invAge: number;
+export interface TrickState { rollCum: number; rollIdle: number; prevPhi: number; prevPsi: number; loopOn: boolean; loopCum: number; loopIdle: number; loopRef: number; loopPrev: number; loopInv: boolean; loopHalf: boolean; immT: number; immRoll: number; invAge: number;
   stallT: number; thermalOn: boolean; thermalZ0: number; thermalOut: number; thermalDone: boolean; clock: number; slSide: number; slT: number; slKey: number }
-export const newTrickState = (): TrickState => ({ rollCum: 0, rollIdle: 0, prevPhi: 0, prevPsi: 0, loopOn: false, loopCum: 0, loopIdle: 0, loopRef: 0, loopPrev: 0, loopInv: false, loopHalf: false, immT: 0, invAge: 99, stallT: 0, thermalOn: false, thermalZ0: 0, thermalOut: 0, thermalDone: false, clock: 0, slSide: 0, slT: -99, slKey: -1 });
+export const newTrickState = (): TrickState => ({ rollCum: 0, rollIdle: 0, prevPhi: 0, prevPsi: 0, loopOn: false, loopCum: 0, loopIdle: 0, loopRef: 0, loopPrev: 0, loopInv: false, loopHalf: false, immT: 0, immRoll: 0, invAge: 99, stallT: 0, thermalOn: false, thermalZ0: 0, thermalOut: 0, thermalDone: false, clock: 0, slSide: 0, slT: -99, slKey: -1 });
 export function resetTricks(t: TrickState, g?: Glider) { Object.assign(t, newTrickState()); if (g) { t.prevPhi = g.phi; t.prevPsi = g.psi; } }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -50,11 +50,12 @@ export function stepTricks(t: TrickState, g: Glider, dt: number, ctx?: TrickCtx)
     if (t.loopOn && !t.loopHalf && Math.abs(t.loopCum) >= Math.PI * 0.9) {
       t.loopHalf = true;
       if (t.loopCum < 0 && t.invAge < 2.5 && !inv) done.push('splitS');                // inverted, pulled through the bottom
-      else if (t.loopCum > 0 && !t.loopInv && (inv || t.invAge < 0.8)) t.immT = 4;   // over the top, upside down (or already rolling out of it): roll out for the Immelman
+      else if (t.loopCum > 0 && !t.loopInv && (inv || t.invAge < 0.8)) t.immT = 4, t.immRoll = 0;   // over the top, upside down (or already rolling out of it): roll out for the Immelman
     }
     if (t.loopOn && Math.abs(t.loopCum) >= Math.PI * 1.9) { t.immT = 0; done.push('loop'); t.loopOn = false; t.loopCum = 0; }
   }
-  if (t.loopOn && Math.abs(t.loopCum) > Math.PI * 1.4) t.immT = 0;               // still looping: this is a full loop, not an Immelman
+  if (t.immT > 0) t.immRoll += Math.abs(g.rollRate) * dt;
+  if (t.loopOn && Math.abs(t.loopCum) > Math.PI * 1.4 && t.immRoll < 1.5) t.immT = 0;   // still looping: this is a full loop, not an Immelman (unless it really rolled out: the path keeps curving down meanwhile)
   if (ctx) {
     t.clock += dt;
     // stall hang: held past the stall angle for a while and flown out of it (not into the ground)

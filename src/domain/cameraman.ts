@@ -32,9 +32,9 @@ export const MIN_EYE_H = 0.4;                 // tiles: the camera never goes in
 export const FREE_TILT_RANGE: readonly [number, number] = [0.05, 1.75];   // rad from straight down: 0 looks down on the plane, pi/2 is level with it, more looks up at it
 
 /** The orbit's eye: `radius` from the target, looking along the ground direction (dirX, dirY), `tilt` radians from straight down. */
-export function orbitEye(t: Vec3h, dirX: number, dirY: number, tilt: number, radius: number): Vec3h {
+export function orbitEye(t: Vec3h, dirX: number, dirY: number, tilt: number, radius: number, minH = MIN_EYE_H): Vec3h {
   const st = Math.sin(tilt), ct = Math.cos(tilt);
-  return { x: t.x - dirX * radius * st, y: t.y - dirY * radius * st, h: Math.max(MIN_EYE_H, t.h + radius * ct) };
+  return { x: t.x - dirX * radius * st, y: t.y - dirY * radius * st, h: Math.max(minH, t.h + radius * ct) };
 }
 
 export interface Flyby { on: boolean; x: number; y: number; h: number; side: number; lead: number }
@@ -47,18 +47,18 @@ export const FLYBY_LEAD: readonly [number, number] = [8, 45];   // tiles
  * second and (hx, hy) the way it points (used when it is hardly moving), `dist` how far beside the path the camera stands.
  * Returns true when it has just moved (a cut).
  */
-export function flybyStep(fb: Flyby, plane: Vec3h, vx: number, vy: number, hx: number, hy: number, dist: number): boolean {
+export function flybyStep(fb: Flyby, plane: Vec3h, vx: number, vy: number, hx: number, hy: number, dist: number, k = 1): boolean {   // k: how much smaller than the usual the plane (and so the whole camera) is
   const sp = Math.hypot(vx, vy), dx = sp > 0.5 ? vx / sp : hx, dy = sp > 0.5 ? vy / sp : hy;
   if (fb.on) {
     const rx = plane.x - fb.x, ry = plane.y - fb.y, d = Math.hypot(rx, ry), past = rx * dx + ry * dy > 0;
     const gone = past && d > Math.max(dist * 1.5, fb.lead * 0.9);              // it has gone by and is small again
-    const lost = d > fb.lead + dist * 2 + 15;                                 // it turned away and never came by
+    const lost = d > fb.lead + dist * 2 + 15 * k;                                 // it turned away and never came by
     if (!gone && !lost) return false;
   }
-  const lead = Math.max(FLYBY_LEAD[0], Math.min(FLYBY_LEAD[1], sp * FLYBY_LEAD_TIME));
+  const lead = Math.max(FLYBY_LEAD[0] * k, Math.min(FLYBY_LEAD[1] * k, sp * FLYBY_LEAD_TIME));
   fb.side = fb.on ? -fb.side : fb.side;                                      // the other side of the path each time
   fb.x = plane.x + dx * lead - dy * fb.side * dist; fb.y = plane.y + dy * lead + dx * fb.side * dist;
-  fb.h = Math.max(MIN_EYE_H + 0.1, plane.h + (fb.side > 0 ? -0.25 : 0.2) * dist);   // from one side it looks up at the plane, from the other down on it
+  fb.h = Math.max((MIN_EYE_H + 0.1) * k, plane.h + (fb.side > 0 ? -0.25 : 0.2) * dist);   // from one side it looks up at the plane, from the other down on it
   fb.lead = lead; fb.on = true;
   return true;
 }

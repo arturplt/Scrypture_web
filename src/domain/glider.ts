@@ -124,7 +124,9 @@ export const GROUND_ALT = 1, LAUNCH_EASE = 4;
 /** The paper plane's hitbox. The model is drawn this many view tiles per metre of height, and a tilted wing tip or nose dips up to HULL_DIP tiles below its centre (the view lifts the plane by that much, so keep the two together). */
 export const VIEW_TILES_PER_M = 0.18, HULL_DIP = 1.2;
 /** How far (m) the lowest point of the plane hangs below its centre at this bank and pitch: it touches down when the centre is this high, not at 0. */
-export const hullDipM = (phi: number, pitch: number) => Math.min(HULL_DIP, Math.abs(Math.sin(phi)) + Math.abs(Math.sin(pitch))) / VIEW_TILES_PER_M;
+/** How big the plane is drawn against the default (1 = 2.4 tiles); the hull dip shrinks with it, so a small plane touches down closer to the ground. */
+export const hull = { k: 1 };
+export const hullDipM = (phi: number, pitch: number) => hull.k * Math.min(HULL_DIP, Math.abs(Math.sin(phi)) + Math.abs(Math.sin(pitch))) / VIEW_TILES_PER_M;
 export function launchPlane(g: Glider, x: number, y: number, heading: number, power: number, z0 = GROUND_ALT) {
   const p = Math.max(0, Math.min(1, power)), v = (TRIM_SPEED * (2 + 3.4 * p)) / (1 + 0.3 * g.wet), up = 0.45 + 0.3 * p;
   g.x = x; g.y = y; g.z = z0; g.psi = heading; g.phi = 0; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0;

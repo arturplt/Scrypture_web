@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Pond, DAM_TILE_SHARE, POND_MAX, type PondEnv } from './hydrology';
 import { World, WATER, GRASS, SAND, keyX, keyY, tileKey } from './worldgen';
-import { setLakeData, lakeMetresAt, groundTiles, LAKE_RIVER } from './lakedistrict';
+import { setLakeData, lakeMetresAt, groundTiles, LAKE_RIVER, HEIGHT_STRETCH } from './lakedistrict';
 import { Ecosystem } from './ecosystem';
 import { BeaversManager, POND_TICK, damBroken, type Picked } from './beavers';
 import { mulberry32 } from './sanctuary';
@@ -74,7 +74,7 @@ describe('a pond on the Lake District ground', () => {
     for (let t = 0; t < 400; t += POND_TICK) { c.pondAcc = POND_TICK; (m as any).step(0); if (!e.growHeightPond(c.pond!)) break; }
     const tiles = c.pond!.tiles;
     expect(tiles.length).toBeGreaterThanOrEqual(5);
-    for (const [x, y] of tiles) { expect(w.terrainAt(x, y)).toBe(WATER); expect(lakeMetresAt(x, y)).toBeLessThanOrEqual(crest + 1e-6); expect(y).toBeLessThan(dy); expect(groundTiles(x, y)).toBeCloseTo(c.pond!.level / 50 * 1.5, 4); }   // (the corner is held at the water level)
+    for (const [x, y] of tiles) { expect(w.terrainAt(x, y)).toBe(WATER); expect(lakeMetresAt(x, y)).toBeLessThanOrEqual(crest + 1e-6); expect(y).toBeLessThan(dy); expect(groundTiles(x, y)).toBeCloseTo(c.pond!.level / 50 * HEIGHT_STRETCH, 4); }   // (the corner is held at the water level)
     expect(groundTiles(tiles[0][0] + 0.5, tiles[0][1] + 0.5)).toBeGreaterThan(0);
     // pond shape follows the valley: wider near the dam than far up it is not required, but it must not touch the far hillside
     for (const [x] of tiles) expect(Math.abs(x)).toBeLessThanOrEqual(Math.ceil((crest - 20) / 3) + 1);

@@ -75,7 +75,7 @@ export const FIRE_CLOUD_MIN = 12;                // a fire block (8x8) with this
 export const FIRE_CLOUD_COOLDOWN = 25;           // seconds before the same block makes another
 export const FIRE_CLOUD_CAP = 6;                 // fire clouds alive at once
 export const SCORCH_COOLDOWN = 45;
-export const RAIN_SCALE = 1.6;                    // how much wider the rain falls than the original 1 / 2 / 3 tile radii
+export const RAIN_SCALE = 2.6;                    // how much wider the rain falls than the original 1 / 2 / 3 tile radii
 /** The radius (tiles) rain falls over, growing as the cloud's rain does (`rain` 0..1). */
 export const rainRadius = (rain: number) => (rain < 0.4 ? 1 : rain < 0.75 ? 2 : 3) * RAIN_SCALE;               // seconds before a burnt tile can burn again
 const CELL = 8;                                  // sand is summed per 8x8 block for the cloud attraction

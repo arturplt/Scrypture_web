@@ -35,7 +35,7 @@ describe('the Lake District map', () => {
     const w = new World(1, undefined, 'lakedistrict');
     expect(w.terrainAt(272, 89)).toBe(WATER);
     expect([SAND, GRASS]).toContain(w.terrainAt(290, 89));
-    expect(w.heightAt(-80, -120)).toBeGreaterThan(20);
+    expect(w.heightAt(-80, -120)).toBeGreaterThan(13 * HEIGHT_STRETCH);
     expect(new World(1).heightAt(-80, -120)).toBe(0);          // procedural worlds are flat
   });
   it('the world kind is saved, and old saves stay procedural', () => {

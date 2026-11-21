@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Pond, type PondEnv } from './hydrology';
 import { World, WATER, keyX, keyY } from './worldgen';
-import { setLakeData, lakeMetresAt, groundTiles } from './lakedistrict';
+import { setLakeData, lakeMetresAt, groundTiles, HEIGHT_STRETCH } from './lakedistrict';
 import { Ecosystem } from './ecosystem';
 import { mulberry32 } from './sanctuary';
 
@@ -67,7 +67,7 @@ describe('a tarn on the Lake District ground', () => {
     expect(p.level).toBeLessThanOrEqual(43.01);
     expect(sawSpill).toBe(true);                                                          // it filled to the rim
     expect(spilled).toBe(true);                                                           // and ran west over it into a beck
-    if (p.tiles.length) expect(groundTiles(p.tiles[0][0], p.tiles[0][1])).toBeCloseTo(p.level / 50 * 1.5, 3);   // a flat sheet
+    if (p.tiles.length) expect(groundTiles(p.tiles[0][0], p.tiles[0][1])).toBeCloseTo(p.level / 50 * HEIGHT_STRETCH, 3);   // a flat sheet
     const grown = p.tiles.length;
     for (let t = 0; t < 4000; t += 0.5) e.step(0.5);                                  // no rain: the sun lowers it
     expect(p.tiles.length).toBeLessThan(grown);
