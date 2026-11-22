@@ -162,6 +162,23 @@ export function stepGlider(g: Glider, ctl: GlideControls, env: GlideEnv, dt: num
   while (left > 1e-6) { const h = Math.min(SUBSTEP, left); left -= h; step(g, ctl, env, h); }
 }
 
+/**
+ * Where the plane comes down if the controls are let go now: a copy of it is flown on, in steps of `dt`, until it touches the ground (or
+ * `blocked` says it has hit something, a tree) or `maxT` seconds are up. Returns where it ended, how long that took and what stopped it
+ * ('ground', 'blocked', or 'time' when it is still flying at the end). The real plane is untouched.
+ */
+export function projectLanding(g: Glider, ctl: GlideControls, env: GlideEnv, opt: { maxT?: number; dt?: number; blocked?: (x: number, y: number, z: number) => boolean } = {}): { x: number; y: number; t: number; end: 'ground' | 'blocked' | 'time'; impact: { sink: number; speed: number; bank: number } | null } {
+  const c = structuredClone(g), dt = opt.dt ?? 0.2, maxT = opt.maxT ?? 60;
+  c.impact = null;
+  let t = 0;
+  while (t < maxT) {
+    stepGlider(c, ctl, env, dt); t += dt;
+    if (c.landed) return { x: c.x, y: c.y, t, end: 'ground', impact: c.impact };
+    if (opt.blocked && opt.blocked(c.x, c.y, c.z)) return { x: c.x, y: c.y, t, end: 'blocked', impact: null };
+  }
+  return { x: c.x, y: c.y, t, end: 'time', impact: null };
+}
+
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const sstep = (x: number, a: number, b: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export const COURSE_MAX_RATE = 5;           // rad/s: the fastest a camera's course swings round (a hard turn is about 4)

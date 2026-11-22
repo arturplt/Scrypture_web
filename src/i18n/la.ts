@@ -811,6 +811,7 @@ export const la: Record<Key, string> = {
   "worldWaters": "Aquae",
   "worldHere": "Hic es: {x}, {y}",
   "worldWalkDist": "Distantia visus pedester",
+  "worldPlaneSize": "Magnitudo avis",
   "worldDrawDist": "Spatium visus",
   "worldLakeLoading": "Lacus onerantur...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hullDipM, ALT_MAX, BOOST_COOLDOWN, BOOST_TIME, boostPlane, launchPlane, GROUND_ALT, START_BOOSTS, hoopBoost, HOOP_SPEED, STALL_SPEED, THERMAL_CELL, TRIM_SPEED, airVertical, newGlider, setBank, stepGlider, thermalsIn, throwPlane, type GlideControls, type GlideEnv, type ThermalEnv } from './glider';
+import { projectLanding, hullDipM, ALT_MAX, BOOST_COOLDOWN, BOOST_TIME, boostPlane, launchPlane, GROUND_ALT, START_BOOSTS, hoopBoost, HOOP_SPEED, STALL_SPEED, THERMAL_CELL, TRIM_SPEED, airVertical, newGlider, setBank, stepGlider, thermalsIn, throwPlane, type GlideControls, type GlideEnv, type ThermalEnv } from './glider';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
 const none: GlideControls = { pitch: 0, roll: 0, yaw: 0 };
@@ -233,5 +233,17 @@ describe('hitbox', () => {
   it('a level plane still flies down to the ground', () => {
     expect(hullDipM(0, 0)).toBe(0);
     const g = newGlider(0, 0, 0, 3); run(g, none, still, 0.2); expect(g.landed).toBe(false);
+  });
+});
+
+describe('projectLanding', () => {
+  it('flies a copy on to the ground without touching the plane, and lands where the real plane does', () => {
+    const env = { windX: 0, windY: 0, air: () => 0 }, ctl = { pitch: 0, roll: 0, yaw: 0, freeStall: false, aero: false, thrust: 0 } as any;
+    const g = newGlider(0, 0, 0, 40); throwPlane(g, 0, 0, 0, 40, 7, 0);
+    const z0 = g.z, p = projectLanding(g, ctl, env, { maxT: 300 });
+    expect(g.z).toBe(z0); expect(g.landed).toBeFalsy();
+    expect(p.end).toBe('ground');
+    for (let i = 0; i < 20000 && !g.landed; i++) stepGlider(g, ctl, env, 0.05);
+    expect(Math.hypot(p.x - g.x, p.y - g.y)).toBeLessThan(0.1 * Math.hypot(g.x, g.y) + 2);
   });
 });

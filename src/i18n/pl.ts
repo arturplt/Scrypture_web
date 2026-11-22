@@ -811,6 +811,7 @@ export const pl: Record<Key, string> = {
   "worldWaters": "Wody",
   "worldHere": "Jesteś tutaj: {x}, {y}",
   "worldWalkDist": "Zasięg widoku pieszo",
+  "worldPlaneSize": "Rozmiar samolotu",
   "worldDrawDist": "Zasięg rysowania",
   "worldLakeLoading": "Wczytuję Krainę Jezior...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",

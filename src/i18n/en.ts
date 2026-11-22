@@ -810,6 +810,7 @@ export const en = {
   "worldWaters": "Waters",
   "worldHere": "You are here: {x}, {y}",
   "worldWalkDist": "Walking draw distance",
+  "worldPlaneSize": "Plane size",
   "worldDrawDist": "Draw distance",
   "worldLakeLoading": "Loading the Lake District...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",

@@ -5,7 +5,7 @@ import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
-  BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, hull, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, lookAhead, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
+  BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLanding, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, lookAhead, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
   BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
 } from '../domain';
@@ -206,6 +206,8 @@ function WorldView({ id }: { id: string }) {
   const man = useRef<Maneuver | null>(null);   // the pattern being flown, null when the pilot has the stick
   useEffect(() => { savePatterns(pats); }, [pats]);
   const [watersOpen, setWatersOpen] = useState(false);   // the Lake District's list of waters (tap the place name)
+  const [planeSizeI, setPlaneSizeI] = useState(() => { try { const v = Number(localStorage.getItem('scrypture.planeSize')); return Number.isInteger(v) && v >= 0 && v < PLANE_SIZES.length ? v : 0; } catch { return 0; } }), planeLenRef = useRef(PLANE_SIZES[planeSizeI]);   // how long the paper plane is drawn: you choose (starts at a real 0.3 m)
+  planeLenRef.current = PLANE_SIZES[planeSizeI];
   const [walkDist, setWalkDist] = useState(100);   // on foot (hilly worlds): how far the real chunks reach, % of the usual 200 tiles
   const gfx0 = useRef(loadGfx()).current;
   const [resScale, setResScale] = useState(gfx0.res), [resAuto, setResAuto] = useState(gfx0.auto), [fpsCap, setFpsCap] = useState(gfx0.cap), [decoDensity, setDecoDensity] = useState(gfx0.density);   // graphics: render resolution (%), whether it also drops by itself when slow, frame cap, how many trees, bushes and rocks (%)
@@ -446,7 +448,7 @@ function WorldView({ id }: { id: string }) {
     // every trick flown in this run, by name: how many times and what it paid (shown when the plane is down)
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
-    let lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
+    let landEnv: GlideEnv | null = null, landT = 0, landAt: { x: number; y: number; kind: 'crash' | 'splash' | 'soft' | 'skim' | 'far' } | null = null, landShow: { x: number; y: number } | null = null, lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
     // The stage's real size, never 0: if layout has not settled (or the observer missed a change) fall back to the box around it or the window.
     const measure = () => {
       const r = el.getBoundingClientRect(), p = el.parentElement;
@@ -522,7 +524,7 @@ function WorldView({ id }: { id: string }) {
       syncAcc += 1;
       if (syncAcc >= 20) { syncAcc = 0; const m = measure(); if (m.w !== W || m.h !== H || Math.min(2, window.devicePixelRatio || 1) !== dpr) fit(); }   // belt and braces: a canvas that disagrees with its box is refitted within a third of a second
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const L = live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, planeK = s.world.kind === 'lakedistrict' ? LAKE_PLANE_M / (lakeData()?.tileM ?? 50) / 2.4 : 1, camK = Math.max(planeK, s.world.kind === 'lakedistrict' ? LAKE_CAM_MIN : 0);   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
+      const L = live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1;   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
       // the 3D view (WebGL) takes over while tilt or the behind-plane view is on; the flat canvas stays for everything else
       const camEff: CamMode = L.mode === 'glide' && !glFailed && L.tool === 'fly' ? L.camMode : 'chase';   // (the free view and the flyby are for the glider, in the 3D view)
@@ -624,13 +626,13 @@ function WorldView({ id }: { id: string }) {
         const wv = s.eco.windSpeed * 1.5, wd = s.eco.wind.dir, gLayer = () => 1 + (1 - Math.max(0, Math.min(1, gl.z / 120))) * 9;   // (the plane's cloud layer from its height: above a cloud it is out of that cloud's rain)
         let mc: MCtl | null = null;   // a flight pattern flies the plane until it is done, the pilot moves the stick hard, or the plane lands
         if (man.current) { if (gl.landed || aim.current.on || Math.max(Math.abs(pull), Math.abs(roll), Math.abs(yaw)) > 0.6) man.current = null; else { mc = stepManeuver(man.current, gl, dt); if (!mc) man.current = null; } }
-        stepGlider(gl, mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100 } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }, dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
+        stepGlider(gl, mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100 } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, (landEnv = { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }), dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
         if (!gl.landed) floated.current = false;
         else if (wasLanded.current && !floated.current && gl.wet < 1 && s.world.terrainAt(Math.round(f.x), Math.round(f.y)) === WATER) soakPlane(gl);   // standing in water (spawned in it, or it rose under the plane): soaked, whatever the landing was (a float upgrade only saves the touchdown itself)
         { const rn = s.eco.rainAt(gl.x, -gl.y, gLayer()) * paperRain(upRef.current.paper); if (rn > 0.05 && !L.paused) gl.wet = Math.min(1, gl.wet + rn * dt / 12); }   // rain soaks the paper too (a thick cloud in about ten seconds), and it dries as before
         if (!gl.landed && gl.z < 6) {   // flying into a tree or a bush is a crash: a standing plant is a few metres tall (by its size) and fills the middle of its tile
           const tx = Math.floor(gl.x), ty = Math.floor(-gl.y), dc = s.world.drawn(tx, ty).deco, top = dc === SHEET.bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
-          if (top > 0 && gl.z < top * decoK * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38 * decoK) {
+          if (top > 0 && gl.z < top * decoK * (dc === SHEET.bush ? SMALL_DECO_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38 * decoK * (dc === SHEET.bush ? SMALL_DECO_K : 1)) {
             gl.impact = { sink: 5, speed: Math.hypot(gl.vx, gl.vy), bank: Math.abs(gl.phi) }; gl.landed = true; gl.vx = gl.vy = gl.vz = 0; gl.z = Math.max(0, gl.z - 0.5);
           }
         }
@@ -717,7 +719,7 @@ function WorldView({ id }: { id: string }) {
       if ((!lookCam.current.on || !walking) && !lookingFly) lookCam.current.pitch *= Math.exp(-6 * dt);
       if (!lookingFly) { lookYaw.current *= Math.exp(-6 * dt); if (Math.abs(lookYaw.current) < 0.001) lookYaw.current = 0; }   // (not looking: the view settles back level)
       // low and slow: the camera climbs to the plane's nose (the view you have on foot, the same eye) and stays there, so touching down changes nothing
-      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, 5, 22)) : 0;   // (low and nothing else: speed and pitch no longer decide when the eye comes down to the nose)   // (not while it stands on its tail or flies upside down: the eye has no roll)
+      const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, treeTopM, treeTopM * 2)) : 0;   // (low and nothing else: speed and pitch no longer decide when the eye comes down to the nose)   // (not while it stands on its tail or flies upside down: the eye has no roll)
       const aiming = useGL && f.mode === 'glide' && gl.landed && aim.current.on;   // holding the plane up to throw: the same eye as on foot, and the path it will fly is drawn
       fpvK += (((walking || aiming) ? 1 : launchActive ? (lcT < 0.35 ? 1 : 0) : lowSlow) - fpvK) * (1 - Math.exp(-4 * dt));
       if (!walking && fpvK > 0.002 && f.mode === 'glide') {                       // the view turns to where the plane points as it comes in (on foot it already does)
@@ -806,7 +808,7 @@ function WorldView({ id }: { id: string }) {
           // on foot: the eye at the bobr; in the air: at the plane's nose, as high as the plane is, looking where it points (the nose offset and the height go to the on-foot values as it touches down)
           const airK = onFoot ? 0 : sstep(gl.z, 0, 3);
           // coming down, the eye starts behind the plane (it stays in view) and slides forward the nearer the ground gets, to the nose at about 2 m, where the plane is out of sight
-          const near = onFoot ? 1 : 1 - sstep(gl.z, 2, 10), ahead = onFoot ? 0 : (-2.5 * (1 - near) + 0.5 * airK * near) * camK;
+          const near = onFoot ? 1 : 1 - sstep(gl.z, treeTopM * 0.4, treeTopM), ahead = onFoot ? 0 : (-2.5 * (1 - near) + 0.5 * airK * near) * camK;
           return { k: fpvK, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 * camK + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 * camK : 0) : gl.z * 0.18 + 0.3 * camK * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
         })() : undefined, lookH: tgt[2] });
         fp = glr!.footprint();
@@ -1121,7 +1123,7 @@ function WorldView({ id }: { id: string }) {
         }
         mark('stones-sticks');
         if (Tv >= 9) for (const d of decos) {                                          // trees, bushes and rocks stand on their tile, facing the camera (not when zoomed far out: they are a pixel or two, and thousands of them cost more than the ground)
-          const wx = d.x + 0.5, wy = d.y + 1, ds = d.scale * decoK;
+          const wx = d.x + 0.5, wy = d.y + 1, ds = d.scale * decoK * (d.cell === SHEET.conifer || d.cell === SHEET.deciduous ? 1 : SMALL_DECO_K);   // (bushes and rocks are a fraction of a tree)
           if (hash01(d.x, d.y, 5) * 100 >= dens) continue;   // (the density setting thins the trees, bushes and rocks out, the same ones each time)
           if (far(wx, wy) || !ffp.inside(wx, wy, ds) || (s.world.kind === 'lakedistrict' && (wx - px0) * (wx - px0) + (wy - py0) * (wy - py0) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
           if (L.billboards) G.flat('decal', wx, wy - 0.04, 0.015, ds * 0.64, ds * 0.2, 0, -1, at.shadow, 0, 0, 0, 0.22);
@@ -1159,6 +1161,40 @@ function WorldView({ id }: { id: string }) {
           if (fpvK < 0.3 || (!walking && !aiming && !launchActive && !gl.landed && gl.z > 2.5) || (launchActive && Math.hypot(f.x - launchCam.current!.x, f.y - launchCam.current!.y) > 5)) { if (G.hasModel) G.drawModel(f.x, f.y, hP, hdx, hdy, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35, 2.4 * planeK, sa, 0.12, 0.25, glide && !gl.landed ? { f: gl.fwd, u: gl.top } : undefined); else G.flat('solid', f.x, f.y, hP, 2 * planeK, 2 * planeK, hdx, hdy, cplane, 1, 1, 1, 1, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35); }
         }
 
+        // where the plane comes down if the controls are let go now: a copy of it is flown on with the real physics (thermals, wind, the hills, trees) every half second, and a ring shows where it ends
+        if (glide && !gl.landed && !L.hideUi && landEnv && !L.paused) {
+          landT -= dt;
+          if (landT <= 0) {
+            landT = 0.5;
+            const env = landEnv;
+            const blocked = (x: number, y: number, z: number) => {   // (the same trees and bushes that crash the plane for real)
+              if (z > treeTopM * 1.1) return false;
+              const tx = Math.floor(x), ty = Math.floor(-y), dc = s.world.drawn(tx, ty).deco, bush = dc === SHEET.bush, top = bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
+              return top > 0 && z < top * decoK * (bush ? SMALL_DECO_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(x - tx - 0.5, -y - ty - 0.5) < 0.38 * decoK * (bush ? SMALL_DECO_K : 1);
+            };
+            const r = projectLanding(gl, { pitch: 0, roll: 0, yaw: 0, freeStall: false, aero: false, thrust: L.throttle / 100 }, env, { maxT: 45, dt: 0.5, blocked });
+            const wet = r.end !== 'blocked' && s.world.terrainAt(Math.round(r.x), Math.round(-r.y)) === WATER, softHit = !!r.impact && r.impact.sink <= SOFT_SINK && r.impact.bank <= SOFT_BANK;
+            landAt = { x: r.x, y: -r.y, kind: r.end === 'time' ? 'far' : r.end === 'blocked' ? 'crash' : wet ? (softHit ? 'skim' : 'splash') : softHit ? 'soft' : 'crash' };   // red: a crash (or a tree); blue: a splash; green: a soft landing; flashing green and blue: a soft touch on the water (the tail drags)
+          }
+          if (landAt) {
+            if (!landShow || Math.hypot(landShow.x - landAt.x, landShow.y - landAt.y) > 40) landShow = { x: landAt.x, y: landAt.y };
+            const k = 1 - Math.exp(-8 * dt); landShow.x += (landAt.x - landShow.x) * k; landShow.y += (landAt.y - landShow.y) * k;
+            const dist = Math.hypot(landShow.x - ex, landShow.y - ey), sz = Math.max(0.25, Math.min(4, dist * 0.03)), flash = Math.sin(anim * 9) > 0;   // (the farther off, the bigger, so it can be seen)
+            const col: [number, number, number] = landAt.kind === 'crash' ? [1, 0.2, 0.15] : landAt.kind === 'splash' ? [0.25, 0.55, 1] : landAt.kind === 'soft' ? [0.3, 1, 0.4] : landAt.kind === 'skim' ? (flash ? [0.3, 1, 0.4] : [0.25, 0.55, 1]) : [0.85, 0.85, 0.85];
+            {   // (no draw-distance cut: it is a marker, you must see it however far the ground is drawn)
+              // a pointer made of eight spinning cuboids, each a little narrower than the one above, ending in a point on the landing spot
+              const x0 = landShow.x, y0 = landShow.y, gz = G.groundH(x0, y0), spin = anim * 1.6, N = 8, hl = sz * 0.24, bob = 0.15 * sz * (1 + Math.sin(anim * 3));
+              for (let i = 0; i < N; i++) {
+                const w = sz * 0.3 * Math.pow(1 - i / N, 1.25) + sz * 0.012, zc = -(gz + bob + (N - 1 - i) * hl + hl / 2), a0 = spin + i * 0.2;
+                for (let k = 0; k < 4; k++) {
+                  const a = a0 + k * Math.PI / 2, ca = Math.cos(a), sa2 = Math.sin(a), sh = 0.62 + 0.38 * Math.cos(a - 0.9);
+                  G.quad('solid', x0 + ca * w, y0 + sa2 * w, zc, -sa2 * w, ca * w, 0, 0, 0, -hl / 2, at.dot, col[0] * sh, col[1] * sh, col[2] * sh, 1);
+                }
+                G.quad('solid', x0, y0, zc - hl / 2, Math.cos(a0) * w, Math.sin(a0) * w, 0, -Math.sin(a0) * w, Math.cos(a0) * w, 0, at.dot, col[0], col[1], col[2], 1);
+              }
+            }
+          }
+        } else { landAt = null; landShow = null; landT = 0; }
         mark('decos');
         // water-cycle clouds and the rain under them
         G.skyMode = true;
@@ -1908,6 +1944,7 @@ function WorldView({ id }: { id: string }) {
               <PixelButton size="compact" scale={1} variant={third ? 'green' : 'red'} aria-pressed={third} onClick={() => setThird(v => !v)}>{t('worldThird')}</PixelButton>
               </div>
               <div className="world-slider"><span>{t('worldCamDistance')}</span><PixelSlider min={tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0} max={MAX_CAMERA_DISTANCE} step={1} value={Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)} onChange={setCamDist} label={t('worldCamDistance')} valueText={String(Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0))} /><b>{Math.max(camDist, tilt === 0 ? FLAT_VIEW_MIN_LOOK : 0)}</b></div>
+              <div className="world-slider"><span>{t('worldPlaneSize')}</span><PixelSlider min={0} max={PLANE_SIZES.length - 1} step={1} value={planeSizeI} onChange={v => { setPlaneSizeI(v); try { localStorage.setItem('scrypture.planeSize', String(v)); } catch { /* private window: the choice just is not kept */ } }} label={t('worldPlaneSize')} valueText={`${PLANE_SIZES[planeSizeI]} m`} /><b>{PLANE_SIZES[planeSizeI]} m</b></div>
               {initial.kind === 'lakedistrict' && <div className="world-slider"><span>{t('worldWalkDist')}</span><PixelSlider min={25} max={200} step={25} value={walkDist} onChange={setWalkDist} label={t('worldWalkDist')} valueText={`${walkDist}%`} /><b>{walkDist}</b></div>}
               <div className="world-slider"><span>{t('worldTilt')}</span><PixelSlider min={0} max={16} step={1} value={tilt} onChange={setTilt} label={t('worldTilt')} valueText={String(tilt)} /><b>{tilt}</b></div>
               {showInfo && <div className="muted small">{t('worldCamTip')}</div>}
@@ -2397,12 +2434,14 @@ function drawDecoClouds(ctx: CanvasRenderingContext2D, seed: number, fx: number,
 const aimPower = (t: number) => { const p = (t / 1.2) % 2; return 0.25 + 0.75 * (p < 1 ? p : 2 - p); };
 /** The pixel font for every bit of text drawn on the canvas. */
 const NO_SCORES: RunScore[] = [];
-/** Real metres for the labels: on the Lake District maps a tile is `tileM` metres on the ground, and the glider's own height metre is drawn 0.18 tiles tall, i.e. 0.18 * tileM / stretch real metres; elsewhere the old tile = metre. */
+/** Real metres for the labels: on the Lake District maps a tile is `tileM` metres on the ground, and the glider's own height metre is drawn 0.18 tiles tall, i.e. 0.18 * tileM / stretch real metres; elsewhere a tile is a metre, so a height is its drawn tiles (sim metres x 0.18). */
 const realDist = (tiles: number) => Math.round(tiles * (lakeData()?.tileM ?? 1));
-const realAlt = (simM: number) => { const d = lakeData(); return Math.round(d ? simM * 0.18 * d.tileM / d.stretch : simM); };
+const realAlt = (simM: number) => { const d = lakeData(); return Math.round(d ? simM * 0.18 * d.tileM / d.stretch : simM * 0.18); };   // (flat world: a tile is a metre, and a sim metre of height is drawn 0.18 tiles tall)
 /** Trees, bushes and rocks on the Lake District maps are drawn at about real size against the 50 m tiles (about 10 to 40 m tall) instead of 1 to 4 tiles; other worlds keep the old size. */
-const LAKE_CAM_MIN = 0.1;   // the camera's distances (chase, free, flyby, nose view) follow the plane's size on the Lake District maps, down to this fraction of the usual
-const LAKE_PLANE_M = 4;   // the paper plane is drawn this many metres long on the Lake District maps (2.4 tiles elsewhere)
+/** The plane lengths you can choose between (m): a real paper plane first. */
+const PLANE_SIZES = [0.3, 0.5, 0.8, 1.2, 2, 3, 4, 6, 8];
+const SMALL_DECO_K = 0.3;   // bushes and rocks are drawn this fraction of a tree's size (a bush is about a metre, a stone less)
+const CAM_MIN = 0.1;   // the camera's distances (chase, free, flyby, nose view) follow the plane's size, down to this fraction of the usual
 const LAKE_DECO_MIN = 0.25;   // ...but never below this many tiles per unit of scale, or on the 50 m map they shrink to a few pixels
 const LAKE_DECO_M = 10;   // metres per unit of decoration scale (so scale 1..4 is 10..40 m): the factor is this over the map's metres per tile (1.0 on Coniston at 10 m), floored at LAKE_DECO_MIN (so 0.25 on the 50 m map, where 10 / 50 would be 0.2)
 const PXF = "'Press Start 2P', ui-monospace, monospace";
