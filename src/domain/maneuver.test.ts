@@ -88,6 +88,21 @@ describe('flight patterns', () => {
     for (let i = 0; i < 60 * 14; i++) { const c = stepManeuver(m, g, 1 / 60); stepGlider(g, c ? { ...c } : { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60); got.push(...stepTricks(t, g, 1 / 60)); }
     expect(got).not.toContain('turn90'); expect(got).not.toContain('uTurn');
   });
+  it('a barrel roll holds its path: the flight path and the nose stay within 45 degrees of where the roll began, and the load stays low', () => {
+    const ang = (u: number[], v: number[]) => Math.acos(Math.max(-1, Math.min(1, (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (Math.hypot(u[0], u[1], u[2]) * Math.hypot(v[0], v[1], v[2]))))) * 180 / Math.PI;
+    for (const name of ['Barrel', 'Roll left', 'Double roll']) {
+      const g = newGlider(0, 0, 0.4, 150); for (let i = 0; i < 240; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60);
+      const m = startManeuver(byName(name), g); let u0: number[] | null = null, nose = 0, path = 0, load = 0;
+      for (let i = 0; i < 60 * 20; i++) {
+        const c = stepManeuver(m, g, 1 / 60); if (!c) break;
+        if (m.phase === 1 && !u0) u0 = [g.vx, g.vy, g.vz];
+        stepGlider(g, { ...c }, still, 1 / 60);
+        if (m.phase === 1 && u0) { nose = Math.max(nose, ang([g.fwd[0], g.fwd[1], g.fwd[2]], u0)); path = Math.max(path, ang([g.vx, g.vy, g.vz], u0)); load = Math.max(load, Math.abs(g.load)); }
+      }
+      expect(nose, name).toBeLessThan(45); expect(path, name).toBeLessThan(45); expect(load, name).toBeLessThan(3);
+      expect(Math.abs(Math.atan2(Math.sin(g.psi - 0.4), Math.cos(g.psi - 0.4))), name).toBeLessThan(0.2);   // ends on the heading it began on
+    }
+  });
   it('is cancelled by landing', () => {
     const g = newGlider(0, 0, 0, 1); for (let i = 0; i < 600; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60);
     expect(g.landed).toBe(true);

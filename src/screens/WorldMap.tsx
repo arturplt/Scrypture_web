@@ -38,6 +38,7 @@ import { BEAVER_ASPECT, beaverLook, beaverSprites, loadBeaverSprites } from './b
 import { MIN_EYE_H, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
+import { newSas, nextSasMode, stepSas, type SasMode } from '../domain/sas';
 import { DEFAULT_PATTERNS, STEP_KINDS, defaultStep, loadPatterns, savePatterns, startManeuver, stepManeuver, stepUnit, type Maneuver, type MCtl, type Pattern, type PatternStore } from '../domain/maneuver';
 import './world.css';
 
@@ -353,6 +354,9 @@ function WorldView({ id }: { id: string }) {
   const throwRef = useRef(spaceNow); throwRef.current = spaceNow;
   const patternNow = () => { const s = sim.current; if (!s || live.current.mode !== 'glide') return; if (man.current) { man.current = null; return; } const p = patsRef.current.patterns[patsRef.current.sel]; if (s.glider.landed || aim.current.on || !p || !p.steps.length) return; man.current = startManeuver(p, s.glider); };
   const patternRef = useRef(patternNow); patternRef.current = patternNow;
+  const [, setSasMode] = useState<SasMode>('off'), sasRef = useRef(newSas('off'));   // stability assist (T): the plane holds its climb angle and bank, the stick only asks for a change
+  const cycleSas = () => setSasMode(m => { const n = nextSasMode(m); sasRef.current.mode = n; sasRef.current.engaged = false; return n; });
+  const cycleSasRef = useRef(cycleSas); cycleSasRef.current = cycleSas;
   useEffect(() => {   // where the mouse is, in stage pixels; Esc lets go of it
     const move = (e: PointerEvent) => {
       if (lookCam.current.on && (e.buttons > 0 || e.pointerType === 'touch') && stage.current?.contains(e.target as Node)) {   // looking round: the drag turns the bobr and tips the view
@@ -420,6 +424,7 @@ function WorldView({ id }: { id: string }) {
       else if (k === 'f' && !e.repeat && !e.ctrlKey && !e.metaKey) interactRef.current();
       else if (k === 'c' && !e.repeat && !e.ctrlKey && !e.metaKey) cycleCamRef.current();
       else if (k === 'x' && !e.repeat && !e.ctrlKey && !e.metaKey) patternRef.current();
+      else if (k === 't' && !e.repeat && !e.ctrlKey && !e.metaKey) cycleSasRef.current();
     };
     const up = (e: KeyboardEvent) => { keys.current.delete(e.key.toLowerCase()); if (e.key === ' ') releaseAim(); };
     addEventListener('keydown', down); addEventListener('keyup', up);
@@ -626,7 +631,10 @@ function WorldView({ id }: { id: string }) {
         const wv = s.eco.windSpeed * 1.5, wd = s.eco.wind.dir, gLayer = () => 1 + (1 - Math.max(0, Math.min(1, gl.z / 120))) * 9;   // (the plane's cloud layer from its height: above a cloud it is out of that cloud's rain)
         let mc: MCtl | null = null;   // a flight pattern flies the plane until it is done, the pilot moves the stick hard, or the plane lands
         if (man.current) { if (gl.landed || aim.current.on || Math.max(Math.abs(pull), Math.abs(roll), Math.abs(yaw)) > 0.6) man.current = null; else { mc = stepManeuver(man.current, gl, dt); if (!mc) man.current = null; } }
-        stepGlider(gl, mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100 } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, (landEnv = { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }), dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
+        let sc: { pitch: number; roll: number; yaw: number; aero?: boolean } | null = null;   // the stability assist flies the stick's changes (not while a pattern flies, or on the ground: it takes the plane's attitude again afterwards)
+        const sasOn = sasRef.current.mode !== 'off';
+        if (sasOn && !mc && !gl.landed && !aim.current.on) sc = stepSas(sasRef.current, gl, { pitch: L.invertPitch ? -pull : pull, roll, yaw }, dt, L.throttle / 100); else if (sasOn) sasRef.current.engaged = false;
+        stepGlider(gl, mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100 } : sc ? { pitch: sc.pitch, roll: sc.roll, yaw: Math.max(-1, Math.min(1, sc.yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: sc.aero ?? L.aero, thrust: L.throttle / 100 } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100 }, (landEnv = { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }), dt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
         if (!gl.landed) floated.current = false;
         else if (wasLanded.current && !floated.current && gl.wet < 1 && s.world.terrainAt(Math.round(f.x), Math.round(f.y)) === WATER) soakPlane(gl);   // standing in water (spawned in it, or it rose under the plane): soaked, whatever the landing was (a float upgrade only saves the touchdown itself)
         { const rn = s.eco.rainAt(gl.x, -gl.y, gLayer()) * paperRain(upRef.current.paper); if (rn > 0.05 && !L.paused) gl.wet = Math.min(1, gl.wet + rn * dt / 12); }   // rain soaks the paper too (a thick cloud in about ten seconds), and it dries as before
@@ -1860,6 +1868,7 @@ function WorldView({ id }: { id: string }) {
             <div ref={liftMsg} className="world-liftmsg" style={{ display: 'none' }} />
             <FlightInstruments data={inst} label={t('worldInstruments')} />
             {!lookFly && <PatternButton cls="wui-pattern" label={t('worldPattern')} name={() => pats.patterns[pats.sel]?.name ?? ''} running={() => man.current !== null} onPress={() => patternRef.current()} />}
+            {!lookFly && <PatternButton cls="wui-sas" label={t('worldSas')} hint="T" icon="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" name={() => sasRef.current.mode} running={() => sasRef.current.mode !== 'off'} onPress={() => cycleSasRef.current()} />}
             {!lookFly && <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>}
             {!lookFly && <BoostButton cls="wui-boostrow wui-boostside" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />}
             <button type="button" className="world-mousebtn" aria-label={t('worldMouseFly')} title={t('worldMouseFly')}
@@ -1882,6 +1891,7 @@ function WorldView({ id }: { id: string }) {
         <div className="wui world-fjoys">
           <div className="world-fjbtns">
             <PatternButton cls="world-fjpattern" label={t('worldPattern')} name={() => pats.patterns[pats.sel]?.name ?? ''} running={() => man.current !== null} onPress={() => patternRef.current()} />
+            <PatternButton cls="world-fjpattern" label={t('worldSas')} hint="T" icon="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" name={() => sasRef.current.mode} running={() => sasRef.current.mode !== 'off'} onPress={() => cycleSasRef.current()} />
             <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro world-fjacro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>
             <BoostButton cls="world-fjboost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />
           </div>
@@ -2049,7 +2059,7 @@ function BoostButton({ cls, label, cooldown, charges, onBoost }: { cls: string; 
 }
 
 /** The pattern button: flies the selected flight pattern (X); pressing it again hands the stick back. Lit while a pattern runs (written straight to the DOM, no re-render). */
-function PatternButton({ cls, label, name, running, onPress }: { cls: string; label: string; name: () => string; running: () => boolean; onPress: () => void }) {
+function PatternButton({ cls, label, name, running, onPress, hint = 'X', icon }: { cls: string; label: string; name: () => string; running: () => boolean; onPress: () => void; hint?: string; icon?: string }) {
   const el = useRef<HTMLButtonElement>(null), txt = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const id = setInterval(() => { const b = el.current; if (!b) return; b.setAttribute('data-run', running() ? 'true' : 'false'); const n = name().slice(0, 7).toUpperCase(); if (txt.current && txt.current.textContent !== n) txt.current.textContent = n; }, 100);
@@ -2057,8 +2067,8 @@ function PatternButton({ cls, label, name, running, onPress }: { cls: string; la
   }, [name, running]);
   return (
     <div className={cls}>
-      <PixelFrame ref={el} as="button" theme="bronze" scale={1} className="wui-patbtn" style={{ '--bw': 5 } as CSSProperties} aria-label={label} title={`${label} (X)`} data-run="false" onPointerDown={e => { e.stopPropagation(); onPress(); }}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM12 16v4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="square" /></svg>
+      <PixelFrame ref={el} as="button" theme="bronze" scale={1} className="wui-patbtn" style={{ '--bw': 5 } as CSSProperties} aria-label={label} title={`${label} (${hint})`} data-run="false" onPointerDown={e => { e.stopPropagation(); onPress(); }}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={icon ?? 'M12 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM12 16v4'} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="square" /></svg>
         <span ref={txt} className="wui-patname" />
       </PixelFrame>
     </div>

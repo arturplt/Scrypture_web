@@ -972,6 +972,7 @@ export const pl: Record<Key, string> = {
   "worldWet": "MOKRY",
   "worldBoost": "PRZYSPIESZENIE",
   "worldPattern": "WZOR",
+  "worldSas": "STABILIZACJA",
   "worldPatterns": "Figury lotu",
   "worldPatternDel": "Usun",
   "worldPatternStep": "+ Krok",

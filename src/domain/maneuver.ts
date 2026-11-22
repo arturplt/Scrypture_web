@@ -74,6 +74,8 @@ const LOOP_PULL = 0.7, LOOP_SPEED = 16;
 /** The Immelman starts its half roll this far (rad) before the half loop is done: the nose is still coming over, and the path turns less while it rolls out. */
 const IMM_LEAD = 1.2;
 const STEP_TIMEOUT = 14, TURN_BANK = 1.0;
+/** A roll starts above this airspeed (m/s); slower, the plane dives a little first. */
+const ROLL_SPEED = 6;
 
 /** The angle of the nose in the vertical plane of the heading the step began on (0 level ahead, pi/2 straight up, pi upside down going back). */
 const theta = (m: Maneuver, g: Glider) => Math.atan2(g.fwd[2], g.fwd[0] * m.h0x + g.fwd[1] * m.h0y);
@@ -98,6 +100,16 @@ const flat = (g: Glider) => clamp(g.wz * 3);
 
 /** Hold the nose where the flight path is flat: a small pull above trim speed, a small push below. */
 const hold = (g: Glider) => clamp(0.3 * (g.airspeed - 7) / 7 - 1.2 * g.gamma, -0.6, 0.6);
+
+/**
+ * Keep the flight path where it was while the plane rolls: pull (along the wing's own up, which turns over with the roll) towards the
+ * heading the roll began on, and carry the plane's weight. A fixed pull draws a circle with the path (the lift sweeps round with the bank).
+ */
+const rollHold = (g: Glider, m: Maneuver) => {
+  const v = Math.hypot(g.vx, g.vy, g.vz) || 1;
+  const e = (m.h0x - g.vx / v) * g.top[0] + (m.h0y - g.vy / v) * g.top[1] + (0 - g.vz / v) * g.top[2];
+  return clamp(2 * e + 0.12 * g.top[2], -0.7, 0.7);
+};
 
 /** Gaining loop speed: push over until the path is steep, then ease to zero lift (the least drag, so the plane dives to ~24 m/s instead of ~12). */
 const dive = (g: Glider) => (g.gamma > -0.8 ? -0.6 : -0.45);
@@ -137,12 +149,15 @@ function stepOne(m: Maneuver, s: Step, g: Glider, dt: number): MCtl | null {
       const pull = m.phase === 0 ? clamp(0.12 + 0.55 * (1 / Math.max(0.3, Math.cos(g.phi)) - 1) + hold(g) * 0.3, -0.2, 0.9) : hold(g);
       return { pitch: pull, roll: clamp((bank - g.phi) * 2.2), yaw: 0, aero: false };
     }
-    case 'roll': {
+    case 'roll': {                                           // an aileron roll: about the flight path, which stays straight (the nose does not draw circles)
       const dir = s.amount >= 0 ? 1 : -1, want = Math.abs(s.amount) * D2R;
-      if (m.phase === 0) {
+      if (m.phase === 0) {                                   // a little speed first: slow, the nose drops and wanders as the wing turns over
+        if (g.airspeed >= ROLL_SPEED) m.phase = 1; else return { pitch: dive(g), roll: flat(g), yaw: 0, aero: true };
+      }
+      if (m.phase === 1) {
         m.prog += dir * g.rollRate * dt;
-        if (m.prog >= want - 0.25) m.phase = 1;
-        return { pitch: 0.12, roll: dir, yaw: 0, aero: true };
+        if (m.prog >= want - 0.25) m.phase = 2;
+        return { pitch: rollHold(g, m), roll: dir, yaw: 0, aero: true };
       }
       if (Math.abs(g.phi) < 0.1 && g.nz > 0.9) return null;
       return { pitch: hold(g), roll: level(g), yaw: 0, aero: true };

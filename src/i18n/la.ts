@@ -972,6 +972,7 @@ export const la: Record<Key, string> = {
   "worldWet": "MADIDUS",
   "worldBoost": "IMPULSUS",
   "worldPattern": "ORDO",
+  "worldSas": "STABILITAS",
   "worldPatterns": "Ordines volatus",
   "worldPatternDel": "Dele",
   "worldPatternStep": "+ Gradus",

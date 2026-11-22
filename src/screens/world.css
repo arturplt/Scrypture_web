@@ -390,6 +390,7 @@
 
 /* flight patterns: the pattern button sits above ACRO, left of the instrument, and lights while a pattern flies */
 .wui-pattern { position: absolute; right: 100%; bottom: calc(6 * var(--u) + 58px); margin-right: calc(10 * var(--u)); pointer-events: auto; }
+.wui-sas { position: absolute; right: 100%; bottom: calc(6 * var(--u) + 116px); margin-right: calc(10 * var(--u)); pointer-events: auto; }
 .wui-patbtn { position: relative; box-sizing: border-box; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr); color: #fff; cursor: pointer; touch-action: none; font: inherit; }
 .wui-patbtn svg { position: absolute; left: 50%; top: 40%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; filter: drop-shadow(0 1px 0 #000); }
 .wui-patname { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 6px; line-height: 1; white-space: nowrap; overflow: hidden; text-shadow: 0 1px 0 #000; pointer-events: none; }

@@ -971,6 +971,7 @@ export const en = {
   "worldWet": "WET",
   "worldBoost": "BOOST",
   "worldPattern": "PATTERN",
+  "worldSas": "STABILITY ASSIST",
   "worldPatterns": "Flight patterns",
   "worldPatternDel": "Delete",
   "worldPatternStep": "+ Step",
