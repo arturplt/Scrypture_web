@@ -1034,6 +1034,8 @@ export const pl: Record<Key, string> = {
   "worldTrickLoop": "PĘTLA",
   "worldTrickImmelman": "IMMELMANN",
   "worldTrickSplitS": "SPLIT S",
+  "worldTrickTurn90": "ZAKRET 90",
+  "worldTrickUTurn": "ZAWRACANIE",
   "worldInvert": "Odwróć pochylenie",
   "worldFreeStall": "Pozwól na przeciągnięcie",
   "worldAero": "Akrobacje (pętle, beczki)",

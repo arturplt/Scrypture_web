@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, stepGlider, type GlideEnv } from './glider';
-import { newTrickState, stepTricks } from './tricks';
-import { DEFAULT_PATTERNS, sanitize, startManeuver, stepManeuver, type Pattern } from './maneuver';
+import { newTrickState, resetTricks, stepTricks } from './tricks';
+import { DEFAULT_PATTERNS, PATTERN_VERSION, sanitize, startManeuver, stepManeuver, type Pattern } from './maneuver';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
 
@@ -67,6 +67,27 @@ describe('flight patterns', () => {
     const d = Math.abs(Math.atan2(Math.sin(r.g.psi - r.startPsi), Math.cos(r.g.psi - r.startPsi))); expect(d).toBeGreaterThan(2.4);
     expect(r.g.z).toBeGreaterThan(40);
   });
+  it('Left 90 and Right 90 turn about a quarter turn the right way and end level', () => {
+    for (const [name, sign] of [['Left 90', 1], ['Right 90', -1], ['U-turn right', -1], ['U-turn left', 1]] as const) {
+      const r = fly(byName(name)), want = name.startsWith('U') ? Math.PI : Math.PI / 2;
+      expect(r.done, name).toBe(true); expect(Math.sign(r.psiTurn), name).toBe(sign); expect(Math.abs(Math.abs(r.psiTurn) - want), name).toBeLessThan(0.25); expect(Math.abs(r.g.phi), name).toBeLessThan(0.2);
+    }
+  });
+  it('Square comes back to its first heading a quarter turn at a time', () => {
+    const r = fly(byName('Square')); expect(r.done).toBe(true); expect(Math.abs(Math.abs(r.psiTurn) - 2 * Math.PI)).toBeLessThan(0.7);
+  });
+  it('the trick scorer pays the simple turns: a 90 and a U-turn (and not a full circle)', () => {
+    for (const [name, trick] of [['Left 90', 'turn90'], ['Right 90', 'turn90'], ['U-turn right', 'uTurn'], ['U-turn left', 'uTurn']] as const) {
+      const g = newGlider(0, 0, 0.4, 150); for (let i = 0; i < 240; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60);
+      const m = startManeuver(byName(name), g), t = newTrickState(), got: string[] = []; resetTricks(t, g);
+      for (let i = 0; i < 60 * 14; i++) { const c = stepManeuver(m, g, 1 / 60); stepGlider(g, c ? { ...c } : { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60); got.push(...stepTricks(t, g, 1 / 60)); }
+      expect(got, name).toContain(trick);
+    }
+    const g = newGlider(0, 0, 0.4, 150); for (let i = 0; i < 240; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60);
+    const m = startManeuver(byName('Circle'), g), t = newTrickState(), got: string[] = []; resetTricks(t, g);
+    for (let i = 0; i < 60 * 14; i++) { const c = stepManeuver(m, g, 1 / 60); stepGlider(g, c ? { ...c } : { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60); got.push(...stepTricks(t, g, 1 / 60)); }
+    expect(got).not.toContain('turn90'); expect(got).not.toContain('uTurn');
+  });
   it('is cancelled by landing', () => {
     const g = newGlider(0, 0, 0, 1); for (let i = 0; i < 600; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, 1 / 60);
     expect(g.landed).toBe(true);
@@ -75,7 +96,10 @@ describe('flight patterns', () => {
   it('repeat flies the steps again; saved junk is cleaned up', () => {
     const r = fly({ name: 'x', repeat: 2, steps: [{ kind: 'roll', amount: 360 }] });
     expect(r.done).toBe(true); expect(r.m.rep).toBe(2);
-    expect(sanitize({ patterns: [{ name: 'a', repeat: 99, steps: [{ kind: 'nope', amount: 1 }, { kind: 'loop', amount: 9999 }] }], sel: 5 })).toEqual({ patterns: [{ name: 'a', repeat: 9, steps: [{ kind: 'loop', amount: 720 }] }], sel: 0 });
+    expect(sanitize({ patterns: [{ name: 'a', repeat: 99, steps: [{ kind: 'nope', amount: 1 }, { kind: 'loop', amount: 9999 }] }], sel: 5, v: PATTERN_VERSION })).toEqual({ patterns: [{ name: 'a', repeat: 9, steps: [{ kind: 'loop', amount: 720 }] }], sel: 0, v: PATTERN_VERSION });
+    // a list saved before the simple moves existed gets them added, and keeps its own patterns first
+    const old = sanitize({ patterns: [{ name: 'mine', repeat: 1, steps: [{ kind: 'roll', amount: 360 }] }], sel: 0 });
+    expect(old.patterns[0].name).toBe('mine'); expect(old.patterns.map(p => p.name)).toContain('Left 90'); expect(old.patterns.length).toBe(DEFAULT_PATTERNS.length + 1);
     expect(sanitize('junk').patterns.length).toBe(DEFAULT_PATTERNS.length);
   });
 });

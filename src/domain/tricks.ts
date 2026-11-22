@@ -4,8 +4,8 @@
  */
 import type { Glider } from './glider';
 
-export type TrickName = 'roll' | 'loop' | 'immelman' | 'splitS' | 'slalom' | 'stallHang' | 'thermal';
-export const TRICK_POINTS: Record<TrickName, number> = { roll: 60, loop: 100, immelman: 200, splitS: 200, slalom: 30, stallHang: 120, thermal: 150 };
+export type TrickName = 'roll' | 'loop' | 'immelman' | 'splitS' | 'slalom' | 'stallHang' | 'thermal' | 'turn90' | 'uTurn';
+export const TRICK_POINTS: Record<TrickName, number> = { roll: 60, loop: 100, immelman: 200, splitS: 200, slalom: 30, stallHang: 120, thermal: 150, turn90: 15, uTurn: 40 };
 export const THERMAL_CLIMB = 50;          // m climbed inside one thermal
 export const STALL_HANG_TIME = 2;         // s held past the stall, then recovered
 export const SLALOM_WINDOW = 5;           // s between two trees for the run to go on
@@ -26,8 +26,8 @@ export function comboAward(c: Combo, pts: number): { pts: number; mult: number }
 export function comboStep(c: Combo, dt: number, alive = false) { if (alive) c.t = Math.max(c.t, 1.5); else c.t = Math.max(0, c.t - dt); if (c.t <= 0) c.n = 0; }
 
 export interface TrickState { rollCum: number; rollIdle: number; prevPhi: number; prevPsi: number; loopOn: boolean; loopCum: number; loopIdle: number; loopRef: number; loopPrev: number; loopInv: boolean; loopHalf: boolean; immT: number; immRoll: number; invAge: number;
-  stallT: number; thermalOn: boolean; thermalZ0: number; thermalOut: number; thermalDone: boolean; clock: number; slSide: number; slT: number; slKey: number }
-export const newTrickState = (): TrickState => ({ rollCum: 0, rollIdle: 0, prevPhi: 0, prevPsi: 0, loopOn: false, loopCum: 0, loopIdle: 0, loopRef: 0, loopPrev: 0, loopInv: false, loopHalf: false, immT: 0, immRoll: 0, invAge: 99, stallT: 0, thermalOn: false, thermalZ0: 0, thermalOut: 0, thermalDone: false, clock: 0, slSide: 0, slT: -99, slKey: -1 });
+  stallT: number; thermalOn: boolean; thermalZ0: number; thermalOut: number; thermalDone: boolean; clock: number; slSide: number; slT: number; slKey: number; turnCum: number; turnIdle: number }
+export const newTrickState = (): TrickState => ({ rollCum: 0, rollIdle: 0, prevPhi: 0, prevPsi: 0, loopOn: false, loopCum: 0, loopIdle: 0, loopRef: 0, loopPrev: 0, loopInv: false, loopHalf: false, immT: 0, immRoll: 0, invAge: 99, stallT: 0, thermalOn: false, thermalZ0: 0, thermalOut: 0, thermalDone: false, clock: 0, slSide: 0, slT: -99, slKey: -1, turnCum: 0, turnIdle: 0 });
 export function resetTricks(t: TrickState, g?: Glider) { Object.assign(t, newTrickState()); if (g) { t.prevPhi = g.phi; t.prevPsi = g.psi; } }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -36,7 +36,11 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 export function stepTricks(t: TrickState, g: Glider, dt: number, ctx?: TrickCtx): TrickName[] {
   const done: TrickName[] = [];
   if (g.landed || !(dt > 0)) { resetTricks(t, g); return done; }
+  const dpsi = wrap(g.psi - t.prevPsi);
   const dphi = g.rollRate * dt; t.prevPhi = g.phi; t.prevPsi = g.psi;             // the roll about the flight path itself (the bank read-out turns over at the top of a loop: that is not a roll)
+  // a deliberate turn, rolled out of: about a quarter turn (90) or half a turn (U-turn); a long circle pays neither, so circling is not a way to farm points
+  if (Math.abs(dpsi) / dt > 0.2) { if (t.turnCum !== 0 && Math.sign(dpsi) !== Math.sign(t.turnCum) && Math.abs(t.turnCum) < 0.4) t.turnCum = 0; t.turnCum += dpsi; t.turnIdle = 0; }
+  else if (t.turnCum !== 0 && (t.turnIdle += dt) > 0.5) { const deg = Math.abs(t.turnCum) * 180 / Math.PI; if (deg >= 70 && deg <= 115 && g.z > 3) done.push('turn90'); else if (deg >= 150 && deg <= 205 && g.z > 3) done.push('uTurn'); t.turnCum = 0; }
   if (Math.abs(dphi) / dt > 1) { t.rollCum += dphi; t.rollIdle = 0; if (Math.abs(t.rollCum) >= Math.PI * 1.9) { done.push('roll'); t.rollCum = 0; } }
   else if ((t.rollIdle += dt) > 0.8) t.rollCum = 0;
   t.invAge = Math.abs(g.phi) > 2.2 ? 0 : t.invAge + dt;                              // how long since it was last upside down

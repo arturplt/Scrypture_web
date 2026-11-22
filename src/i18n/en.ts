@@ -1033,6 +1033,8 @@ export const en = {
   "worldTrickLoop": "LOOP",
   "worldTrickImmelman": "IMMELMAN",
   "worldTrickSplitS": "SPLIT S",
+  "worldTrickTurn90": "TURN 90",
+  "worldTrickUTurn": "U-TURN",
   "worldInvert": "Invert pitch",
   "worldFreeStall": "Allow stalling",
   "worldAero": "Aerobatics (loops, rolls)",

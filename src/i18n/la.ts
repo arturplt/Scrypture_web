@@ -1034,6 +1034,8 @@ export const la: Record<Key, string> = {
   "worldTrickLoop": "GYRUS",
   "worldTrickImmelman": "IMMELMANN",
   "worldTrickSplitS": "SPLIT S",
+  "worldTrickTurn90": "FLEXUS 90",
+  "worldTrickUTurn": "RETROFLEXIO",
   "worldInvert": "Inclinationem inverte",
   "worldFreeStall": "Stallare permitte",
   "worldAero": "Acrobatica (gyri)",
