@@ -37,7 +37,7 @@ import { BerryPatch } from '../domain/berries';
 import maleIdleUrl from '../assets/male_idle.png';
 import femaleIdleUrl from '../assets/female_idle.png';
 import { BEAVER_ASPECT, beaverLook, beaverSprites, loadBeaverSprites } from './beaversprites';
-import { MIN_EYE_H, duelLine, duelPose, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
+import { fpvAttitude, fpvBasis, fpvEase, type FpvAtt, MIN_EYE_H, duelLine, duelPose, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import { newSas, nextSasMode, stepSas, type SasMode } from '../domain/sas';
@@ -264,6 +264,7 @@ function WorldView({ id }: { id: string }) {
   useEffect(() => { const up = (e: PointerEvent) => { if (instStick.current?.id === e.pointerId) instStick.current = null; }; window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up); return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); }; }, []);
   const lookFly = camMode === 'free' && mode === 'glide', lookYaw = useRef(0), freeTilt = useRef(1.1);   // free view: dragging the view turns the camera round the plane (and tips it) instead of steering; the keys still fly
   const camZoom = useRef({ ...ZOOM_DEFAULT }), camZoomNow = useRef({ ...ZOOM_DEFAULT }), camEffRef = useRef<CamMode>('chase'), poseOkRef = useRef(true);   // (what the wheel has asked for, and where the view has eased to)
+  const fpvView = useRef<FpvAtt | null>(null);   // the FPV camera's eased attitude (see fpvEase)
   const duelAng = useRef<number | null>(null), duelTilt = useRef(0.85), flyby = useRef(newFlyby()), poseK = useRef(0), lastPose = useRef({ x: 0, y: 0, h: 10 }), pinch = useRef({ pts: new Map<number, { x: number; y: number }>(), d: 0 });
   // the tilt slider (next to the zoom slider): what it tips depends on the view. Chase: the ground's tilt (the menu's Tilt, 0..16); free and duel: the camera's angle from straight down. Up is nearer the horizon.
   const [tiltPos, setTiltPos] = useState(0);
@@ -982,9 +983,16 @@ function WorldView({ id }: { id: string }) {
           tgt = [camX + (pt.x - camX) * k, camY + (pt.y - camY) * k, lookHstd + (pt.h - lookHstd) * k];
           Tv = (H / 2) / (Math.max(0.5, Math.hypot(eyeV[0] - tgt[0], eyeV[1] - tgt[1], eyeV[2] - tgt[2])) * Math.tan(0.36));
         }
+        // the FPV camera's attitude: the plane's own, eased (pitch slowly, so its swing up and down after a throw does not lurch the view; the stick makes it follow at once)
+        let fpvB: { f: ArrayLike<number>; u: ArrayLike<number> } | undefined;
+        if (fpvMode) {
+          const want = fpvAttitude(gl.fwd, gl.top, fpvView.current?.h ?? gl.psi), cur = fpvView.current ?? want, v = fpvView.current = fpvEase(cur, want, gl.elev, Math.max(Math.abs(gl.ail), Math.abs(gl.rud)), Math.min(dt, 0.1));
+          fpvB = fpvBasis(v); const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+          inst.current.view = { pitch: v.p, bank: v.phi, heading: (((90 - (v.h * 180) / Math.PI) % 360) + 360) % 360, nosePitch: want.p, noseDh: wrap(want.h - v.h), pathDh: wrap(gl.psi - v.h) };
+        } else { fpvView.current = null; inst.current.view = null; }
         glr!.setCamera({ x: tgt[0], y: tgt[1], upX, upY, tilt: tiltV, T, W, H, eye: eyeV, lockTo: f.mode === 'glide' && !gl.landed && !eyeV ? [f.x, f.y] : undefined, fullView: true, fpv: fpvK > 0.002 ? (() => {
           if (launchActive) { const l = launchCam.current!; return { k: fpvK, x: l.x, y: l.y, eyeH: l.eyeH, pitch: l.pitch }; }   // (just thrown: the eye stays where the plane was held)
-          if (fpvMode) { const F = gl.fwd, a = 0.5 * camK; return { k: fpvK, air: true, gx: f.x, gy: f.y, x: f.x + F[0] * a, y: f.y - F[1] * a, eyeH: gl.z * 0.18 + F[2] * a + 0.12 * camK, pitch: gl.pitch, basis: { f: gl.fwd, u: gl.top } }; }   // (FPV: at the nose, looking where it points, wings and all)
+          if (fpvMode) { const F = gl.fwd, a = 0.5 * camK; return { k: fpvK, air: true, gx: f.x, gy: f.y, x: f.x + F[0] * a, y: f.y - F[1] * a, eyeH: gl.z * 0.18 + F[2] * a + 0.12 * camK, pitch: gl.pitch, basis: fpvB }; }   // (FPV: at the nose, looking where it points, wings and all, eased)
           const onFoot = walking || aiming;
           // on foot: the eye at the bobr; in the air: at the plane's nose, as high as the plane is, looking where it points (the nose offset and the height go to the on-foot values as it touches down)
           const airK = onFoot ? 0 : sstep(gl.z, 0, 3);

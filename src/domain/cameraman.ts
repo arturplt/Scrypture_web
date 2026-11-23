@@ -81,3 +81,31 @@ export function duelPose(me: Vec3h, foe: Vec3h | null, ang: number, tilt: number
   const radius = Math.max(9 * k, gap * 0.75 + 8 * k) * zoom;
   return { target, eye: orbitEye(target, Math.cos(ang), Math.sin(ang), tilt, radius, minH) };
 }
+
+/**
+ * The FPV camera's attitude, as heading, nose pitch and roll about the nose (glider axes: x east, y north, z up; `h` rad anticlockwise from
+ * east, `p` nose up positive, `phi` right wing down positive). The plane's nose and up vector (`f`, `u`) become these, and back, so that
+ * each can be eased at its own rate: pitch slowly (the plane's own long swing up and down after a throw reads as a lurch from the nose),
+ * heading and roll quickly. Straight up or down there is no heading: `hOld` is kept.
+ */
+export interface FpvAtt { h: number; p: number; phi: number }
+export function fpvAttitude(f: ArrayLike<number>, u: ArrayLike<number>, hOld = 0): FpvAtt {
+  const hz = Math.hypot(f[0], f[1]), h = hz > 1e-3 ? Math.atan2(f[1], f[0]) : hOld, p = Math.asin(Math.max(-1, Math.min(1, f[2])));
+  const r0 = [Math.sin(h), -Math.cos(h), 0], up0 = [r0[1] * f[2] - r0[2] * f[1], r0[2] * f[0] - r0[0] * f[2], r0[0] * f[1] - r0[1] * f[0]];
+  return { h, p, phi: Math.atan2(-(u[0] * r0[0] + u[1] * r0[1] + u[2] * r0[2]), u[0] * up0[0] + u[1] * up0[1] + u[2] * up0[2]) };
+}
+export function fpvBasis(a: FpvAtt): { f: [number, number, number]; u: [number, number, number] } {
+  const cp = Math.cos(a.p), sp = Math.sin(a.p), ch = Math.cos(a.h), sh = Math.sin(a.h), f: [number, number, number] = [cp * ch, cp * sh, sp], r0 = [sh, -ch, 0];
+  const up0 = [r0[1] * f[2] - r0[2] * f[1], r0[2] * f[0] - r0[0] * f[2], r0[0] * f[1] - r0[1] * f[0]], cf = Math.cos(a.phi), sf = Math.sin(a.phi);
+  return { f, u: [up0[0] * cf - r0[0] * sf, up0[1] * cf - r0[1] * sf, up0[2] * cf - r0[2] * sf] };
+}
+const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+/**
+ * Ease the view's attitude `cur` towards the plane's `want` over `dt` seconds. Hands off, the pitch settles over about 0.6 s and the roll over
+ * 0.3 s; the moment the stick moves (`elev`, `roll`: -1..1) it follows nearly at once, so flying it feels the same. Near the vertical (loops
+ * and the like, where heading and roll turn over in an instant) nothing is eased at all.
+ */
+export function fpvEase(cur: FpvAtt, want: FpvAtt, elev: number, roll: number, dt: number): FpvAtt {
+  const av = Math.max(0, Math.min(1, (Math.abs(want.p) - 0.9) / 0.35)), k = (slow: number, fast: number, stick: number) => 1 - Math.exp(-(slow + (fast - slow) * Math.min(1, Math.abs(stick) * 2.5) + 60 * av) * dt);
+  return { h: cur.h + wrapPi(want.h - cur.h) * (1 - Math.exp(-(9 + 60 * av) * dt)), p: cur.p + (want.p - cur.p) * k(1.6, 10, elev), phi: cur.phi + wrapPi(want.phi - cur.phi) * k(3.5, 12, roll) };
+}

@@ -19,6 +19,7 @@ const CARD = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export function drawFpvHud(g: CanvasRenderingContext2D, W: number, H: number, d: Instruments, now: number) {
   g.clearRect(0, 0, W, H);
   if (d.landed) return;
+  const vw = d.view, pitch = vw ? vw.pitch : d.pitch, bank = vw ? vw.bank : d.bank, heading = vw ? vw.heading : d.heading;   // (the view is eased: the ladder and the tape are the view's, the cross and the path marker move in it)
   const u = Math.max(0.6, Math.min(W, H) / 520), lw = Math.max(1, Math.round(1.6 * u)), fs = 11 * u, cx = W / 2, cy = H / 2, pxT = (H / 2) / FOV_TAN;
   const text = (s: string, x: number, y: number, align: CanvasTextAlign = 'center', size = fs, color = GREEN) => {
     g.font = `${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'middle'; g.fillStyle = SHADOW; g.fillText(s, x + u, y + u); g.fillStyle = color; g.fillText(s, x, y);
@@ -27,11 +28,11 @@ export function drawFpvHud(g: CanvasRenderingContext2D, W: number, H: number, d:
   g.save(); g.lineCap = 'butt'; g.lineJoin = 'miter';
 
   // ---- the horizon and the pitch ladder: in the plane's own frame, so it turns against the bank ------------------------------------------------
-  g.save(); g.translate(cx, cy); g.rotate(-d.bank);
-  const yAt = (a: number) => -pxT * Math.tan(a - d.pitch);   // a: the angle above the horizon (rad); the screen's y is down, the nose up moves the horizon down
+  g.save(); g.translate(cx, cy); g.rotate(-bank);
+  const yAt = (a: number) => -pxT * Math.tan(a - pitch);   // a: the angle above the horizon (rad); the screen's y is down, the nose up moves the horizon down
   const half = 84 * u;
   for (let a = -90; a <= 90; a += 5) {
-    const ar = (a * Math.PI) / 180, off = ar - d.pitch;
+    const ar = (a * Math.PI) / 180, off = ar - pitch;
     if (Math.abs(off) > 0.55) continue;
     const y = yAt(ar);
     if (a === 0) { line(-W, y, -half * 0.5, y); line(half * 0.5, y, W, y); continue; }   // (the horizon runs out to the edges, with a gap round the middle)
@@ -43,14 +44,13 @@ export function drawFpvHud(g: CanvasRenderingContext2D, W: number, H: number, d:
     if (major) { text(String(Math.abs(a)), -w - 10 * u, y, 'right', fs * 0.8); text(String(Math.abs(a)), w + 10 * u, y, 'left', fs * 0.8); }
   }
   // the flight path marker: a ring with wings and a fin, where the plane is going
-  { const y = yAt(d.gamma), r = 7 * u; g.beginPath(); g.arc(0, y, r, 0, Math.PI * 2); g.strokeStyle = SHADOW; g.lineWidth = lw + 2 * u; g.stroke(); g.strokeStyle = GREEN; g.lineWidth = lw; g.stroke(); line(-r, y, -r - 9 * u, y); line(r, y, r + 9 * u, y); line(0, y - r, 0, y - r - 8 * u); }
+  { const y = yAt(d.gamma), x = vw ? -pxT * vw.pathDh * Math.cos(d.gamma) : 0, r = 7 * u; g.save(); g.translate(x, 0); g.beginPath(); g.arc(0, y, r, 0, Math.PI * 2); g.strokeStyle = SHADOW; g.lineWidth = lw + 2 * u; g.stroke(); g.strokeStyle = GREEN; g.lineWidth = lw; g.stroke(); line(-r, y, -r - 9 * u, y); line(r, y, r + 9 * u, y); line(0, y - r, 0, y - r - 8 * u); g.restore(); }
+  // the boresight: where the nose points. In the eased view it moves a little off the middle (in the same frame as the ladder), so the lag can be seen
+  { const r = 4 * u, nx = vw ? -pxT * vw.noseDh * Math.cos(pitch) : 0, ny = vw ? -pxT * Math.tan(vw.nosePitch - pitch) : 0; line(nx - r * 2.4, ny, nx - r * 0.8, ny); line(nx + r * 0.8, ny, nx + r * 2.4, ny); line(nx, ny - r * 2.4, nx, ny - r * 0.8); line(nx, ny + r * 0.8, nx, ny + r * 2.4); }
   g.restore();
 
-  // ---- the boresight: where the nose points ------------------------------------------------------------------------------------------------
-  { const r = 4 * u; line(cx - r * 2.4, cy, cx - r * 0.8, cy); line(cx + r * 0.8, cy, cx + r * 2.4, cy); line(cx, cy - r * 2.4, cx, cy - r * 0.8); line(cx, cy + r * 0.8, cx, cy + r * 2.4); }
-
   // ---- the heading tape ------------------------------------------------------------------------------------------------------------------------
-  { const tw = Math.min(W * 0.46, 420 * u), ty = Math.max(30 * u, H * 0.09), perDeg = tw / 60, h = ((d.heading % 360) + 360) % 360;
+  { const tw = Math.min(W * 0.46, 420 * u), ty = Math.max(30 * u, H * 0.09), perDeg = tw / 60, h = ((heading % 360) + 360) % 360;
     g.save(); g.beginPath(); g.rect(cx - tw / 2, ty - 20 * u, tw, 40 * u); g.clip();
     for (let a = Math.floor(h - 31); a <= Math.ceil(h + 31); a++) {
       if (a % 5 !== 0) continue;
@@ -82,10 +82,10 @@ export function drawFpvHud(g: CanvasRenderingContext2D, W: number, H: number, d:
       const ar = (a * Math.PI) / 180, major = a % 30 === 0 || a === 45, l = (major ? 9 : 5) * u, s = Math.sin(ar), c = Math.cos(ar);
       line(s * r0, -c * r0, s * (r0 + l), -c * (r0 + l));
     }
-    const pa = -Math.max(-1.3, Math.min(1.3, d.bank)), ps = Math.sin(pa), pc = Math.cos(pa), pr = r0 - 3 * u;
+    const pa = -Math.max(-1.3, Math.min(1.3, bank)), ps = Math.sin(pa), pc = Math.cos(pa), pr = r0 - 3 * u;
     line(ps * pr, -pc * pr, ps * pr - pc * 6 * u - ps * 9 * u, -pc * pr - ps * 6 * u + pc * 9 * u); line(ps * pr, -pc * pr, ps * pr + pc * 6 * u - ps * 9 * u, -pc * pr + ps * 6 * u + pc * 9 * u); line(ps * pr - pc * 6 * u - ps * 9 * u, -pc * pr - ps * 6 * u + pc * 9 * u, ps * pr + pc * 6 * u - ps * 9 * u, -pc * pr + ps * 6 * u + pc * 9 * u);
     g.restore();
-    text(`${Math.abs(Math.round(deg(d.bank)))}${d.bank >= 0 ? 'R' : 'L'}`, cx, cy - r0 - 22 * u, 'center', fs * 0.9);
+    text(`${Math.abs(Math.round(deg(bank)))}${bank >= 0 ? 'R' : 'L'}`, cx, cy - r0 - 22 * u, 'center', fs * 0.9);
   }
   text(`G ${d.load.toFixed(1)}`, Math.max(16 * u, cx - Math.min(W * 0.36, 330 * u)), cy + 56 * u, 'left', fs * 0.95);
 

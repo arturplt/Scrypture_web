@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAM_MODES, FLYBY_LEAD, MIN_EYE_H, ZOOM_DEFAULT, ZOOM_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from './cameraman';
+import { fpvAttitude, fpvBasis, fpvEase, CAM_MODES, FLYBY_LEAD, MIN_EYE_H, ZOOM_DEFAULT, ZOOM_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from './cameraman';
 
 describe('camera modes', () => {
   it('the mode cycle goes chase -> free -> fpv -> flyby -> duel -> chase', () => {
@@ -68,4 +68,25 @@ describe('flyby', () => {
     const fb = newFlyby(); flybyStep(fb, { x: 0, y: 0, h: 4 }, 0, 0, 0, -1, 9);   // pointing north (y is south)
     expect(fb.y).toBeLessThan(0);
   });
+});
+
+describe('the FPV attitude', () => {
+  const near = (a: ArrayLike<number>, b: ArrayLike<number>) => { for (let i = 0; i < 3; i++) expect(a[i]).toBeCloseTo(b[i], 6); };
+  it('goes to heading, pitch and roll and back', () => {
+    for (const att of [{ h: 0.3, p: 0.2, phi: 0.5 }, { h: -2.5, p: -0.6, phi: -1.1 }, { h: 3, p: 0, phi: 0 }]) {
+      const b = fpvBasis(att), back = fpvAttitude(b.f, b.u);
+      expect(back.h).toBeCloseTo(att.h, 6); expect(back.p).toBeCloseTo(att.p, 6); expect(back.phi).toBeCloseTo(att.phi, 6);
+      near(fpvBasis(back).u, b.u);
+    }
+  });
+  it('a right bank tips the up vector to the left, wings level has it straight up', () => {
+    near(fpvBasis({ h: 0, p: 0, phi: 0 }).u, [0, 0, 1]);
+    expect(fpvBasis({ h: 0, p: 0, phi: 0.5 }).u[1]).toBeGreaterThan(0);   // facing east, the left is north
+  });
+  it('hands off the pitch eases slowly, on the stick it keeps up, and over the top it is not eased', () => {
+    const a = { h: 0, p: 0, phi: 0 }, w = { h: 0, p: 0.4, phi: 0 };
+    const off = fpvEase(a, w, 0, 0, 0.1).p, on = fpvEase(a, w, 1, 0, 0.1).p, top = fpvEase(a, { ...w, p: 1.4 }, 0, 0, 0.1).p;
+    expect(off).toBeGreaterThan(0); expect(off).toBeLessThan(on); expect(on).toBeLessThanOrEqual(0.4); expect(top).toBeGreaterThan(1.39);
+  });
+  it('the heading takes the short way round', () => { expect(fpvEase({ h: 3.1, p: 0, phi: 0 }, { h: -3.1, p: 0, phi: 0 }, 0, 0, 0.1).h).toBeGreaterThan(3.1); });
 });
