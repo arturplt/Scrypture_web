@@ -44,7 +44,9 @@
 .world-knob { left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; }
 
 /* the menu sheet */
-.world-sheet { position: absolute; z-index: 20; inset: calc(8 * var(--u)); top: calc(8 * var(--u) + env(safe-area-inset-top, 0px)); overflow-y: auto; background: #2a3344f4; padding: calc(8 * var(--u)); display: grid; gap: calc(6 * var(--u)); align-content: start; border: calc(2 * var(--u)) solid var(--border-2); }
+.world-sheet { position: absolute; z-index: 20; inset: calc(8 * var(--u)); top: calc(8 * var(--u) + env(safe-area-inset-top, 0px)); overflow: hidden; background-color: #2a3344f4; padding: 0; display: flex; flex-direction: column; font-family: 'Press Start 2P', ui-monospace, monospace; }   /* a pixel-art frame; the head stays put, only the list under it scrolls */
+.world-sheet-head { flex: none; align-items: center; padding: calc(2 * var(--u)) calc(6 * var(--u)) calc(4 * var(--u)); border-bottom: 2px solid rgba(255, 213, 79, 0.35); }   /* the title, the i button and Close: always visible */
+.world-sheet-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: calc(6 * var(--u)); align-content: start; padding: calc(6 * var(--u)) calc(6 * var(--u)) calc(2 * var(--u)); }
 .world-tools { flex-wrap: wrap; gap: calc(4 * var(--u)); }
 .world-panels { display: grid; gap: calc(6 * var(--u)); grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(280 * var(--u))), 1fr)); }
 .world-card { display: grid; gap: calc(4 * var(--u)); align-content: start; }
@@ -331,11 +333,11 @@
 @keyframes wui-pick-plus { from { transform: translateY(6px) scale(1.4); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(-14px) scale(1); opacity: 0; } }
 
 /* ---- the ecosystem stats window (EcoStats.tsx) ---------------------------------------------------------------------------- */
-.eco-win { position: absolute; z-index: 19; left: calc(8 * var(--u)); top: calc(70 * var(--u) + env(safe-area-inset-top, 0px)); width: min(calc(330 * var(--u)), calc(100% - 16px)); max-height: calc(100% - 200 * var(--u)); display: flex; flex-direction: column; background-color: #1d2533ee; color: #f2ead6; font-size: var(--fs-xs); line-height: 1.35; box-sizing: border-box; }
-.eco-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: calc(4 * var(--u)); }
+.eco-win { position: absolute; z-index: 19; left: calc(8 * var(--u)); top: calc(70 * var(--u) + env(safe-area-inset-top, 0px)); width: min(calc(356 * var(--u)), calc(100% - 16px)); max-height: calc(100% - 200 * var(--u)); padding: calc(1 * var(--u)) calc(1 * var(--u)) calc(2 * var(--u)); display: flex; flex-direction: column; overflow: hidden; background-color: #1d2533ee; color: #f2ead6; font-size: var(--fs-xs); line-height: 1.35; box-sizing: border-box; }
+.eco-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: calc(2 * var(--u)); }
 .eco-head h2 { margin: 0; font-size: var(--fs-sm); color: #ffe7a3; }
 .eco-x { font: inherit; font-size: var(--fs-sm); background: none; border: 0; color: #ffb4a3; cursor: pointer; min-width: 28px; min-height: 28px; }
-.eco-body { overflow-y: auto; display: grid; gap: calc(8 * var(--u)); padding-right: 4px; }
+.eco-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; display: grid; gap: calc(6 * var(--u)); padding-right: 2px; }   /* (it scrolls inside the frame, never sideways) */
 .eco-body section { display: grid; gap: calc(4 * var(--u)); }
 .eco-body h3 { margin: 0; font-size: var(--fs-xs); color: #a9d8ff; }
 .eco-muted { opacity: 0.7; }
@@ -343,9 +345,9 @@
 .eco-grid dt { opacity: 0.75; }
 .eco-grid dd { margin: 0; text-align: right; }
 .eco-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.eco-table th { font-weight: normal; text-align: left; opacity: 0.85; white-space: nowrap; }
+.eco-table th { font-weight: normal; text-align: left; opacity: 0.85; overflow-wrap: anywhere; }
 .eco-table thead th { opacity: 0.6; text-align: right; }
-.eco-table td { text-align: right; padding-left: 6px; }
+.eco-table td { text-align: right; padding-left: 3px; }
 .eco-table tr > * { padding-top: 1px; padding-bottom: 1px; }
 .eco-dot { display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.5em; vertical-align: -0.05em; }
 .eco-up { color: #8fd0ff; }
@@ -419,3 +421,23 @@
 
 /* the camera sliders under the camera buttons: zoom and tilt side by side (phones only, like the zoom slider on its own) */
 .wui-camsl { display: flex; justify-content: center; gap: calc(6 * var(--u)); }
+
+/* the settings sheet's sections: a header with a chevron that folds the body (its height eases in pixel steps) */
+.world-card.world-sec { gap: 0; }
+.world-sec-head { display: flex; align-items: center; justify-content: space-between; gap: calc(6 * var(--u)); width: 100%; margin: 0; padding: calc(2 * var(--u)) 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.world-sec-head:focus-visible { outline: 2px solid #ffd54f; outline-offset: 2px; }
+.world-sec-chev { flex: none; width: 7px; height: 7px; margin-right: 3px; border-right: 2px solid #ffd54f; border-bottom: 2px solid #ffd54f; transform: rotate(-45deg); transition: transform 0.2s steps(4, end); }
+.world-sec.open > .world-sec-head .world-sec-chev { transform: rotate(45deg); }
+.world-sec-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.25s steps(6, end); }
+.world-sec.open > .world-sec-body { grid-template-rows: 1fr; }
+.world-sec-in { overflow: hidden; min-height: 0; display: grid; gap: calc(4 * var(--u)); align-content: start; }
+.world-sec-in > :first-child { margin-top: calc(4 * var(--u)); }   /* (a margin, not padding: padding would keep the folded body a few pixels tall) */
+@media (prefers-reduced-motion: reduce) { .world-sec-body, .world-sec-chev { transition: none; } }
+
+/* flight patterns: the step rows give the slider all the room that is left; the editor folds away like the sections */
+.world-patterns .world-patstep { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: calc(4 * var(--u)); align-items: center; }
+.world-patterns .world-patstep .slider { width: 100%; }
+.world-patterns { display: grid; gap: calc(4 * var(--u)); }
+.world-sec-nested { display: grid; gap: 0; }
+.world-sec-nested > .world-sec-head { padding: calc(1 * var(--u)) calc(4 * var(--u)); background: rgba(0, 0, 0, 0.25); }
+.world-sec-nested > .world-sec-head .subtitle { color: #a9d8ff; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, stepGlider, type GlideEnv } from './glider';
 import { newTrickState, resetTricks, stepTricks } from './tricks';
-import { DEFAULT_PATTERNS, PATTERN_VERSION, sanitize, startManeuver, stepManeuver, type Pattern } from './maneuver';
+import { DEFAULT_PATTERNS, PATTERN_VERSION, deleteSelected, resetPatterns, sanitize, stamped, startManeuver, stepManeuver, type Pattern } from './maneuver';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
 
@@ -111,10 +111,32 @@ describe('flight patterns', () => {
   it('repeat flies the steps again; saved junk is cleaned up', () => {
     const r = fly({ name: 'x', repeat: 2, steps: [{ kind: 'roll', amount: 360 }] });
     expect(r.done).toBe(true); expect(r.m.rep).toBe(2);
-    expect(sanitize({ patterns: [{ name: 'a', repeat: 99, steps: [{ kind: 'nope', amount: 1 }, { kind: 'loop', amount: 9999 }] }], sel: 5, v: PATTERN_VERSION })).toEqual({ patterns: [{ name: 'a', repeat: 9, steps: [{ kind: 'loop', amount: 720 }] }], sel: 0, v: PATTERN_VERSION });
+    expect(sanitize({ patterns: [{ name: 'a', repeat: 99, steps: [{ kind: 'nope', amount: 1 }, { kind: 'loop', amount: 9999 }] }], sel: 5, v: PATTERN_VERSION })).toEqual({ patterns: [{ name: 'a', repeat: 9, steps: [{ kind: 'loop', amount: 720 }] }], sel: 0, v: PATTERN_VERSION, removed: [] });
     // a list saved before the simple moves existed gets them added, and keeps its own patterns first
     const old = sanitize({ patterns: [{ name: 'mine', repeat: 1, steps: [{ kind: 'roll', amount: 360 }] }], sel: 0 });
     expect(old.patterns[0].name).toBe('mine'); expect(old.patterns.map(p => p.name)).toContain('Left 90'); expect(old.patterns.length).toBe(DEFAULT_PATTERNS.length + 1);
     expect(sanitize('junk').patterns.length).toBe(DEFAULT_PATTERNS.length);
+  });
+});
+
+describe('the pilot removes moves', () => {
+  const roundTrip = (s: ReturnType<typeof resetPatterns>) => sanitize(JSON.parse(JSON.stringify(s)));
+  it('a deleted built-in stays gone after the list is saved and loaded again', () => {
+    let st = resetPatterns(); const name = st.patterns[3].name;
+    st = { ...st, sel: 3 }; st = deleteSelected(st);
+    expect(st.patterns.some(p => p.name === name)).toBe(false); expect(st.removed).toContain(name);
+    expect(roundTrip(st).patterns.some(p => p.name === name)).toBe(false);
+  });
+  it('stays gone even when the saved list lost its version (every editor change is stamped, and removed names are not re-added)', () => {
+    let st = deleteSelected({ ...resetPatterns(), sel: 0 }); const name = DEFAULT_PATTERNS[0].name;
+    const noVersion = JSON.parse(JSON.stringify({ ...st, v: undefined }));   // (an old save: it would normally get the defaults back)
+    expect(sanitize(noVersion).patterns.some(p => p.name === name)).toBe(false);
+    expect(stamped({ ...st, v: undefined }).v).toBe(PATTERN_VERSION);
+  });
+  it('removing your own move does not remember a name; the last move cannot be removed; Reset brings the built-ins back', () => {
+    let st = resetPatterns(); st = { ...st, patterns: [...st.patterns, { name: 'mine', repeat: 1, steps: [{ kind: 'roll', amount: 360 }] }], sel: st.patterns.length };
+    const del = deleteSelected(st); expect(del.removed).toEqual([]); expect(del.patterns.length).toBe(st.patterns.length - 1);
+    const one = { patterns: [st.patterns[0]], sel: 0, v: PATTERN_VERSION, removed: [] as string[] }; expect(deleteSelected(one)).toBe(one);
+    expect(resetPatterns().patterns.length).toBe(DEFAULT_PATTERNS.length); expect(resetPatterns().removed).toEqual([]);
   });
 });

@@ -24,7 +24,7 @@ export const BILLBOARD_MAX_DISTANCE = 800;      // px, as in the plan
 export const BILLBOARD_RANGE_CHUNKS = 3;
 
 /** Is the plane moving by itself or by the stick? (Android's `isFlying`.) */
-export const isFlying = (f: Flight, stickActive: boolean) => stickActive || f.mode === 'cruise' || (f.mode === 'glide' && !f.glideLanded) || (f.mode === 'manual' && f.speed >= 0.1);
+export const isFlying = (f: Flight, stickActive: boolean) => stickActive || (f.mode === 'glide' && !f.glideLanded) || (f.mode === 'manual' && f.speed >= 0.1);
 
 /** Where the camera wants to be relative to the plane, in tiles: ahead along the heading. */
 export function chaseOffset(heading: number, distance: number): { x: number; y: number } {

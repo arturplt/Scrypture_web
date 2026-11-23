@@ -203,10 +203,10 @@ function stepOne(m: Maneuver, s: Step, g: Glider, dt: number): MCtl | null {
 // ---- persistence ----------------------------------------------------------------------------------------------------------
 
 const KEY = 'scrypture.patterns';
-export interface PatternStore { patterns: Pattern[]; sel: number; v?: number }
+export interface PatternStore { patterns: Pattern[]; sel: number; v?: number; removed?: string[] }   // removed: names of built-in patterns the pilot deleted (a new version of the defaults does not bring those back)
 
 export function sanitize(raw: unknown): PatternStore {
-  const fallback: PatternStore = { patterns: DEFAULT_PATTERNS.map(p => ({ ...p, steps: p.steps.map(x => ({ ...x })) })), sel: 0, v: PATTERN_VERSION };
+  const fallback: PatternStore = { patterns: DEFAULT_PATTERNS.map(p => ({ ...p, steps: p.steps.map(x => ({ ...x })) })), sel: 0, v: PATTERN_VERSION, removed: [] };
   try {
     const r = raw as PatternStore;
     if (!r || !Array.isArray(r.patterns) || r.patterns.length === 0) return fallback;
@@ -215,10 +215,24 @@ export function sanitize(raw: unknown): PatternStore {
       repeat: clamp(Math.round(Number(p.repeat) || 1), 1, 9),
       steps: (Array.isArray(p.steps) ? p.steps : []).filter(x => STEP_KINDS.includes(x?.kind)).slice(0, 12).map(x => ({ kind: x.kind, amount: clamp(Number(x.amount) || 0, -720, 720) })),
     }));
-    if ((Number(r.v) || 1) < PATTERN_VERSION) for (const d of DEFAULT_PATTERNS) if (patterns.length < 32 && !patterns.some(p => p.name === d.name)) patterns.push({ ...d, steps: d.steps.map(x => ({ ...x })) });   // (an older saved list: the new defaults join it)
-    return { patterns, sel: clamp(Math.round(Number(r.sel) || 0), 0, patterns.length - 1), v: PATTERN_VERSION };
+    const removed = (Array.isArray(r.removed) ? r.removed : []).map(x => String(x).slice(0, 14)).filter((x, i, a) => a.indexOf(x) === i).slice(0, 64);
+    if ((Number(r.v) || 1) < PATTERN_VERSION) for (const d of DEFAULT_PATTERNS) if (patterns.length < 32 && !removed.includes(d.name) && !patterns.some(p => p.name === d.name)) patterns.push({ ...d, steps: d.steps.map(x => ({ ...x })) });   // (an older saved list: the new defaults join it)
+    return { patterns, sel: clamp(Math.round(Number(r.sel) || 0), 0, patterns.length - 1), v: PATTERN_VERSION, removed };
   } catch { return fallback; }
 }
+
+const cloneDefaults = () => DEFAULT_PATTERNS.map(d => ({ ...d, steps: d.steps.map(x => ({ ...x })) }));
+/** The pilot deletes the selected pattern (any of them, the built-ins too; the last one stays). A built-in is remembered as removed, so it does not come back with a new version of the defaults. */
+export function deleteSelected(s: PatternStore): PatternStore {
+  if (s.patterns.length <= 1) return s;
+  const gone = s.patterns[s.sel], isDefault = DEFAULT_PATTERNS.some(d => d.name === gone.name);
+  const removed = isDefault && !(s.removed ?? []).includes(gone.name) ? [...(s.removed ?? []), gone.name] : s.removed ?? [];
+  return { patterns: s.patterns.filter((_, i) => i !== s.sel), sel: Math.max(0, s.sel - 1), v: PATTERN_VERSION, removed };
+}
+/** Back to the built-in list (and nothing is remembered as removed). */
+export const resetPatterns = (): PatternStore => ({ patterns: cloneDefaults(), sel: 0, v: PATTERN_VERSION, removed: [] });
+/** Whatever the editor changes, the version stays stamped on the store, or the next load would take it for an old one and bring the defaults back. */
+export const stamped = (s: PatternStore): PatternStore => ({ ...s, v: PATTERN_VERSION });
 
 export function loadPatterns(): PatternStore {
   try { return sanitize(JSON.parse(localStorage.getItem(KEY) ?? 'null')); } catch { return sanitize(null); }

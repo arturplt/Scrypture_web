@@ -3,7 +3,7 @@ import { hoopsIn, passedHoop } from './hoops';
 import { BIOMES, CHUNK, GRASS, MARGIN, SAND, SIDE, WATER, World, biomeAt, generateChunkTerrain, hash01, plainTile, seedFrom, tileKey, transitionFor, keyX, keyY } from './worldgen';
 import { Ecosystem, flammability, fuelOf, riverPath, CLOUD_MARGIN, STALL_TICKS, REGION, LAYER_CAPACITY, TOTAL_CLOUDS, diurnalTemperature, evaporationFactor, layerRainChance } from './ecosystem';
 import { MAX_DARKNESS, advanceHour, clockText, darkness, sunAzimuth, sunElevation } from './sky';
-import { cruiseVelocity, currentLayer, layerScale, newFlight, parallax, stepFlight } from './flight';
+import { currentLayer, layerScale, newFlight, parallax, stepFlight } from './flight';
 import { mulberry32 } from './sanctuary';
 import { BILLBOARD_MAX_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, tiltAltitudeFactor } from './camera';
 
@@ -316,17 +316,6 @@ describe('flight', () => {
     f.mode = 'off'; const y2 = f.y; stepFlight(f, { dx: 0, dy: 0 }, 1); expect(f.y).toBe(y2);
     f.heading = 0; f.mode = 'manual'; f.speed = 10; f.pitch = 45; const x0 = f.x; stepFlight(f, { dx: 0, dy: 0 }, 1); expect(f.x - x0).toBeCloseTo(14);
   });
-  it('cruise flies the figure-eight and bobs between layers', () => {
-    const f = newFlight(0, 0); f.mode = 'cruise';
-    let moved = 0;
-    for (let i = 0; i < 600; i++) { stepFlight(f, { dx: 0, dy: 0 }, 0.5); moved = Math.max(moved, Math.hypot(f.x, f.y)); }
-    expect(moved).toBeGreaterThan(1);
-    expect(cruiseVelocity(0).vx).toBe(0);
-    const layers = new Set<number>();
-    const g = newFlight(); g.mode = 'cruise';
-    for (let i = 0; i < 24; i++) { g.layerTime = i * 0.5; layers.add(Math.round(currentLayer(g))); }
-    expect(layers.size).toBeGreaterThan(5);
-  });
 });
 
 describe('3rd-person camera', () => {
@@ -351,7 +340,6 @@ describe('3rd-person camera', () => {
     const f = newFlight();
     expect(isFlying(f, false)).toBe(false); expect(isFlying(f, true)).toBe(true);
     f.mode = 'manual'; f.speed = 0; expect(isFlying(f, false)).toBe(false); f.speed = 2; expect(isFlying(f, false)).toBe(true);
-    f.mode = 'cruise'; expect(isFlying(f, false)).toBe(true);
   });
   it('leans trees away from the middle, bigger when closer, upright and plain when far', () => {
     const mid = billboardLean(0, 0, 1);
