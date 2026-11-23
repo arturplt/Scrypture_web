@@ -127,6 +127,7 @@
 .wui-throw { left: 50%; top: 38%; transform: translateX(-50%); }
 
 .world-instwrap { position: relative; pointer-events: none; }
+.world-fpvhud { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; }   /* the FPV camera's head-up display: over the view, under the controls */
 .wui-boostside { position: absolute; left: 100%; bottom: calc(6 * var(--u)); margin-left: calc(10 * var(--u)); pointer-events: auto; }   /* the boost sits to the right of the instrument */
 .wui-acro { position: absolute; right: 100%; bottom: calc(6 * var(--u)); margin-right: calc(10 * var(--u)); pointer-events: auto; box-sizing: border-box; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr); font: inherit; font-size: 8px; line-height: 1; color: #fff; cursor: pointer; }
 .wui-acro > span { display: block; width: 100%; text-align: center; white-space: nowrap; line-height: 1; padding-left: 1px; }   /* (the border is thin so the four letters fit inside it and sit in the middle) */   /* the aerobatics switch sits to the left of the instrument */

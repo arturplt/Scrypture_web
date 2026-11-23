@@ -1,14 +1,15 @@
 /**
- * Bóbr world map: the cameraman. Three ways to watch the paper plane, changed with C (or the camera button):
+ * Bóbr world map: the cameraman. Ways to watch the paper plane, changed with C (or the camera button):
  *  - chase: the view sits behind the plane and turns with its course (the view the map always had); the wheel zooms it;
  *  - free:  the camera orbits the plane wherever it is dragged to and stays there; the wheel is how far out it sits;
  *  - duel:   (dogfight) the camera sits behind your plane and a little above, looking over it at the opponent: both planes are always in view, whatever the gap;
+ *  - fpv:    the eye is in the plane's nose and turns with it, roll and all (the plane itself is not drawn); a head-up display is laid over the view;
  *  - flyby: the camera stands still at a spot ahead of the plane and beside its path, and turns to watch it go by. Once the plane is
  *           past and well away (or has turned off somewhere else) it cuts to a new spot ahead, on the other side.
  * Pure: positions are in tiles as the world map has them (x east, y SOUTH), heights in tiles above the ground.
  */
-export type CamMode = 'chase' | 'free' | 'flyby' | 'duel';
-export const CAM_MODES: readonly CamMode[] = ['chase', 'free', 'flyby', 'duel'];
+export type CamMode = 'chase' | 'free' | 'flyby' | 'duel' | 'fpv';
+export const CAM_MODES: readonly CamMode[] = ['chase', 'free', 'fpv', 'flyby', 'duel'];
 
 /** The next mode round. `poseOk` false (no 3D view, or not gliding) leaves only the chase view. */
 export function nextCamMode(m: CamMode, poseOk = true): CamMode {
@@ -17,8 +18,8 @@ export function nextCamMode(m: CamMode, poseOk = true): CamMode {
 }
 
 /** What the wheel changes in each mode: chase = how big the map is drawn (x); free = the orbit's radius; flyby = how far from the path it stands (tiles); duel = how much room is left round the two planes (x). */
-export const ZOOM_RANGE: Record<CamMode, readonly [number, number]> = { chase: [0.5, 40], free: [2.5, 60], flyby: [3, 40], duel: [0.6, 3] };
-export const ZOOM_DEFAULT: Record<CamMode, number> = { chase: 2, free: 12, flyby: 9, duel: 1 };
+export const ZOOM_RANGE: Record<CamMode, readonly [number, number]> = { chase: [0.5, 40], free: [2.5, 60], flyby: [3, 40], duel: [0.6, 3], fpv: [0.5, 2] };   // (the fpv eye is the plane's: the wheel has nothing to move there)
+export const ZOOM_DEFAULT: Record<CamMode, number> = { chase: 2, free: 12, flyby: 9, duel: 1, fpv: 1 };
 export const clampZoom = (m: CamMode, v: number) => Math.max(ZOOM_RANGE[m][0], Math.min(ZOOM_RANGE[m][1], v));
 /** Wheel up (a negative delta, in pixels) always brings the plane closer: the chase view grows, the other two move in. */
 export function zoomBy(m: CamMode, cur: number, deltaY: number): number {

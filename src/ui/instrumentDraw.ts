@@ -17,6 +17,7 @@ export interface Instruments {
   energyRate: number;      // m/s, the thin needle on the vertical speed dial: what the air gives, stick movements removed
   heading: number;         // compass degrees, 0 = north, clockwise
   pitch: number;           // rad, nose up positive
+  gamma: number;           // rad, the flight path's climb angle (where it is going, as the nose is where it points): the head-up display's path marker
   bank: number;            // rad, right wing down positive
   turnRate: number;        // rad/s, anticlockwise positive (maths angle)
   slip: number;            // -1..1, ball to the right is positive
@@ -26,7 +27,7 @@ export interface Instruments {
   mouse: boolean;          // mouse flying is on: the attitude indicator wears an amber ring
   foe: { theta: number; phi: number; dist: number; hunter: boolean; lock: number } | null;   // dogfight: the other plane as seen from the nose (angle off it, which way round, metres, whether it is hunting you, the lock 0..1)
 }
-export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, mouse: false, foe: null });
+export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, gamma: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, mouse: false, foe: null });
 
 const FACE = '#10151b', BEZEL = '#2b333d', RIM = '#58626f', INK = '#e6edf4', DIM = '#8d99a6', AMBER = '#ffb300', RED = '#ef5350', GREEN = '#66bb6a', CYAN = '#4dd0e1', SKY = '#3f8fd2', GROUND = '#8a5a2b';
 const FONT = "'Press Start 2P', ui-monospace, monospace";   // the pixel font; its glyphs are 1 em wide, so the sizes below are scaled down to fit the dials

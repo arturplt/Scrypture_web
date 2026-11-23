@@ -383,7 +383,7 @@ export interface CameraSpec {
   eye?: [number, number, number];
   W: number; H: number;           // the stage in CSS pixels
   /** First person: the eye stands on the ground point at `eyeH` tiles, looking along (upX, upY) and `pitch` radians up. (`x`, `y`) is where it stands; `k` 0..1 blends from the chase camera (it eases in and out). */
-  fpv?: { k: number; x: number; y: number; eyeH: number; pitch: number; air?: boolean; gx?: number; gy?: number };   // air: the eye is the plane's (eyeH is its height above the ground at (gx, gy), the plane's own spot): the ground is taken exactly there, never eased or cleared ahead of it
+  fpv?: { k: number; x: number; y: number; eyeH: number; pitch: number; air?: boolean; gx?: number; gy?: number; basis?: { f: ArrayLike<number>; u: ArrayLike<number> } };   // air: the eye is the plane's (eyeH is its height above the ground at (gx, gy), the plane's own spot): the ground is taken exactly there, never eased or cleared ahead of it   // basis: the plane's own attitude (nose `f` and up `u`, x east, y NORTH, z up, as the glider keeps them): the view turns with it, roll included, instead of staying level at `pitch`
 }
 
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }
@@ -671,8 +671,13 @@ export class WorldGL {
       const f1: Vec3 = [c.upX * cp, c.upY * cp, -sp], mix = (a: number, b: number) => a + (b - a) * k;
       const gTerm = !T ? 0 : c.fpv.air ? (this.sm.eyeg = this.sm.foot = T(c.fpv.gx ?? c.fpv.x, c.fpv.gy ?? c.fpv.y)) : this.walkGround(Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3)));   // (in the air the eye's height is the plane's: its height above the ground plus the ground right under the plane, with no easing, or the one would change a moment before the other at every ledge and the eye would bob)
       this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - gTerm)];
-      f = norm([mix(f[0], f1[0]), mix(f[1], f1[1]), mix(f[2], f1[2])]);
+      const fc = f; f = norm([mix(f[0], f1[0]), mix(f[1], f1[1]), mix(f[2], f1[2])]);
       r = [-c.upY, c.upX, 0];                                             // (the right-hand side is level, whatever the pitch)
+      if (c.fpv.basis) {                                                  // the plane's own view: forward and up from the glider (y north, z up become y south, Z down), the right-hand side from them
+        const F = c.fpv.basis.f, U = c.fpv.basis.u, f2: Vec3 = [F[0], -F[1], -F[2]], u2: Vec3 = [U[0], -U[1], -U[2]];
+        const fb = norm([mix(fc[0], f2[0]), mix(fc[1], f2[1]), mix(fc[2], f2[2])]), ub: Vec3 = [mix(0, u2[0]), mix(0, u2[1]), mix(-1, u2[2])];   // (blending in from the chase view's level up)
+        const rb = cross(fb, ub); r = Math.hypot(rb[0], rb[1], rb[2]) > 1e-4 ? norm(rb) : [-c.upY, c.upX, 0]; f = fb;
+      }
       const hasFar = !!T && !!this.farMesh;
       if (hasFar) this.nearReach = mix(this.reach, 200 * this.walkK);                       // the real chunks reach 140 tiles; the far mesh shows the rest of the map, hazing out at 560
       this.reach = mix(this.reach, T ? (hasFar ? FAR_REACH : 240 * this.walkK) : 200 * this.drawK); this.fogStart = mix(this.fogStart, T ? (hasFar ? Math.max(500, 300 * this.walkK) : 180 * this.walkK) : 140 * this.drawK); this.farOn = hasFar;   // (a flat world keeps at least the flying view's reach, and 150 tiles, when the eye comes down: it used to shrink to 48, which cut the ground off close by)   // (a hilly world shows far: fells and lakes kilometres off. The flat worlds keep their short haze)   // (the haze only in the last few tiles: from eye height it is a thin strip at the horizon, so the tree line meets the grass instead of floating over a pale band)
