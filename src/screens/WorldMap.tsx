@@ -324,6 +324,7 @@ function WorldView({ id }: { id: string }) {
   useEffect(() => { try { localStorage.setItem(GFX_KEY, JSON.stringify(gfxNow)); } catch { /* not saved */ } }, [resScale, resAuto, fpsCap, decoDensity, shaders, decoClouds, drawDist]);
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const camAng = useRef(0);
+  const planeAbs = useRef(0);   // the plane's height above sea level (tiles) as it was drawn last frame: the camera looks at this, less the ground under the plane NOW, so a ledge never moves the view for a frame
   const planeH = useRef(0);   // the height (tiles above the ground) the plane was drawn at last frame: the chase camera looks at it
   const planeY = useRef(0);   // where the plane was on the stage last frame (px from the top)
   const camTilt = useRef(0);   // the tilt in use now (the slider's value, changed by the plane's pitch)
@@ -782,8 +783,8 @@ function WorldView({ id }: { id: string }) {
           }
         }
         if (walking || (useGL && aim.current.on && gl.landed)) camAng.current = gl.psi - Math.PI / 2;                      // the eyes look the way the bobr faces, at once
-        const hilly = s.world.hilly, ridgeLift = (x: number, y: number, wx: number, wy: number, agl: number) => {   // the wind climbing a slope: the air over the windward side of a fell rises (slope soaring), fading with height
-          const e = 0.6, gx = (s.world.groundZAt(x + e, -y) - s.world.groundZAt(x - e, -y)) / (2 * e), gy = (s.world.groundZAt(x, -(y + e)) - s.world.groundZAt(x, -(y - e))) / (2 * e);
+        const hilly = s.world.hilly, ridgeLift = (x: number, y: number, wx: number, wy: number, agl: number) => {   // the wind climbing a slope: the air over the windward side of a fell rises (slope soaring), fading with height (on the terraces the slope is measured over four tiles each way: a ledge is a jump of a whole layer in the ground, and over 0.6 tiles it was a spike of lift that jolted the plane, and with it the camera, at every ledge)
+          const e = s.world.field ? 4 : 0.6, gx = (s.world.groundZAt(x + e, -y) - s.world.groundZAt(x - e, -y)) / (2 * e), gy = (s.world.groundZAt(x, -(y + e)) - s.world.groundZAt(x, -(y - e))) / (2 * e);
           return Math.max(-3, Math.min(8, (wx * gx + wy * gy) * 0.8)) * Math.max(0, 1 - agl / 70);
         };
         const wv = s.eco.windSpeed * 1.5, wd = s.eco.wind.dir, gLayer = () => 1 + (1 - Math.max(0, Math.min(1, gl.z / 120))) * 9;   // (the plane's cloud layer from its height: above a cloud it is out of that cloud's rain)
@@ -847,7 +848,7 @@ function WorldView({ id }: { id: string }) {
         layer = currentLayer(f);
         dx = 0; dy = 0;
         const i = inst.current;
-        i.airspeed = gl.landed ? 0 : gl.airspeed; i.stallSpeed = STALL_SPEED; i.bestGlide = TRIM_SPEED; i.altitude = gl.z; i.vsi = gl.vsi; i.energyRate = gl.energyRate;
+        i.airspeed = gl.landed ? 0 : gl.airspeed; i.stallSpeed = STALL_SPEED; i.bestGlide = TRIM_SPEED; i.altitude = gl.z + (gl.gnd ?? 0); i.vsi = gl.vsi; i.energyRate = gl.energyRate;
         i.heading = (((90 - (gl.psi * 180) / Math.PI) % 360) + 360) % 360; i.pitch = gl.pitch; i.bank = gl.phi; i.turnRate = gl.turnRate; i.slip = -gl.rud; i.stalled = gl.stalled && !gl.landed; i.load = gl.load; i.landed = gl.landed; i.mouse = L.mouseFly;
         { const D = dog.current; if (D && D.phase !== 'over' && !gl.landed) { const b = foeBearing(gl, D.ai); i.foe = { theta: b.theta, phi: b.phi, dist: b.dist, hunter: D.role === 'flee', lock: D.cooldown > 0 ? 0 : Math.min(1, D.lock / (D.role === 'chase' ? 1 : 1.4)) }; } else i.foe = null; }   // the dogfight opponent on the instrument
         {   // sound: wind in two ears, the stall whistle, rain (nothing while paused)
@@ -952,7 +953,7 @@ function WorldView({ id }: { id: string }) {
         // the 3D camera: the visible ground (clamped at the reach, where everything has faded into the sky) says which chunks are needed
         const aUp = camAng.current + (gl.landed ? 0 : lookYaw.current);   // (the look button turns the view round the plane, or the eye's head)
         const upX = -Math.sin(aUp), upY = -Math.cos(aUp), tiltV = gl.landed ? tiltNow2 : Math.max(0.05, Math.min(1.45, tiltNow2 + lookCam.current.pitch * 0.9));
-        const lookHstd = f.mode === 'glide' ? planeH.current : (1 - 0.5 * camC) * Math.min(25, 4 + (10 - layer) * 2);   // (the camera looks at the plane itself, at the height it is drawn at, so it sits in the middle of the view)
+        const lookHstd = f.mode === 'glide' ? Math.max(0, planeAbs.current - s.world.heightAt(f.x, f.y)) : (1 - 0.5 * camC) * Math.min(25, 4 + (10 - layer) * 2);   // (the camera looks at the plane itself, at the height it is drawn at, so it sits in the middle of the view)
         void camZ;   // (the last part: the plane's height above the ground, less its eased value, is exactly what the ground's bumps take away, so the look point stays on the plane's own smooth height and the plane does not bob on screen)   // (half way up with the plane: it still looks high above the ground, and stays in view)
         // the free view and the flyby put the eye where the cameraman says, looking at the plane; coming and going, the view eases between that and the chase view
         const poseWant = (poseOn || chasePoseOn) && !gl.landed && !launchActive;
@@ -986,7 +987,7 @@ function WorldView({ id }: { id: string }) {
           const airK = onFoot ? 0 : sstep(gl.z, 0, 3);
           // coming down, the eye starts behind the plane (it stays in view) and slides forward the nearer the ground gets, to the nose at about 2 m, where the plane is out of sight
           const near = onFoot ? 1 : 1 - sstep(gl.z, treeTopM * 0.4, treeTopM), ahead = onFoot ? 0 : (-2.5 * (1 - near) + 0.5 * airK * near) * camK;
-          return { k: fpvK, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 * camK + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 * camK : 0) : gl.z * 0.18 + 0.3 * camK * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
+          return { k: fpvK, air: !onFoot && !gl.landed, gx: f.x, gy: f.y, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 * camK + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 * camK : 0) : gl.z * 0.18 + 0.3 * camK * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
         })() : undefined, lookH: tgt[2] });
         fp = glr!.footprint();
         // everything round the plane is always wanted, whatever the camera looks at (looking up, or from off to one side, the polygon of rays can miss the ground under the plane, and with it every sprite standing there)
@@ -1361,8 +1362,11 @@ function WorldView({ id }: { id: string }) {
         const gPhi = glide && !gl.landed ? gl.phi : 0, gPitch = glide && !gl.landed ? gl.pitch : 0;                 // lying flat once landed
         const clear = glide ? (Math.min(HULL_DIP, Math.abs(Math.sin(gPhi)) + Math.abs(Math.sin(gPitch))) + 0.06) * planeK : 0;       // the quad is 2 wide: a tilted wing tip or nose would dip this far below the ground, so lift it by that much
         const planeCap0 = Math.max(0.55 * -G.eye[2], 0), planeCap = planeCap0 + (120 - planeCap0) * sstep(poseK.current, 0, 1);   // (the free view and the flyby may look up at it: then it flies as high as it is)   // (looking straight down the plane must stay well below the camera: the nearer it is, the more a look-ahead shifts it on screen, until it slides off the view or under the instrument)
-        const hP = glide ? Math.max(clear, Math.min(alt * 0.18, planeCap)) : Math.min(cloudH(layer), capH), hdx = Math.cos(f.heading), hdy = -Math.sin(f.heading);
-        if (glide) planeH.current = hP;   // (the chase camera looks at this)
+        // the plane's height is its height above SEA LEVEL (the plane's own, which the flight keeps continuous: z less the ground's rise under it), and so is the camera's, and so is the cap below: the ground under it takes no part,
+        // whatever its steps and slopes do. (The height above the ground, which is all that is drawn, is that less the ground at this spot. The cap used to be taken against the height above the ground: it moved with the ground, and the plane with it.)
+        const groundT = glide ? s.world.heightAt(f.x, f.y) : 0;
+        const hP = glide ? Math.max(clear, Math.min(alt * 0.18 + groundT, planeCap) - groundT) : Math.min(cloudH(layer), capH), hdx = Math.cos(f.heading), hdy = -Math.sin(f.heading);
+        if (glide) { planeH.current = hP; planeAbs.current = hP + groundT; }   // (the chase camera looks at this)
         const shx = f.x + hP * 0.12, shy = f.y + hP * 0.25;
         {
           const sa = glide ? Math.max(0.12, 0.34 - alt / 500) : 0.25, ssz = 2 * planeK * (glide ? 1 - Math.min(0.35, alt / 300) : 1);
@@ -1479,7 +1483,7 @@ function WorldView({ id }: { id: string }) {
           G.quad('blend', hp.x, hp.y, -hp.h - G.groundH(hp.x, hp.y), tx * hp.r, ty * hp.r, 0, 0, 0, -hp.r, at.ring, done ? 0.4 : 1, done ? 1 : 0.78, done ? 0.5 : 0.15, done ? 0.45 : 0.85 + 0.15 * Math.sin(anim * 3 + hp.x));
           G.flat('decal', hp.x, hp.y, 0.02, hp.r * 0.75, hp.r * 2, tx, ty, at.ring, 0, 0, 0, done ? 0.16 : 0.3);   // the shadow of an upright ring is a squashed ring on the ground, as wide as the hoop and not as deep
           const hc = G.projectAgl(hp.x, hp.y, hp.h), he = G.projectAgl(hp.x, hp.y, hp.h + hp.r);
-          if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${realAlt(hp.h / 0.18)} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
+          if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${realAlt(hp.h / 0.18 + s.world.groundZAt(hp.x, hp.y))} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
         }
         // the names of the lakes and fells, floating over them, as far off as they can be read
         if (s.world.kind === 'lakedistrict' && (!L.hideUi || L.lookUi)) {
@@ -1545,7 +1549,7 @@ function WorldView({ id }: { id: string }) {
         const tx = -Math.sin(hp.angle) * hp.r * T, ty = Math.cos(hp.angle) * hp.r * T, done = hoopsDone.has(hp.key);
         g.strokeStyle = done ? 'rgba(120,255,140,0.5)' : '#ffc233'; g.lineWidth = 4 * zoom / 2; g.lineCap = 'round';
         g.beginPath(); g.moveTo(hx - tx, hy - ty); g.lineTo(hx + tx, hy + ty); g.stroke();
-        hoopLabels.push({ x: hx, y: hy, text: `${realAlt(hp.h / 0.18)} m`, size: 13, done });   // (canvas pixels for now; turned into stage pixels below)
+        hoopLabels.push({ x: hx, y: hy, text: `${realAlt(hp.h / 0.18 + s.world.groundZAt(hp.x, hp.y))} m`, size: 13, done });   // (canvas pixels for now; turned into stage pixels below)
       }
 
       // thermals: a warm haze over the hot ground with dust rising in it; the stronger the lift, the redder and busier
@@ -1721,7 +1725,7 @@ function WorldView({ id }: { id: string }) {
         // actual height above the ground, right above the plane, with a thin line down to its shadow
         if (!gl.landed && !L.hideUi && fpvK < 0.5) {   // (not from the nose: the plane is not in view then)
           ctx.textAlign = 'center'; ctx.font = `11px ${PXF}`; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-          const label = `${realAlt(gl.z)} m`, ly = pp[1] - ps * 0.6; ctx.strokeText(label, pp[0], ly); ctx.fillStyle = gl.z < 10 ? '#ff8a80' : '#fff'; ctx.fillText(label, pp[0], ly);
+          const label = `${realAlt(gl.z + (gl.gnd ?? 0))} m`, ly = pp[1] - ps * 0.6; ctx.strokeText(label, pp[0], ly); ctx.fillStyle = gl.z < 10 ? '#ff8a80' : '#fff'; ctx.fillText(label, pp[0], ly);
         }
         if (gl.wet > 0.02 && (!L.hideUi || L.lookUi)) {   // soaked paper: how wet it still is (under the plane in the air, under the message on the ground)
           const wl = `${L.wetText} ${Math.max(1, Math.round(gl.wet * 100))}%`;
@@ -1803,7 +1807,7 @@ function WorldView({ id }: { id: string }) {
       ctx.restore();
       } else if (glide && !gl.landed) {                                                  // the controls are hidden: your height still shows, at the top of the screen
         ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.font = `14px ${PXF}`;
-        const hm = `${realAlt(gl.z)} m`; ctx.strokeText(hm, W / 2, 26); ctx.fillStyle = gl.z < 10 ? '#ff8a80' : '#fff'; ctx.fillText(hm, W / 2, 26); ctx.restore();
+        const hm = `${realAlt(gl.z + (gl.gnd ?? 0))} m`; ctx.strokeText(hm, W / 2, 26); ctx.fillStyle = gl.z < 10 ? '#ff8a80' : '#fff'; ctx.fillText(hm, W / 2, 26); ctx.restore();
       }
       if (glide && !gl.landed && gl.airLift > 0.4 && (L.hideUi || !L.showInst)) {   // no instruments on screen: rising air is shown on the view itself, as chevrons climbing above the plane and the climb rate at the top
         const k = Math.min(1, gl.airLift / 3);

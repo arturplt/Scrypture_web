@@ -383,7 +383,7 @@ export interface CameraSpec {
   eye?: [number, number, number];
   W: number; H: number;           // the stage in CSS pixels
   /** First person: the eye stands on the ground point at `eyeH` tiles, looking along (upX, upY) and `pitch` radians up. (`x`, `y`) is where it stands; `k` 0..1 blends from the chase camera (it eases in and out). */
-  fpv?: { k: number; x: number; y: number; eyeH: number; pitch: number };
+  fpv?: { k: number; x: number; y: number; eyeH: number; pitch: number; air?: boolean; gx?: number; gy?: number };   // air: the eye is the plane's (eyeH is its height above the ground at (gx, gy), the plane's own spot): the ground is taken exactly there, never eased or cleared ahead of it
 }
 
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }
@@ -651,7 +651,7 @@ export class WorldGL {
     this.baseH = bh;                                                      // everything below is as on flat ground, lifted by the ground under the target
     this.eye = [c.x - c.upX * D * st, c.y - c.upY * D * st, -bh - lh - D * ct];
     if (T && !c.eye) {   // (the chase camera keeps off a hill behind it: lifted at once, let down slowly)
-      const need = Math.max(0, this.groundNear(this.eye[0], this.eye[1], 1) + 0.8 - -this.eye[2]), lift = (this.sm.lift = Math.max(need, this.smooth('lift', need, 1.2)));   // (up at once, so it is never inside the ground; down slowly)
+      const need = Math.max(0, this.groundNear(this.eye[0], this.eye[1], 1) + 0.8 - -this.eye[2]), lift = (this.sm.lift = this.smooth('lift', need, need > (this.sm.lift ?? 0) ? 0.18 : 1.2));   // (up quickly, down slowly: on the terraces a ledge behind the camera is a jump of a whole layer, and lifting at once would snap the picture; the last guard below keeps the eye out of the ground meanwhile)
       this.eye[2] -= lift; bh += lift;   // (the target rises with the eye: the camera is carried up, not tipped down, so the tilt stays what it was)
     }   // (the chase camera does not sink into a hill behind it)
     let f = norm([c.x - this.eye[0], c.y - this.eye[1], -bh - lh - this.eye[2]]);
@@ -669,7 +669,8 @@ export class WorldGL {
     if (c.fpv && c.fpv.k > 0) {                                           // standing on the ground: eye, view direction and reach blend towards the walker's
       const k = Math.min(1, c.fpv.k), cp = Math.cos(c.fpv.pitch), sp = Math.sin(c.fpv.pitch), e = this.eye;
       const f1: Vec3 = [c.upX * cp, c.upY * cp, -sp], mix = (a: number, b: number) => a + (b - a) * k;
-      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - (T ? this.walkGround(Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3))) : 0))];
+      const gTerm = !T ? 0 : c.fpv.air ? (this.sm.eyeg = this.sm.foot = T(c.fpv.gx ?? c.fpv.x, c.fpv.gy ?? c.fpv.y)) : this.walkGround(Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3)));   // (in the air the eye's height is the plane's: its height above the ground plus the ground right under the plane, with no easing, or the one would change a moment before the other at every ledge and the eye would bob)
+      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - gTerm)];
       f = norm([mix(f[0], f1[0]), mix(f[1], f1[1]), mix(f[2], f1[2])]);
       r = [-c.upY, c.upX, 0];                                             // (the right-hand side is level, whatever the pitch)
       const hasFar = !!T && !!this.farMesh;
