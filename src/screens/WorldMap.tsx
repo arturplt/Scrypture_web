@@ -307,6 +307,9 @@ function WorldView({ id }: { id: string }) {
   const altZoom = useRef(1);   // 1 near the ground, down to 0.15 high up (smooth)
   const [miniScale, setMiniScale] = useState(Math.min(prefs0.miniScale, BIG_MAP_SCALE / 2));   // world tiles per minimap pixel (a world never opens on the full-screen map, which stops time)
   const miniDirty = useRef(false);
+  const [bigScale, setBigScale] = useState(0);   // the full-screen map's zoom (world tiles per map pixel, 0.5 to 16); 0: closed. It has its own zoom so + can go closer without closing it
+  const bigScaleRef = useRef(0); bigScaleRef.current = bigScale;
+  useEffect(() => { if (!bigScale) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setBigScale(0); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [bigScale > 0]);   // (Escape closes it, like the back button)
   const [miniSize, setMiniSize] = useState(prefs0.miniSize);   // minimap size multiplier: 2 (standard) or 3; double tap toggles
   const lastTap = useRef(0);
   const [decoClouds, setDecoClouds] = useState(gfx0.clouds);
@@ -680,8 +683,8 @@ function WorldView({ id }: { id: string }) {
       const L = live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
       // the full-screen map (minimap zoom 3 to 5): time stops, nothing is drawn behind it, and the frame goes on filling the map and building the ground round the plane instead
-      { const open = L.miniScale >= BIG_MAP_SCALE && !!bigMap.current;
-        if (open) { mapFrame(L.miniScale); workMs += performance.now() - w0; workN++; mapWasOpen = true; return; }
+      { const open = bigScaleRef.current > 0 && !!bigMap.current;
+        if (open) { mapFrame(bigScaleRef.current); workMs += performance.now() - w0; workN++; mapWasOpen = true; return; }
         if (mapWasOpen) { mapWasOpen = false; bigFill = null; miniDirty.current = true; uploadBoost = 90; } }
       const simDt = L.paused ? 0 : dt;   // the world's own clock: everything that lives in it (the plane, the beavers, the weather, the score) runs on this; the camera and the menus go on with the real one
       // the 3D view (WebGL) takes over while tilt or the behind-plane view is on; the flat canvas stays for everything else
@@ -2037,7 +2040,7 @@ function WorldView({ id }: { id: string }) {
               onPointerUp={e => { const n = e.timeStamp; if (n - lastTap.current < 320) { lastTap.current = 0; setMiniSize(v => (v >= 3 ? 2 : 3)); } else lastTap.current = n; }} />
             <div className="wui-minizoom">
               <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomIn')} onClick={() => setMiniScale(v => Math.max(1, v / 2))}><Icon name="symbol_plus" size={16} alt="" /></PixelFrame>
-              <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setMiniScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
+              <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => { if (miniScale >= BIG_MAP_SCALE / 2) setBigScale(BIG_MAP_SCALE); else setMiniScale(v => v * 2); }}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
             </div>
           </div>
             <PixelFrame as={initial.kind === 'lakedistrict' ? 'button' : undefined} theme="green_ornate" scale={1} className="wui-banner wui-mapbanner" onClick={initial.kind === 'lakedistrict' ? () => setWatersOpen(v => !v) : undefined}><span className="wui-ellip"><HudText hud={hudRef} pick={h => initial.kind === 'lakedistrict' ? placeText(h.x, h.y, t).toUpperCase() : t(`worldBiome_${h.biome || 'grassland'}` as Key).toUpperCase()} /></span></PixelFrame>
@@ -2245,14 +2248,14 @@ function WorldView({ id }: { id: string }) {
           </div>
         </PixelFrame>
       )}
-      {miniScale >= BIG_MAP_SCALE && (
+      {bigScale > 0 && (
         <div className="world-bigmap" role="dialog" aria-label={t('worldMap')}>
           <canvas ref={bigMap} className="world-bigmap-cv" aria-label={t('worldMap')} role="img" />
           <div className="world-bigmap-bar">
             <PixelFrame theme="green_ornate" scale={1} className="wui-banner">{t('paused')}</PixelFrame>
-            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomIn')} onClick={() => setMiniScale(v => Math.max(1, v / 2))}><Icon name="symbol_plus" size={16} alt="" /></PixelFrame>
-            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setMiniScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
-            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('close')} onClick={() => setMiniScale(BIG_MAP_SCALE / 2)}><Icon name="symbol_cross" size={16} alt="" /></PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomIn')} onClick={() => setBigScale(v => Math.max(0.5, v / 2))}><Icon name="symbol_plus" size={16} alt="" /></PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setBigScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('close')} onClick={() => setBigScale(0)}><Icon name="symbol_cross" size={16} alt="" /></PixelFrame>
           </div>
         </div>
       )}
