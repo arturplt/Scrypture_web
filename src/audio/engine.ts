@@ -9,7 +9,7 @@
  */
 import { SILENT, type SoundParams } from '../domain/soundmap';
 
-export type SoundEvent = 'land' | 'crash' | 'splash' | 'boost' | 'ready' | 'hoop' | 'throw' | 'blip' | 'thunder';
+export type SoundEvent = 'land' | 'crash' | 'splash' | 'boost' | 'ready' | 'hoop' | 'throw' | 'blip' | 'thunder' | 'shot' | 'hit';
 
 export interface AudioEngine {
   /** Create / resume the AudioContext. Call from a user gesture (key, click, touch). */
@@ -160,6 +160,8 @@ export function createAudioEngine(): AudioEngine | null {
         case 'throw': burst(0.4, 'bandpass', 300, 2200, 0.3, 1.5, 0.1); break;
         case 'thunder': burst(0.18, 'highpass', 3000, 900, 0.1 + 0.3 * k, 0.7, 0.005); burst(1.6 + 1.2 * k, 'lowpass', 260 + 500 * k, 45, 0.25 + 0.5 * k, 0.6, 0.03); tone(70, 32, 1.4, 0.15 + 0.25 * k, 'sine', 0.05); break;   // the crack, then the long roll (n = how near)
         case 'blip': tone(880, 660, 0.05, 0.05, 'square'); break;
+        case 'shot': tone(900, 180, 0.14, 0.12, 'square'); burst(0.12, 'highpass', 3000, 1500, 0.1); break;   // a missed shot: a pew
+        case 'hit': tone(900, 180, 0.12, 0.12, 'square'); burst(0.3, 'lowpass', 1800, 250, 0.4, 0.7, 0.05); tone(440, 880, 0.25, 0.12, 'triangle', 0.1); break;   // a hit: the pew, a thump and a rising tone
       }
     },
     dispose() { const c = ctx; ctx = null; nodes = null; if (c) void c.close().catch(() => {}); },

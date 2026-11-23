@@ -34,16 +34,6 @@ export function chaseOffset(heading: number, distance: number): { x: number; y: 
 /** 1 on the ground, 0 at `TILT_FLAT_ALTITUDE` and above: how much of the chosen tilt is left at this height. */
 export const tiltAltitudeFactor = (altitude: number) => Math.max(0, Math.min(1, 1 - altitude / TILT_FLAT_ALTITUDE));
 
-/**
- * How far ahead of the plane the view looks, in tiles: nothing when still, more the faster it goes (`speed01` 0..1 of full speed, up to
- * `cap`), but never less than 6 when the view is flat (`tiltNow` 0) because the plane would hide behind the controls; the floor melts
- * away as the view tips (`tiltNow` is in slider steps, 0..16).
- */
-export function lookAhead(speed01: number, cap: number, tiltNow: number): number {
-  const floor = FLAT_VIEW_MIN_LOOK * (1 - Math.max(0, Math.min(1, tiltNow / MAX_TILT_STEP)));
-  return Math.max(floor, Math.max(0, Math.min(1, speed01)) * Math.max(0, cap));
-}
-
 /** Ease `cur` towards `target` (frame-rate independent). */
 export function easeOffset(cur: { x: number; y: number }, target: { x: number; y: number }, dt: number, rate = CAMERA_RATE) {
   const k = 1 - Math.exp(-rate * dt);

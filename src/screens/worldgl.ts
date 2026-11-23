@@ -307,6 +307,7 @@ export interface CameraSpec {
   tilt: number;                   // radians from looking straight down
   T: number;                      // pixels per tile at the middle of the screen
   fullView?: boolean;             // draw everything the camera can see, with no haze, as long as that is a finite stretch of ground (else out to a cap, fading)
+  lockTo?: [number, number];      // the chase camera locked rigidly behind a plane at this point: its height follows the ground under the plane exactly, instead of easing towards it (so the plane does not bob up and down in the view as the ground rises and falls)
   noFog?: boolean;                // no distance haze: everything the footprint reaches is drawn as it is
   reach?: number;                 // a fixed ground reach (tiles) for a camera that looks towards the horizon
   lookH?: number;                 // how high above the ground the camera's target is (it follows the plane up a little, so the plane stays in view)
@@ -369,7 +370,8 @@ export class WorldGL {
   private sortBuf = new Float32Array(4096 * 4 * FLOATS);
   // the plane model (optional): its own texture and indices, drawn after the sprites
   private model: { local: Float32Array; uv: Float32Array; tex: WebGLTexture; ibo: WebGLBuffer; n: number; out: Float32Array } | null = null;
-  private pose: { x: number; y: number; h0: number; dx: number; dy: number; roll: number; pitch: number; len: number; sa: number; sx: number; sy: number; basis?: { f: ArrayLike<number>; u: ArrayLike<number> } } | null = null;
+  private pose: { x: number; y: number; h0: number; dx: number; dy: number; roll: number; pitch: number; len: number; sa: number; sx: number; sy: number; tint?: [number, number, number]; basis?: { f: ArrayLike<number>; u: ArrayLike<number> } } | null = null;
+  private poses: NonNullable<WorldGL['pose']>[] = [];   // every plane queued this frame (the player's, and an opponent's)
   private shadowOut = new Float32Array(0);
   private buf = new Float32Array(4 * FLOATS);                      // one ground quad
   // the atlas
@@ -557,7 +559,7 @@ export class WorldGL {
     this.tanY = tanY; this.tanX = tanX; this.W = c.W; this.H = c.H;
     let D = c.H / 2 / (c.T * tanY);                                      // distance from the target so that a tile is T px high there
     const st = Math.sin(c.tilt), ct = Math.cos(c.tilt);
-    const lh = c.lookH ?? 0, T = this.terrain, onFoot = !!c.fpv && c.fpv.k > 0.5; let bh = T ? this.smooth('base', T(c.x, c.y) + lh, onFoot ? 0.12 : 0.35) - lh : 0;   // (the whole target height is eased, ground and look height together: the look height follows the height above the ground, which moves against the ground as the plane crosses a ridge)
+    const lh = c.lookH ?? 0, T = this.terrain, onFoot = !!c.fpv && c.fpv.k > 0.5; let bh = T ? (c.lockTo && !onFoot && !c.eye ? (this.sm.base = T(c.lockTo[0], c.lockTo[1]) + lh) - lh : this.smooth('base', T(c.x, c.y) + lh, onFoot ? 0.12 : 0.35) - lh) : 0;   // (the whole target height is eased, ground and look height together: the look height follows the height above the ground, which moves against the ground as the plane crosses a ridge)
     this.baseH = bh;                                                      // everything below is as on flat ground, lifted by the ground under the target
     this.eye = [c.x - c.upX * D * st, c.y - c.upY * D * st, -bh - lh - D * ct];
     if (T && !c.eye) {   // (the chase camera keeps off a hill behind it: lifted at once, let down slowly)
@@ -574,7 +576,7 @@ export class WorldGL {
     }
     this.noFog = !!c.noFog;
     this.reach = c.reach ?? D * 3.3; this.fogStart = c.reach ? c.reach * 0.7 : D * 1.8;
-    let near = Math.max(0.2, D * 0.05), far = this.reach * 1.6 + D;
+    let near = Math.max(0.004, D * 0.05), far = this.reach * 1.6 + D;
     if (c.fpv && c.fpv.k > 0) {                                           // standing on the ground: eye, view direction and reach blend towards the walker's
       const k = Math.min(1, c.fpv.k), cp = Math.cos(c.fpv.pitch), sp = Math.sin(c.fpv.pitch), e = this.eye;
       const f1: Vec3 = [c.upX * cp, c.upY * cp, -sp], mix = (a: number, b: number) => a + (b - a) * k;
@@ -988,7 +990,7 @@ export class WorldGL {
   groundH(x: number, y: number): number { return this.terrain ? this.terrain(x, y) : 0; }
   /** Queue the model for this frame: centre (x, y), height h0, heading (dirX, dirY), roll and pitch in radians, `len` tiles long.
    *  `basis` gives the attitude outright instead: the nose `f` and the plane's own up `u` as unit vectors (x east, y NORTH, z up, as the glider keeps them), which has no trouble at the vertical or upside down. */
-  drawModel(x: number, y: number, h0: number, dirX: number, dirY: number, roll: number, pitch: number, len: number, shadowAlpha = 0.3, shadowSx = 0.12, shadowSy = 0.25, basis?: { f: ArrayLike<number>; u: ArrayLike<number> }) { this.pose = { x, y, h0, dx: dirX, dy: dirY, roll, pitch, len, sa: shadowAlpha, sx: shadowSx, sy: shadowSy, basis }; if (shadowAlpha > 0) this.pushShadow(); }
+  drawModel(x: number, y: number, h0: number, dirX: number, dirY: number, roll: number, pitch: number, len: number, shadowAlpha = 0.3, shadowSx = 0.12, shadowSy = 0.25, basis?: { f: ArrayLike<number>; u: ArrayLike<number> }, tint?: [number, number, number]) { this.pose = { x, y, h0, dx: dirX, dy: dirY, roll, pitch, len, sa: shadowAlpha, sx: shadowSx, sy: shadowSy, basis, tint }; this.poses.push(this.pose); if (shadowAlpha > 0) this.pushShadow(); }
 
   /** The model's vertices in the world for the queued pose: `shadow` squashes them onto the ground, slid along the light (the plane's silhouette). */
   private modelVerts(shadow: boolean): Float32Array {
@@ -1008,7 +1010,7 @@ export class WorldGL {
       const a = m.local[i * 3] * p.len, b = m.local[i * 3 + 1] * p.len, c = m.local[i * 3 + 2] * p.len, o = i * FLOATS;
       const x = p.x + f1[0] * a + r1[0] * b + u2[0] * c, y = p.y + f1[1] * a + r1[1] * b + u2[1] * c, z = -p.h0 + f1[2] * a + r1[2] * b + u2[2] * c;
       if (shadow) { const h = Math.max(0, -z); out[o] = x + h * p.sx; out[o + 1] = y + h * p.sy; out[o + 2] = -g0 - 0.02; }
-      else { out[o] = x; out[o + 1] = y; out[o + 2] = z - g0; out[o + 3] = m.uv[i * 2]; out[o + 4] = m.uv[i * 2 + 1]; out[o + 5] = 1; out[o + 6] = 1; out[o + 7] = 1; out[o + 8] = 1; }
+      else { out[o] = x; out[o + 1] = y; out[o + 2] = z - g0; out[o + 3] = m.uv[i * 2]; out[o + 4] = m.uv[i * 2 + 1]; out[o + 5] = p.tint ? p.tint[0] : 1; out[o + 6] = p.tint ? p.tint[1] : 1; out[o + 7] = p.tint ? p.tint[2] : 1; out[o + 8] = 1; }
     }
     return out;
   }
@@ -1034,11 +1036,10 @@ export class WorldGL {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
   }
   private flushModel() {
-    const m = this.model, p = this.pose; this.pose = null; if (!m || !p) return;
-    this.pose = p; const v = this.modelVerts(false); this.pose = null;
+    const m = this.model, list = this.poses; this.pose = null; this.poses = []; if (!m || !list.length) return;
     const gl = this.gl;
     gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true);
-    this.drawMesh(v, m.tex);
+    for (const p of list) { this.pose = p; const v = this.modelVerts(false); this.pose = null; this.drawMesh(v, m.tex); }
   }
 
   /** Draw what was queued: decals, then solid sprites, then the blended ones back to front. */

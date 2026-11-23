@@ -2,12 +2,13 @@
  * Bóbr world map: the cameraman. Three ways to watch the paper plane, changed with C (or the camera button):
  *  - chase: the view sits behind the plane and turns with its course (the view the map always had); the wheel zooms it;
  *  - free:  the camera orbits the plane wherever it is dragged to and stays there; the wheel is how far out it sits;
+ *  - duel:   (dogfight) the camera sits behind your plane and a little above, looking over it at the opponent: both planes are always in view, whatever the gap;
  *  - flyby: the camera stands still at a spot ahead of the plane and beside its path, and turns to watch it go by. Once the plane is
  *           past and well away (or has turned off somewhere else) it cuts to a new spot ahead, on the other side.
  * Pure: positions are in tiles as the world map has them (x east, y SOUTH), heights in tiles above the ground.
  */
-export type CamMode = 'chase' | 'free' | 'flyby';
-export const CAM_MODES: readonly CamMode[] = ['chase', 'free', 'flyby'];
+export type CamMode = 'chase' | 'free' | 'flyby' | 'duel';
+export const CAM_MODES: readonly CamMode[] = ['chase', 'free', 'flyby', 'duel'];
 
 /** The next mode round. `poseOk` false (no 3D view, or not gliding) leaves only the chase view. */
 export function nextCamMode(m: CamMode, poseOk = true): CamMode {
@@ -15,9 +16,9 @@ export function nextCamMode(m: CamMode, poseOk = true): CamMode {
   return CAM_MODES[(CAM_MODES.indexOf(m) + 1) % CAM_MODES.length];
 }
 
-/** What the wheel changes in each mode: chase = how big the map is drawn (x); free = the orbit's radius; flyby = how far from the path it stands (tiles). */
-export const ZOOM_RANGE: Record<CamMode, readonly [number, number]> = { chase: [0.5, 6], free: [2.5, 60], flyby: [3, 40] };
-export const ZOOM_DEFAULT: Record<CamMode, number> = { chase: 2, free: 12, flyby: 9 };
+/** What the wheel changes in each mode: chase = how big the map is drawn (x); free = the orbit's radius; flyby = how far from the path it stands (tiles); duel = how much room is left round the two planes (x). */
+export const ZOOM_RANGE: Record<CamMode, readonly [number, number]> = { chase: [0.5, 40], free: [2.5, 60], flyby: [3, 40], duel: [0.6, 3] };
+export const ZOOM_DEFAULT: Record<CamMode, number> = { chase: 2, free: 12, flyby: 9, duel: 1 };
 export const clampZoom = (m: CamMode, v: number) => Math.max(ZOOM_RANGE[m][0], Math.min(ZOOM_RANGE[m][1], v));
 /** Wheel up (a negative delta, in pixels) always brings the plane closer: the chase view grows, the other two move in. */
 export function zoomBy(m: CamMode, cur: number, deltaY: number): number {
@@ -61,4 +62,21 @@ export function flybyStep(fb: Flyby, plane: Vec3h, vx: number, vy: number, hx: n
   fb.h = Math.max((MIN_EYE_H + 0.1) * k, plane.h + (fb.side > 0 ? -0.25 : 0.2) * dist);   // from one side it looks up at the plane, from the other down on it
   fb.lead = lead; fb.on = true;
   return true;
+}
+
+/**
+ * The duel camera. `me` and `foe` are the two planes (tiles, y south, heights in tiles). The eye looks at the middle of the pair along the line
+ * from you to the opponent, from behind you, far enough out that both fit; `ang` is that line's heading, which the caller eases so the view
+ * does not snap. With no opponent it just orbits behind the plane along its heading. Returns the point looked at and where the eye is.
+ */
+export function duelLine(me: Vec3h, foe: Vec3h | null, heading: number[]): { ang: number; gap: number } {
+  if (!foe) return { ang: Math.atan2(heading[1], heading[0]), gap: 0 };
+  const dx = foe.x - me.x, dy = foe.y - me.y, hz = Math.hypot(dx, dy);
+  return { ang: hz > 0.5 ? Math.atan2(dy, dx) : Math.atan2(heading[1], heading[0]), gap: Math.hypot(dx, dy, foe.h - me.h) };
+}
+export function duelPose(me: Vec3h, foe: Vec3h | null, ang: number, tilt: number, zoom: number, k = 1, minH = MIN_EYE_H): { target: Vec3h; eye: Vec3h } {
+  const target = foe ? { x: (me.x + foe.x) / 2, y: (me.y + foe.y) / 2, h: (me.h + foe.h) / 2 } : me;
+  const gap = foe ? Math.hypot(foe.x - me.x, foe.y - me.y, foe.h - me.h) : 0;
+  const radius = Math.max(9 * k, gap * 0.75 + 8 * k) * zoom;
+  return { target, eye: orbitEye(target, Math.cos(ang), Math.sin(ang), tilt, radius, minH) };
 }

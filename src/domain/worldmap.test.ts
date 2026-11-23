@@ -5,7 +5,7 @@ import { Ecosystem, flammability, fuelOf, riverPath, CLOUD_MARGIN, STALL_TICKS, 
 import { MAX_DARKNESS, advanceHour, clockText, darkness, sunAzimuth, sunElevation } from './sky';
 import { cruiseVelocity, currentLayer, layerScale, newFlight, parallax, stepFlight } from './flight';
 import { mulberry32 } from './sanctuary';
-import { BILLBOARD_MAX_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, lookAhead, tiltAltitudeFactor } from './camera';
+import { BILLBOARD_MAX_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, tiltAltitudeFactor } from './camera';
 
 describe('world generation', () => {
   it('is deterministic and depends on the seed', () => {
@@ -330,15 +330,6 @@ describe('flight', () => {
 });
 
 describe('3rd-person camera', () => {
-  it('looks ahead further the faster it goes, from nothing when the view is tipped', () => {
-    expect(lookAhead(0, 12, 16)).toBe(0);
-    expect(lookAhead(0.5, 12, 16)).toBeCloseTo(6); expect(lookAhead(1, 12, 16)).toBe(12);
-    expect(lookAhead(2, 12, 16)).toBe(12);
-  });
-  it('never looks less than 6 ahead when the view is flat, and the floor melts away as it tips', () => {
-    expect(lookAhead(0, 12, 0)).toBe(6); expect(lookAhead(0.2, 12, 0)).toBe(6);
-    expect(lookAhead(0, 12, 8)).toBeCloseTo(3); expect(lookAhead(1, 12, 0)).toBe(12);
-  });
   it('fades the tilt to flat at 190 m', () => {
     expect(tiltAltitudeFactor(0)).toBe(1); expect(tiltAltitudeFactor(95)).toBeCloseTo(0.5);
     expect(tiltAltitudeFactor(190)).toBe(0); expect(tiltAltitudeFactor(400)).toBe(0); expect(tiltAltitudeFactor(-5)).toBe(1);

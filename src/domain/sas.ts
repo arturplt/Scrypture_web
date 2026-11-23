@@ -5,14 +5,17 @@
  *  - hold:  the bank and the climb angle both hold wherever the stick was let go (a steady turn stays a steady turn);
  *  - acro:  for aerobatics, with the aerobatic wing: the stick turns the plane (roll right round, pull into a loop), and where it is let go the
  *           plane stops turning and holds that bank (upside down too) and that flight path, whatever the throttle does.
+ *  - target: (dogfight) the plane turns and climbs or dives to point at the other plane, leading it, and holds the nose on it; the stick takes over
+ *           while it is moved (letting go, the assist goes back to the target). With no target it holds like `hold`.
  * Throttle no longer needs a pilot: more thrust bends the path up, and the assist pulls it back to the held climb angle.
  * Pure: `stepSas` turns the pilot's stick and the glider's state into the controls for `stepGlider`.
  */
 import type { Glider } from './glider';
 
-export type SasMode = 'off' | 'level' | 'hold' | 'acro';
-export const SAS_MODES: readonly SasMode[] = ['off', 'level', 'hold', 'acro'];
-export const nextSasMode = (m: SasMode): SasMode => SAS_MODES[(SAS_MODES.indexOf(m) + 1) % SAS_MODES.length];
+export type SasMode = 'off' | 'level' | 'hold' | 'acro' | 'target';
+export const SAS_MODES: readonly SasMode[] = ['off', 'level', 'hold', 'acro', 'target'];
+/** The next mode round; `target` is skipped when there is nothing to target. */
+export const nextSasMode = (m: SasMode, hasTarget = false): SasMode => { const next = SAS_MODES[(SAS_MODES.indexOf(m) + 1) % SAS_MODES.length]; return next === 'target' && !hasTarget ? 'off' : next; };
 
 export interface Sas { mode: SasMode; gammaT: number; phiT: number; i: number; lastGamma: number; engaged: boolean; vT: [number, number, number] }   // vT: the flight path direction held (acro)
 export const newSas = (mode: SasMode = 'off'): Sas => ({ mode, gammaT: 0, phiT: 0, i: 0, lastGamma: 0, engaged: false, vT: [1, 0, 0] });
@@ -38,8 +41,12 @@ export function captureSas(s: Sas, g: Glider) {
 }
 
 /** One frame. `thrust` 0..1 is passed so the assist can lean against it before the path has moved. */
-export function stepSas(s: Sas, g: Glider, input: SasInput, dt: number, thrust = 0): SasCtl {
+export function stepSas(s: Sas, g: Glider, input: SasInput, dt: number, thrust = 0, target: Glider | null = null): SasCtl {
   if (!s.engaged) captureSas(s, g);
+  if (s.mode === 'target' && target && !target.landed) {
+    if (Math.abs(input.pitch) > DEAD || Math.abs(input.roll) > DEAD) { s.lastGamma = g.gamma; return { pitch: input.pitch, roll: input.roll, yaw: input.yaw }; }   // the pilot takes the stick: the plane goes where it says, the target waits
+    aimAt(s, g, target);
+  } else if (s.mode === 'target') { if (target === null && Math.abs(input.pitch) > DEAD) s.gammaT = clamp(s.gammaT + input.pitch * SAS_PITCH_RATE * dt, -SAS_MAX_DIVE, SAS_MAX_CLIMB); }
   if (s.mode === 'acro') return stepAcro(s, g, input, dt, thrust);
   const gammaRate = dt > 0 ? (g.gamma - s.lastGamma) / dt : 0; s.lastGamma = g.gamma;
   // the stick moves the targets; letting go leaves them where they got to (hold: the bank where it is, level: wings level)
@@ -54,6 +61,17 @@ export function stepSas(s: Sas, g: Glider, input: SasInput, dt: number, thrust =
   const pitch = clamp(-0.3 * (g.airspeed - 7) / 7 + 1.4 * err - 0.25 * gammaRate + s.i + bank - 0.12 * thrust, -1, 1);
   const roll = clamp(2.2 * (s.phiT - g.phi) - 0.25 * g.rollRate, -1, 1);
   return { pitch, roll, yaw: input.yaw };
+}
+
+/** Target mode: set the climb angle and bank that point the plane at the other one (a little ahead of it, as far as it will have flown by the time we are there). */
+function aimAt(s: Sas, g: Glider, t: Glider) {
+  const dx0 = t.x - g.x, dy0 = t.y - g.y, d0 = Math.hypot(dx0, dy0), lead = clamp(d0 / Math.max(4, g.airspeed), 0, 2);
+  const dx = dx0 + t.vx * lead, dy = dy0 + t.vy * lead, dz = (t.z + (t.gnd ?? 0)) - (g.z + (g.gnd ?? 0)) + t.vz * lead, hd = Math.hypot(dx, dy);
+  const err = wrapPi(Math.atan2(dy, dx) - g.psi);
+  const maxBank = g.airspeed < SAS_MIN_SPEED * 1.4 ? 0.6 : 0.95;   // (a steep turn needs lift to spare: when slow, ease it)
+  s.phiT = clamp(-err * 1.4, -maxBank, maxBank);
+  const climbCap = clamp((g.airspeed - 6) * 0.25, -0.2, SAS_MAX_CLIMB);   // (energy first: a slow plane dives to pick up speed before it climbs after a target above it)
+  s.gammaT = clamp(Math.atan2(dz, Math.max(hd, 1)), -SAS_MAX_DIVE, climbCap);
 }
 
 /** The acro assist: the stick is a turning command (as with no assist), and where it is let go the turning stops and the attitude is held. */

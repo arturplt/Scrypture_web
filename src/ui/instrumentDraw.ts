@@ -24,8 +24,9 @@ export interface Instruments {
   load: number;
   landed: boolean;
   mouse: boolean;          // mouse flying is on: the attitude indicator wears an amber ring
+  foe: { theta: number; phi: number; dist: number; hunter: boolean; lock: number } | null;   // dogfight: the other plane as seen from the nose (angle off it, which way round, metres, whether it is hunting you, the lock 0..1)
 }
-export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, mouse: false });
+export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, mouse: false, foe: null });
 
 const FACE = '#10151b', BEZEL = '#2b333d', RIM = '#58626f', INK = '#e6edf4', DIM = '#8d99a6', AMBER = '#ffb300', RED = '#ef5350', GREEN = '#66bb6a', CYAN = '#4dd0e1', SKY = '#3f8fd2', GROUND = '#8a5a2b';
 const FONT = "'Press Start 2P', ui-monospace, monospace";   // the pixel font; its glyphs are 1 em wide, so the sizes below are scaled down to fit the dials
@@ -130,6 +131,25 @@ function dial(g: CanvasRenderingContext2D, r: number, d: Instruments, blink: boo
   g.strokeStyle = AMBER; g.lineWidth = r * 0.045; g.lineCap = 'round';
   g.beginPath(); g.moveTo(-r * 0.32, 0); g.lineTo(-r * 0.12, 0); g.lineTo(-r * 0.08, r * 0.07); g.moveTo(r * 0.32, 0); g.lineTo(r * 0.12, 0); g.lineTo(r * 0.08, r * 0.07); g.stroke();
   g.beginPath(); g.arc(0, 0, r * 0.035, 0, Math.PI * 2); g.fillStyle = AMBER; g.fill();
+
+  // dogfight: the other plane, fixed to the plane's own frame (the disc is 30 degrees from the nose to its rim, which is also the lock cone). Inside the rim it is a ring and a diamond; further off it is an arrow on the rim pointing the way to turn
+  if (d.foe) {
+    // the anti-target: straight away from the other plane (it comes onto the disc when the other plane is behind you). A cross in a diamond, in the opponent's colour but paler; on the rim a small pale arrow
+    const f0 = d.foe, aTheta = Math.PI - f0.theta, aPhi = f0.phi + Math.PI, aEdge = R * 0.88, aOff = Math.min(aTheta * per, aEdge), aOut = aTheta * per > aEdge, ax = Math.cos(aPhi) * aOff, ay = -Math.sin(aPhi) * aOff, aCol = f0.hunter ? '#ff9a95' : '#a9d3ff';
+    g.save(); g.translate(ax, ay);
+    if (aOut) { g.rotate(Math.atan2(ay, ax) + Math.PI / 2); g.beginPath(); g.moveTo(0, -r * 0.045); g.lineTo(-r * 0.04, r * 0.03); g.lineTo(r * 0.04, r * 0.03); g.closePath(); g.globalAlpha = 0.75; g.fillStyle = aCol; g.fill(); g.globalAlpha = 1; g.lineWidth = r * 0.012; g.strokeStyle = '#05080b'; g.stroke(); }
+    else { const k = r * 0.05; g.beginPath(); g.moveTo(0, -k); g.lineTo(k, 0); g.lineTo(0, k); g.lineTo(-k, 0); g.closePath(); g.fillStyle = 'rgba(5,8,11,0.6)'; g.fill(); g.lineWidth = r * 0.02; g.strokeStyle = aCol; g.stroke(); g.beginPath(); g.moveTo(-k * 0.55, -k * 0.55); g.lineTo(k * 0.55, k * 0.55); g.moveTo(k * 0.55, -k * 0.55); g.lineTo(-k * 0.55, k * 0.55); g.stroke(); }
+    g.restore();
+  }
+  if (d.foe) {
+    const f = d.foe, col = f.hunter ? RED : '#6fb7ff', edge = R * 0.88, off = Math.min(f.theta * per, edge), out = f.theta * per > edge, px = Math.cos(f.phi) * off, py = -Math.sin(f.phi) * off;
+    if (f.lock > 0) { g.beginPath(); g.arc(px, py, r * (0.16 - 0.09 * Math.min(1, f.lock)), 0, Math.PI * 2); g.lineWidth = r * 0.025; g.strokeStyle = AMBER; g.stroke(); }
+    g.save(); g.translate(px, py);
+    if (out) { g.rotate(Math.atan2(py, px) + Math.PI / 2); g.beginPath(); g.moveTo(0, -r * 0.07); g.lineTo(-r * 0.055, r * 0.04); g.lineTo(r * 0.055, r * 0.04); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = r * 0.015; g.strokeStyle = '#05080b'; g.stroke(); }
+    else { const k = r * 0.055; g.beginPath(); g.moveTo(0, -k); g.lineTo(k, 0); g.lineTo(0, k); g.lineTo(-k, 0); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = r * 0.02; g.strokeStyle = '#05080b'; g.stroke(); g.beginPath(); g.arc(0, 0, r * 0.09, 0, Math.PI * 2); g.lineWidth = r * 0.02; g.strokeStyle = col; g.stroke(); }
+    g.restore();
+    plate(g, `${Math.round(f.dist)}m`, 0, r * 0.19, r, col, 0.1);
+  }
 
   // the slip tube under the plane
   g.save(); g.translate(0, r * 0.5);

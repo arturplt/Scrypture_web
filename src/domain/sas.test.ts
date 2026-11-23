@@ -73,3 +73,27 @@ describe('stability assist', () => {
     });
   });
 });
+
+describe('stability assist: target', () => {
+  const bearingErr = (g: ReturnType<typeof settled>, tg: ReturnType<typeof settled>) => { const dx = tg.x - g.x, dy = tg.y - g.y, e = Math.atan2(dy, dx) - g.psi; return Math.abs(Math.atan2(Math.sin(e), Math.cos(e))); };
+  it('is in the cycle only when there is a target', () => {
+    expect(nextSasMode('acro', true)).toBe('target'); expect(nextSasMode('acro', false)).toBe('off'); expect(nextSasMode('target', true)).toBe('off');
+  });
+  it('turns the plane onto another plane and closes on it, from the side and from behind', () => {
+    for (const [tx, ty, tz] of [[0, 60, 170], [-50, 20, 200], [60, -40, 190]]) {
+      const g = settled(200), tg = newGlider(tx, ty, 0.4, tz); const s = newSas('target'); captureSas(s, g);
+      const d0 = Math.hypot(tx, ty); let near = d0, stalledFar = false;
+      for (let i = 0; i < 60 * 14; i++) { const c = stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60, 0, tg); stepGlider(g, c, still, 1 / 60); tg.x = tx; tg.y = ty; tg.vx = tg.vy = tg.vz = 0; const dd = Math.hypot(tg.x - g.x, tg.y - g.y); near = Math.min(near, dd); if (g.stalled && dd > 12) stalledFar = true; }
+      expect(near, `${tx},${ty}`).toBeLessThan(d0 * 0.6); expect(g.landed).toBe(false); expect(stalledFar, `${tx},${ty}`).toBe(false);   // (right on top of a still target the bank has no heading to follow: only the approach has to be clean)
+    }
+  });
+  it('the stick takes over while it is moved', () => {
+    const g = settled(200), tg = newGlider(0, 80, 0.4, 200), s = newSas('target'); captureSas(s, g);
+    const c = stepSas(s, g, { pitch: 0, roll: 1, yaw: 0 }, 1 / 60, 0, tg); expect(c.roll).toBe(1);
+  });
+  it('with no target it holds like hold', () => {
+    const g = settled(), s = newSas('target'); captureSas(s, g); const g0 = g.gamma;
+    for (let i = 0; i < 600; i++) { const c = stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60, 0, null); stepGlider(g, c, still, 1 / 60); }
+    expect(Math.abs(deg(g.gamma - g0))).toBeLessThan(8);
+  });
+});

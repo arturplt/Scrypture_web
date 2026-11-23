@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { CAM_MODES, FLYBY_LEAD, MIN_EYE_H, ZOOM_DEFAULT, ZOOM_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from './cameraman';
 
 describe('camera modes', () => {
-  it('C goes chase -> free -> flyby -> chase', () => {
+  it('the mode cycle goes chase -> free -> flyby -> duel -> chase', () => {
     let m: CamMode = 'chase'; const seen: CamMode[] = [];
-    for (let i = 0; i < 4; i++) { m = nextCamMode(m); seen.push(m); }
-    expect(seen).toEqual(['free', 'flyby', 'chase', 'free']);
+    for (let i = 0; i < 5; i++) { m = nextCamMode(m); seen.push(m); }
+    expect(seen).toEqual(['free', 'flyby', 'duel', 'chase', 'free']);
   });
   it('without the 3D view (or off the glider) only the chase view is left', () => {
     for (const m of CAM_MODES) expect(nextCamMode(m, false)).toBe('chase');

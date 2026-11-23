@@ -398,3 +398,24 @@
 .world-fjpattern { display: contents; }
 .world-patterns .world-patstep { align-items: center; flex-wrap: wrap; }
 .world-patname { font: inherit; font-size: 8px; width: 9em; padding: 4px; background: #1b1b1b; color: #fff; border: 2px solid #555; }
+
+/* dogfight tag */
+.wui-hint-dog { left: calc(50% + 112px); top: 40px; color: #ff9b8f; }
+.wui-hint-dog img { filter: sepia(1) saturate(8) hue-rotate(-35deg) brightness(1.1) drop-shadow(0 0 2px #000); }
+.wui-doghud { left: 50%; top: 6px; transform: translateX(-50%); margin-top: 28px; padding: 3px 6px; font: 8px 'Press Start 2P', ui-monospace, monospace; color: #cfe3ff; background: rgba(8, 12, 24, 0.55); text-shadow: 0 1px 0 #000; pointer-events: none; white-space: nowrap; }
+.wui-doghud[data-role='flee'] { color: #ffb4a8; }
+.wui-dogmsg { left: 50%; top: 24%; transform: translateX(-50%); font: 12px 'Press Start 2P', ui-monospace, monospace; color: #ffd54f; text-shadow: 0 2px 0 #000, 0 0 4px #000; pointer-events: none; white-space: nowrap; }
+.world-shot { position: absolute; z-index: 14; left: 50%; top: 42%; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 6px; padding: 8px 10px 10px; background: rgba(8, 12, 24, 0.72); border: 2px solid #ffd54f; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; outline: none; }
+.world-shot-title { font: 8px 'Press Start 2P', ui-monospace, monospace; color: #ffd54f; text-shadow: 0 1px 0 #000; }
+.world-shot-pad { --tol: 0.4; position: relative; width: 150px; height: 150px; }
+.world-shot-track { position: absolute; left: 50%; top: 50%; background: rgba(255, 255, 255, 0.28); transform: translate(-50%, -50%); }
+.world-shot-track.v { width: 2px; height: 140px; }
+.world-shot-track.h { width: 140px; height: 2px; }
+.world-shot-track.d { width: 2px; height: 140px; transform: translate(-50%, -50%) rotate(45deg); }
+.world-shot-zone { position: absolute; left: 50%; top: 50%; width: calc(var(--tol) * 124px); height: calc(var(--tol) * 124px); transform: translate(-50%, -50%); border: 2px solid #ffd54f; box-sizing: border-box; }
+.world-shot-mark { position: absolute; left: calc(50% - 6px); top: calc(50% - 6px); width: 12px; height: 12px; background: #9aa6c0; border: 2px solid #000; box-sizing: border-box; }
+.world-shot-mark.v { background: #7fd1ff; } .world-shot-mark.h { background: #ff9bd0; } .world-shot-mark.d { background: #b8ff8a; }
+.world-shot-mark[data-on='true'] { outline: 2px solid #fff; }
+
+/* the camera sliders under the camera buttons: zoom and tilt side by side (phones only, like the zoom slider on its own) */
+.wui-camsl { display: flex; justify-content: center; gap: calc(6 * var(--u)); }
