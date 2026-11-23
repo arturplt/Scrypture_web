@@ -14,7 +14,8 @@
  */
 
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, type WorldKind } from './lakedistrict';
-import { TerraceField, TERRACE_BARE, TERRACE_LAYER_M, terraceMoist } from './terrace';
+import { TerraceField, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt } from './terrace';
+export { terraceBiome };
 
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
@@ -161,15 +162,6 @@ export function generateLakeChunk(cx: number, cy: number): { t: Uint8Array; b: U
   return { t: out, b: bio };
 }
 
-/** A terraced world's biome (index into BIOME_LIST) from a tile's layer and how moist its region is (0..1). */
-export function terraceBiome(layer: number, moist: number): number {
-  if (layer < 0) return 5;
-  if (layer >= TERRACE_BARE) return 3;               // bare tops
-  if (moist < 0.2) return 3;                         // dry country: sand
-  if (layer <= 4) return moist > 0.62 ? 2 : 0;       // the low shelves: wet ground or meadows
-  if (layer <= 18) return moist > 0.36 ? 1 : 0;      // the hillsides: woods
-  return 0;                                          // the high shelves: open, bushes and rocks
-}
 /** A biome grid entry with this bit set is on a terrace ledge (see terrace.onLedge): nothing stands there. */
 export const LEDGE_BIT = 0x80;
 
@@ -178,11 +170,13 @@ export const LEDGE_BIT = 0x80;
  * grass elsewhere. Biomes follow the layers (see terraceBiome), and tiles on a ledge carry LEDGE_BIT.
  */
 export function generateTerraceChunk(cx: number, cy: number, field: TerraceField): { t: Uint8Array; b: Uint8Array } {
-  const R = 3, side = SIDE + R * 2, ox = cx * CHUNK - MARGIN - R, oy = cy * CHUNK - MARGIN - R, lay = new Int16Array(side * side);
+  const R = 2, side = SIDE + R * 2, ox = cx * CHUNK - MARGIN - R, oy = cy * CHUNK - MARGIN - R, lay = new Int16Array(side * side);
   for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) lay[j * side + i] = field.layerAt(ox + i, oy + j);
   const out = new Uint8Array(SIDE * SIDE), bio = new Uint8Array(SIDE * SIDE);
   for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) {
     const k = (j + R) * side + i + R, l = lay[k], x = ox + i + R, y = oy + j + R, o = j * SIDE + i;
+    if (terraceLakeAt(x + 0.5, y + 0.5, field.seed)) { bio[o] = 4; out[o] = WATER; continue; }   // an inland lake: level water on its shelf
+    if (terraceLakeShoreAt(x + 0.5, y + 0.5, field.seed)) { bio[o] = 3; out[o] = SAND; continue; }   // and a strip of sand along its shore, level ground before the land falls away
     const b = terraceBiome(l, terraceMoist(x, y, field.seed));
     const ledge = lay[k + 1] !== l || lay[k - 1] !== l || lay[k + side] !== l || lay[k - side] !== l;
     bio[o] = b | (ledge && l >= 0 ? LEDGE_BIT : 0);
@@ -301,10 +295,13 @@ export class World {
   private cache = new Map<number, { t: Uint8Array; b: Uint8Array }>();
   /** The terraced world's height field (null on the other kinds). */
   readonly field: TerraceField | null;
+  /** A second, small field of the same seed for the maps: they read hundreds of chunks, and through the game's own field they would push the grids of the chunks on screen out of its cache. */
+  private readonly mapField: TerraceField | null;
 
   constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural') {
     this.seed = seed; this.kind = kind;
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
+    this.mapField = this.field ? new TerraceField(seed, 40) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
   }
   /** Does the ground have height (hills, a chunk mesh, ridge lift)? The Lake District and the terraced worlds. */
@@ -326,7 +323,7 @@ export class World {
   }
   /** A chunk's 16 x 16 terrain with the changes laid over it, for the maps: from the cache when it is there, otherwise generated and not kept (a map that reads hundreds of chunks must not push out the ones the game is drawing). */
   chunkTerrain(cx: number, cy: number): Uint8Array {
-    const g = this.cache.get(tileKey(cx, cy)) ?? this.gen(cx, cy);
+    const g = this.cache.get(tileKey(cx, cy)) ?? (this.mapField ? generateTerraceChunk(cx, cy, this.mapField) : this.gen(cx, cy));
     const out = new Uint8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK, ch = this.changes.size > 0;
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) out[j * CHUNK + i] = (ch ? this.changes.get(tileKey(x0 + i, y0 + j))?.t : undefined) ?? g.t[(j + MARGIN) * SIDE + i + MARGIN];
     return out;
@@ -335,7 +332,7 @@ export class World {
   mapSample(x: number, y: number, layer?: number): Terrain {
     const c = this.changes.get(tileKey(x, y)); if (c) return c.t;
     if (this.kind === 'lakedistrict') return lakeWaterAt(x, y) !== LAKE_LAND ? WATER : GRASS;
-    if (this.field) { const l = layer ?? this.field.layerDirect(x, y); return l < 0 ? WATER : l === 0 || terraceBiome(l, terraceMoist(x, y, this.seed)) === 3 ? SAND : GRASS; }
+    if (this.field) { const l = layer ?? this.field.layerDirect(x, y); return l < 0 || terraceLakeAt(x + 0.5, y + 0.5, this.seed) ? WATER : terraceLakeShoreAt(x + 0.5, y + 0.5, this.seed) ? SAND : l === 0 || terraceBiome(l, terraceMoist(x, y, this.seed)) === 3 ? SAND : GRASS; }
     const b = biomeAt(x, y, this.seed);
     return isWater(x, y, this.seed, b) ? WATER : b.id === 'desert' ? SAND : GRASS;
   }
@@ -358,10 +355,18 @@ export class World {
   /** Ground height in tiles at a point (0 on the flat procedural worlds), and in glider metres. */
   heightAt(px: number, py: number): number { return this.field ? this.field.heightAt(px, py) : this.kind === 'lakedistrict' ? groundTiles(px, py) : 0; }
   /** Real ground height in metres at a tile's centre (0 on the flat worlds; a nominal TERRACE_LAYER_M a layer on the terraced ones). */
-  metresAt(x: number, y: number): number { return this.field ? Math.max(0, this.field.elevationAt(x, y)) * TERRACE_LAYER_M : this.kind === 'lakedistrict' ? lakeMetresAt(x, y) : 0; }
+  metresAt(x: number, y: number): number { return this.field ? Math.max(0, this.field.naturalAt(x, y)) * TERRACE_LAYER_M : this.kind === 'lakedistrict' ? lakeMetresAt(x, y) : 0; }
   groundZAt(px: number, py: number): number { return this.field ? this.field.heightAt(px, py) / TILES_PER_GLIDER_M : this.kind === 'lakedistrict' ? groundZ(px, py) : 0; }
   /** The terrace layer of a tile (-1 = sea; 0 on the other kinds). */
   layerAt(x: number, y: number): number { return this.field ? this.field.layerAt(x, y) : 0; }
+  /** A chunk's 16 x 16 terrace layers for the maps (read through the maps' own field; capped at 127; all 0 on the other kinds). */
+  chunkLayers(cx: number, cy: number): Int8Array {
+    const l = new Int8Array(CHUNK * CHUNK), f = this.mapField; if (!f) return l;
+    for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) l[j * CHUNK + i] = Math.min(127, f.layerAt(cx * CHUNK + i, cy * CHUNK + j));
+    return l;
+  }
+  /** The terrace layer of a tile as the ground was before any water was laid over it (a beck or a tarn lowers its tiles): what the weather judges ledges and shelves by. */
+  naturalLayerAt(x: number, y: number): number { return this.field ? Math.floor(this.field.naturalAt(x, y)) < 0 ? -1 : Math.floor(this.field.naturalAt(x, y)) : 0; }
   /** The terrace layer of a tile for a zoomed-out map: straight from the noise, nothing cached. */
   mapLayer(x: number, y: number): number { return this.field ? this.field.layerDirect(x, y) : 0; }
   generatedTerrain(x: number, y: number): Terrain {
@@ -409,7 +414,9 @@ export class World {
    */
   chunkDrawn(cx: number, cy: number): Drawn[] {
     const g = this.base(cx, cy), out: Drawn[] = new Array(CHUNK * CHUNK), ox = cx * CHUNK, oy = cy * CHUNK, any = this.changes.size > 0;
-    const ter = (i: number, j: number, x: number, y: number): Terrain => (any ? this.changes.get(tileKey(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain);
+    // (an inland lake is drawn as sand: its water is the see-through sheets laid over its bed by the renderer, cut along the smooth rim of the bed, not a tile picture with a harsh edge; the world still counts it as water)
+    const field = this.field, inland = field ? (x: number, y: number) => terraceLakeAt(x + 0.5, y + 0.5, this.seed) || field.waterTopAt(x + 0.5, y + 0.5) >= 0 : null;   // (water that has sheets over it: a lake, or any the weather made above the lowest shelves)
+    const ter = (i: number, j: number, x: number, y: number): Terrain => { const t = (any ? this.changes.get(tileKey(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain); return t === WATER && inland && inland(x, y) ? SAND : t; };
     // what each tile looks like, for the chunk and a ring round it (a swallowed tile counts as its surroundings for its neighbours too)
     const EW = CHUNK + 2, eff = new Uint8Array(EW * EW);
     for (let j = -1; j <= CHUNK; j++) for (let i = -1; i <= CHUNK; i++) {

@@ -3,7 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
-import { TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, terraceFarMesh, terracePlaneSpawn, bandTint, type TerraceFarMesh } from '../domain';
+import { TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, terraceFarMesh, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLanding, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
@@ -132,7 +132,7 @@ function loadPrefs(): Prefs {
 const savePrefs = (p: Prefs) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* private window: not kept */ } };
 const gfxPresetOf = (g: Gfx): 'low' | 'med' | 'high' | 'custom' => (['low', 'med', 'high'] as const).find(k => (Object.keys(GFX_PRESETS[k]) as (keyof Gfx)[]).every(x => GFX_PRESETS[k][x] === g[x])) ?? 'custom';
 
-const perfStat = { why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
+const perfStat = { hc: 0, why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
 function WorldView({ id }: { id: string }) {
   const rStart = performance.now();
   useEffect(() => { perfStat.r++; perfStat.rMax = Math.max(perfStat.rMax, performance.now() - rStart); });
@@ -346,7 +346,7 @@ function WorldView({ id }: { id: string }) {
     const s = sim.current!;
     if (mode === 'glide' && !startedLanded.current) {   // (opening the world: no throw, the plane starts landed, Throw ready)
       startedLanded.current = true;
-      if (s.world.kind === 'lakedistrict' && !initial.plane.landed) { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); s.flight.glideAlt = LAKE_START_ALT; s.flight.glideLanded = false; }   // the Lake District opens in the air: 50 m up, 7 m/s, level (unless it was saved on the ground: then it stays there, on foot)
+      if ((s.world.kind === 'lakedistrict' || s.world.field) && !initial.plane.landed) { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); s.flight.glideAlt = LAKE_START_ALT; s.flight.glideLanded = false; }   // the Lake District and the terraced hills open in the air: 50 m up, 7 m/s, level, so the first view shows the terraces from above (unless it was saved on the ground: then it stays there, on foot)
       else { s.glider.landed = true; s.glider.z = 0; s.glider.vx = s.glider.vy = s.glider.vz = 0; s.glider.impact = null; s.flight.glideAlt = 0; s.flight.glideLanded = true; }
       runStat.current = { startZ: s.glider.z, peakZ: s.glider.z };
     } else if (mode === 'glide') { throwPlane(s.glider, s.flight.x, -s.flight.y, s.flight.heading); s.flight.glideAlt = s.glider.z; s.flight.glideLanded = false; runStat.current = { startZ: s.glider.z, peakZ: s.glider.z }; }
@@ -527,7 +527,7 @@ function WorldView({ id }: { id: string }) {
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
     const farAt: ({ x: number; y: number } | null)[] = TERRACE_FAR_LODS.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    let farJob: { i: number; gen: Generator<null, TerraceFarMesh, void> } | null = null;
+    let farJob: { i: number; gen: Generator<null, TerraceFarMesh, void>; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let landEnv: GlideEnv | null = null, landT = 0, landAt: { x: number; y: number; kind: 'crash' | 'splash' | 'soft' | 'skim' | 'far' } | null = null, landShow: { x: number; y: number } | null = null, lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
     // The stage's real size, never 0: if layout has not settled (or the observer missed a change) fall back to the box around it or the window.
     const measure = () => {
@@ -568,8 +568,8 @@ function WorldView({ id }: { id: string }) {
     const freeChunk = (ch: ChunkImg | undefined) => { if (ch && pxPool.length < 24) pxPool.push(ch.src.px); };
     const dropChunk = (key: number) => { freeChunk(chunks.current.get(key)); chunks.current.delete(key); };
     /** The flat view's canvas for a chunk, made from its pixels the first time it is drawn. */
-    const chunkCanvas = (ch: ChunkImg) => {
-      if (!ch.cv) { const c = document.createElement('canvas'); c.width = c.height = CPX; c.getContext('2d')!.putImageData(new ImageData(ch.src.px, CPX, CPX), 0, 0); ch.cv = c; }
+    const chunkCanvas = (ch: ChunkImg, cx: number, cy: number) => {
+      if (!ch.cv) { const c = document.createElement('canvas'); c.width = c.height = CPX; c.getContext('2d')!.putImageData(new ImageData(s.world.field ? terraceTinted(ch.src.px, s.world.field, cx, cy) : ch.src.px, CPX, CPX), 0, 0); ch.cv = c; }
       return ch.cv;
     };
     function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {
@@ -634,7 +634,7 @@ function WorldView({ id }: { id: string }) {
           if (!seen) { prev[i] = left = NO_LAYER; continue; }
           const ti = (y - cy * CHUNK) * CHUNK + (x - cx * CHUNK), l = hills ? (lay ? lay[ti] : s.world.mapLayer(x, y)) : 0;
           const tt = terr ? terr[ti] as Terrain : s.world.mapSample(x, y, l);
-          if (hills) { terracePixel(d, o, tt, l, left === NO_LAYER ? l : left, prev[i] === NO_LAYER ? l : prev[i], 1); prev[i] = left = l; }
+          if (hills) { terracePixel(d, o, tt, l, left === NO_LAYER ? l : left, prev[i] === NO_LAYER ? l : prev[i], 1, scale); prev[i] = left = l; }
           else { const c = MINI_RGB[tt]; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; }
           const tk = tt === GRASS ? Math.min(0.85, s.world.mapTrees(x, y, Math.ceil(scale)) * 7) : 0;   // trees: the pixel darkens toward the tree green by how many stand in its patch
           if (tk > 0) { d[o] += (TREE_RGB[0] - d[o]) * tk; d[o + 1] += (TREE_RGB[1] - d[o + 1]) * tk; d[o + 2] += (TREE_RGB[2] - d[o + 2]) * tk; }
@@ -689,7 +689,7 @@ function WorldView({ id }: { id: string }) {
       camEffRef.current = camEff; poseOkRef.current = !glFailed;
       for (const m of ['chase', 'free', 'flyby', 'duel'] as const) camZoomNow.current[m] += (camZoom.current[m] - camZoomNow.current[m]) * (1 - Math.exp(-12 * dt));
       const wantGL = (L.gl3d || camEff !== 'chase') && !glFailed && L.tool === 'fly';
-      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
+      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
       if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
       glCv.style.display = useGL ? 'block' : 'none';
@@ -771,7 +771,8 @@ function WorldView({ id }: { id: string }) {
             const lm = Math.hypot(vx, vy); if (lm > sp) { vx *= sp / lm; vy *= sp / lm; }
             if (s.world.hilly) {                                                // hills: steep ground is a climb (slower), a cliff is a wall (a terrace ledge is a step: one layer can be climbed, a stack of them cannot)
               const rise = (s.world.heightAt(gl.x + vx, -(gl.y + vy)) - s.world.heightAt(gl.x, -gl.y)) / (lm || 1);
-              if (rise > (s.world.field ? 2.6 : 1.0)) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
+              if (s.world.field) { const up = s.world.heightAt(gl.x + vx, -(gl.y + vy)) - s.world.heightAt(gl.x, -gl.y); if (up > TERRACE_STEP * 1.5) { vx = 0; vy = 0; } else if (up > 0.05) { vx *= 0.55; vy *= 0.55; } }   // (a step up is a climb: slower, while the eye eases up over it)   // (the terraces are right-angled: one layer up is a step the bobr climbs, two are a wall)
+              else if (rise > 1.0) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
             }
             const wet = (x: number, y: number) => s.world.terrainAt(Math.round(x), Math.round(-y)) === WATER;
             if (!wet(gl.x + vx, gl.y + vy) || wet(gl.x, gl.y)) { gl.x += vx; gl.y += vy; walkPh += dt * 7 * run; }   // (no wading in: only out of the water you landed in)
@@ -834,7 +835,7 @@ function WorldView({ id }: { id: string }) {
           respawnReq.current = false; deadRef.current = false;
           const o = s.world.kind === 'lakedistrict' ? lakeSpawnFor(initial.map ?? 'lakes') : s.world.field ? terracePlaneSpawn(s.world.seed) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 };
           f.x = o.x; f.y = o.y; f.heading = o.heading; f.course = o.heading; gl.wet = 0; gl.boost = 0; gl.impact = null;
-          if (s.world.kind === 'lakedistrict') { throwPlane(gl, f.x, -f.y, f.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); f.glideAlt = LAKE_START_ALT; f.glideLanded = false; }
+          if (s.world.kind === 'lakedistrict' || s.world.field) { throwPlane(gl, f.x, -f.y, f.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); f.glideAlt = LAKE_START_ALT; f.glideLanded = false; }
           else { gl.x = f.x; gl.y = -f.y; gl.psi = f.heading; gl.landed = true; gl.z = 0; gl.vx = gl.vy = gl.vz = 0; f.glideAlt = 0; f.glideLanded = true; }
           runStat.current = { startZ: gl.z, peakZ: gl.z };
           hoopCount = 0; flown = 0; trickPts = 0; tagPts = 0; dogLast.current = { you: 0, ai: 0 }; runTricks.clear(); mowT = 0; mowGain = 0; skimT = 0; skimGain = 0; invT = 0; invGain = 0; combo = newCombo(); resetTricks(tricks, gl); hoopsDone.clear();
@@ -1040,6 +1041,7 @@ function WorldView({ id }: { id: string }) {
       mark('before'); s.eco.step(simDt); s.eco.easeClouds(simDt); mark('eco');                                                              // the world keeps living while you fly
       for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
       s.eco.dirty.clear();
+      if (s.world.field && glr) { const wet = s.world.field.takeDirty(); if (wet.length) glr.dropTerrainMeshes(wet.map(([cx, cy]) => tileKey(cx, cy))); }   // (water laid over, or taken off, the terraces: those chunks' meshes are cut again)
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
         lastStrike = b.id;
         const near = Math.max(0, 1 - Math.hypot(b.x - f.x, b.y - f.y) / 45);
@@ -1085,6 +1087,16 @@ function WorldView({ id }: { id: string }) {
           if (!chunks.current.has(tileKey(cx, cy))) near.push([cx, cy]);
         }
         near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
+        if (s.world.field) {   // the terraced world: the height grids of the same wedge, one ring further out (a chunk's tiles read its neighbours' grids too), a little each frame and before the chunks, so the chunk building finds them cached
+          const warm: [number, number][] = [];
+          for (let cy = pcy - R - 1; cy <= pcy + R + 1; cy++) for (let cx = pcx - R - 1; cx <= pcx + R + 1; cx++) {
+            const dx = cx - pcx, dy = cy - pcy, dd = Math.hypot(dx, dy);
+            if (dd > R + 1.5 || dd > 1.5 && (dx * hx + dy * hy) / dd < 0.35) continue;
+            warm.push([cx, cy]);
+          }
+          warm.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
+          s.world.field.prewarm(warm, 1.2);
+        }
         for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
       }
       if (glr && s.world.field) {   // the terraced world has no edge: its far levels are built round the eye, a few rows a frame, and again when it has travelled a good way from where they were built (the finest first)
@@ -1092,19 +1104,20 @@ function WorldView({ id }: { id: string }) {
           const L = TERRACE_FAR_LODS[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
-          farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half) }; break;
+          farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) }; break;
         }
         const tf = performance.now(), farMs = frames < 150 ? 6 : 2;
         while (farJob && performance.now() - tf < farMs) {
+          if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
           const r = farJob.gen.next();
-          if (r.done) { glr.setFarLod(farJob.i, r.value); farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob = null; }
+          if (r.done) { farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob.up = glr.farLodUpload(farJob.i, r.value); }
         }
       }
       if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; perf.f.build = performance.now() - t0; perf.f.built = built; mark('chunks'); }
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (!chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
-        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); else g.drawImage(chunkCanvas(ch), ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
+        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); else g.drawImage(chunkCanvas(ch, cx, cy), ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
       }
       if (chunks.current.size > (cx1 - cx0 + 1) * (cy1 - cy0 + 1) * 3) {                // drop the far chunks; they rebuild exactly from the seed
         for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) dropChunk(key); }
@@ -1874,14 +1887,14 @@ function WorldView({ id }: { id: string }) {
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
             `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)`,
-            `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)`,
+            `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
             `why ${perfStat.why}`,
             `avg ms/frame:`,
             avg.slice(0, 3).join('  '), avg.slice(3, 6).join('  '), avg.slice(6, 9).join('  '), avg.slice(9).join('  '),
           ].filter(Boolean).join('\n');
           (window as unknown as { __instMs?: number }).__instMs = 0;
-          perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
+          perfStat.hc = s.world.field?.calls ?? 0; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
           perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = perf.mini = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
         }
         (window as unknown as { __perfTxt?: string }).__perfTxt = perf.txt;
@@ -2728,21 +2741,44 @@ class MiniCache {
   read(world: World, cx: number, cy: number) {
     const key = tileKey(cx, cy), t = world.chunkTerrain(cx, cy); this.terr.set(key, t);
     if (world.field && !this.lay.has(key)) {
-      const l = new Int8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK;
-      for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) l[j * CHUNK + i] = Math.min(127, world.layerAt(x0 + i, y0 + j));
-      this.lay.set(key, l);
+      this.lay.set(key, world.chunkLayers(cx, cy));
     }
     return t;
   }
 }
+/**
+ * A terraced chunk's pixels for the flat 2D view, which has no shader: a copy with the band tint of each pixel's layer multiplied into the grass, and a dark contour one art pixel wide
+ * wherever a pixel's layer differs from its neighbour's to the west or north. The layer comes from the height grid's elevation, bilinear at 16 px a tile (a grid point every 8 px).
+ */
+function terraceTinted(src: Uint8ClampedArray, field: TerraceField, cx: number, cy: number): Uint8ClampedArray<ArrayBuffer> {
+  const e = field.grid(cx, cy).e, N = CHUNK * TILE_PX, G = TERRACE_G, step = (CHUNK * TERRACE_SUB) / N, out = new Uint8ClampedArray(src), lay = new Int16Array(N * N);
+  for (let j = 0; j < N; j++) {
+    const gy = j * step, iy = Math.min(G - 2, Math.floor(gy)), ty = gy - iy;
+    for (let i = 0; i < N; i++) {
+      const gx = i * step, ix = Math.min(G - 2, Math.floor(gx)), tx = gx - ix, k = iy * G + ix;
+      lay[j * N + i] = layerOf((e[k] + (e[k + 1] - e[k]) * tx) * (1 - ty) + (e[k + G] + (e[k + G + 1] - e[k + G]) * tx) * ty);
+    }
+  }
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const l = lay[j * N + i], o = (j * N + i) * 4;
+    if (l < 0) continue;   // (the sea keeps its colour)
+    if (out[o + 1] - out[o] > 5) { const bt = BAND_TINT[Math.min(63, l)]; out[o] *= bt[0]; out[o + 1] *= bt[1]; out[o + 2] *= bt[2]; }
+    if ((i > 0 && lay[j * N + i - 1] !== l) || (j > 0 && lay[(j - 1) * N + i] !== l)) { out[o] *= 0.7; out[o + 1] *= 0.7; out[o + 2] *= 0.7; }
+  }
+  return out;
+}
 /** A terraced map pixel (written into d at o): the band colour of its layer, lit from the north-west by the steps to its left and above it, so the map reads as contours. */
 const BAND_TINT = Array.from({ length: 64 }, (_, i) => bandTint(i));
-function terracePixel(d: Uint8ClampedArray, o: number, t: Terrain, l: number, left: number, up: number, k: number) {
+function terracePixel(d: Uint8ClampedArray, o: number, t: Terrain, l: number, left: number, up: number, k: number, scale = 1) {
   const c = MINI_RGB[t];
   let r = c[0], g = c[1], b = c[2];
   if (t === GRASS) { const bt = BAND_TINT[Math.max(0, Math.min(63, l))]; r *= bt[0]; g *= bt[1]; b *= bt[2]; }
   else if (t === SAND && (l & 1)) { r *= 0.93; g *= 0.93; b *= 0.93; }
-  if (t !== WATER) k *= left > l || up > l ? 0.72 : left < l || up < l ? 1.16 : 1;
+  if (t !== WATER) {
+    const rel = Math.min(2.4, 1 + 0.3 * Math.log2(Math.max(1, scale)));   // a pixel covers more ground the further out the map is, so its steps are rarer and the relief has to speak louder
+    k *= left > l || up > l ? 1 - 0.28 * rel : left < l || up < l ? 1 + 0.16 * rel : 1;
+    if (l > 0 && (left < l && Math.floor(left / 5) < Math.floor(l / 5) || up < l && Math.floor(up / 5) < Math.floor(l / 5))) k *= 0.62;   // every fifth layer a stronger contour line, as on a topographic map
+  }
   d[o] = r * k; d[o + 1] = g * k; d[o + 2] = b * k;
 }
 const MINI_RGB: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
@@ -2792,7 +2828,7 @@ function drawMinimap(cv: HTMLCanvasElement, cache: MiniCache, world: World, expl
     const ti = (y - by) * CHUNK + (x - bx), k = near ? 1 : 0.55;
     if (hills) {
       const l = lay ? lay[ti] : world.mapLayer(x, y), tt = terr ? terr[ti] as Terrain : world.mapSample(x, y, l);
-      terracePixel(d, o, tt, l, prevL === NO_LAYER ? l : prevL, rowL[i] === NO_LAYER ? l : rowL[i], k); d[o + 3] = 255; rowL[i] = prevL = l; continue;
+      terracePixel(d, o, tt, l, prevL === NO_LAYER ? l : prevL, rowL[i] === NO_LAYER ? l : rowL[i], k, scale); d[o + 3] = 255; rowL[i] = prevL = l; continue;
     }
     const c = MINI_RGB[terr ? terr[ti] as Terrain : world.mapSample(x, y)];
     d[o] = c[0] * k; d[o + 1] = c[1] * k; d[o + 2] = c[2] * k; d[o + 3] = 255;

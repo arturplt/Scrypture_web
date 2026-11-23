@@ -15,6 +15,7 @@
  * All sprites come from one atlas: the sheet plus a few extra cells (shadow, a white dot, a haze gradient, the cloud pictures).
  */
 import { TILE_PX, sunAzimuth, sunElevation } from '../domain';
+import { bandGlsl, BAND_ALT } from '../domain/terrace';
 import { CLOUD_W, CLOUD_H, loadSkyBands, silhouette } from './cloudsprites';
 import { FLAME_W, FLAME_H, BOLT_W, BOLT_H } from './firesprites';
 import { BEAVER_W, BEAVER_H } from './beaversprites';
@@ -38,12 +39,13 @@ const FS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec4 vCol; in vec3 vPos;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uTerrace; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
 // how much a ground colour is water: the sheet's water is the only thing that is blue over green over hardly any red
 float isWater(vec3 c) { return smoothstep(0.05, 0.10, c.b - c.g) * smoothstep(0.18, 0.28, c.g - c.r); }
+${bandGlsl()}   // (the terraced world's grass tint ramp, written from terrace.ts so the shader, the maps and the far mesh share one table)
 float waterAt(vec2 uv, vec2 dx, vec2 dy) { vec4 s = textureGrad(uTex, uv, dx, dy); return isWater(mix(uBase.rgb, s.rgb, s.a)); }
 void main() {
   if (uFar > 0.5) { float fd = distance(vPos.xy, uEye.xy); if (fd < uHole || fd > uHoleMax) discard; }
@@ -51,10 +53,12 @@ void main() {
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
   vec3 tn = vec3(0.0, 0.0, -1.0);
   float flatK = 1.0;                                                         // how level the ground is here: the water's ripples and glitter only lie on level water, a steep bank is plain colour
-  if (uTerr > 0.5 && uBase.a > 0.5) { tn = normalize(vCol.rgb * 2.0 - 1.0); tint = vec4(1.0); flatK = smoothstep(0.82, 0.96, -tn.z); }   // a terrain chunk: the colour carries the ground's normal (z is down, so up is -z), the picture is untinted
+  float bedK = 0.0;                                                          // how far this ground lies under inland water (the mesh marks it in the colour's alpha)
+  if (uTerr > 0.5 && uBase.a > 0.5) { bedK = 1.0 - smoothstep(0.6, 0.9, vCol.a); tn = normalize(vCol.rgb * 2.0 - 1.0); tint = vec4(1.0); flatK = smoothstep(0.82, 0.96, -tn.z); }   // a terrain chunk: the colour carries the ground's normal (z is down, so up is -z), the picture is untinted
   if (tint.a > 3.5) { fxq = 1.0; tint.a -= 4.0; }                           // alpha + 4 marks a drawn effect (see FX_*): the quad has no picture, its colour is worked out here; r = which, g and b = its numbers
   if (tint.a > 1.5) { lit = 1.0; tint.a -= 2.0; }                           // alpha + 2 marks a sprite that gives its own light (fire, lightning): no sun tint, no night
   vec4 c = texture(uTex, vUv) * tint;
+  if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), bedK * 0.8), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
   vec2 dUx = dFdx(vUv), dUy = dFdy(vUv), fw = fwidth(vPos.xy);
   float vDist = distance(vPos, uEye), nk = clamp(uNight.a / 0.7, 0.0, 1.0);
   vec3 V = (vPos - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
@@ -119,12 +123,12 @@ void main() {
       vec3 skyc = mix(uFog, uZen, pow(rel, 0.5));
       skyc = mix(vec3(0.10, 0.18, 0.12) * (0.4 + 0.6 * uDay), skyc, smoothstep(0.02, 0.11, rel));   // low over the horizon the lake mirrors the tree line (not blank sky), so a far lake meets the forest instead of leaving a pale band
       vec3 w = c.rgb * (0.95 + 0.09 * h) + 0.07 * smoothstep(0.55, 0.75, h);   // darker troughs, a light line on the crests
-      w = mix(w, skyc, fres * 0.6);
+      w = mix(w, skyc, fres * 0.6 * (1.0 - 0.9 * uSurf));   // (a sheet over a bed mirrors the sky less than open water: it would wash the bed out to lavender)
       float d1 = uTileUv * 0.10, d2 = uTileUv * 0.30;
       float s1 = 1.0 - 0.25 * (waterAt(vUv + vec2(d1, 0.0), dUx, dUy) + waterAt(vUv - vec2(d1, 0.0), dUx, dUy) + waterAt(vUv + vec2(0.0, d1), dUx, dUy) + waterAt(vUv - vec2(0.0, d1), dUx, dUy));
       float s2 = 1.0 - 0.25 * (waterAt(vUv + vec2(d2, 0.0), dUx, dUy) + waterAt(vUv - vec2(d2, 0.0), dUx, dUy) + waterAt(vUv + vec2(0.0, d2), dUx, dUy) + waterAt(vUv - vec2(0.0, d2), dUx, dUy));
       float foam = clamp(s1 * 2.0, 0.0, 1.0) * 0.7 + clamp(s2 * 2.0, 0.0, 1.0) * 0.4 * (0.5 + 0.5 * sin(t * 1.6 + ph * 2.0));
-      w = mix(w, vec3(0.86, 0.95, 1.0), min(foam, 0.85));
+      w = mix(w, vec3(0.86, 0.95, 1.0), min(foam, 0.85) * (1.0 - uSurf));   // (foam is worked out from the picture's water and shore: over a sheet the picture is the bed's sand, which would foam all over)
       float sp = mix(step(0.6, hash(floor(wq * 16.0) + floor(t * 8.0) * 7.0)), 0.4, clamp(texel - 1.0, 0.0, 1.0));   // glitter: art pixels that flash, evened out far away
       float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, -uSun), 0.0);
       w += vec3(1.0, 0.86, 0.6) * (pow(sd, 60.0) * (0.25 + 1.75 * sp) + 3.0 * pow(sd, 400.0)) * uDay;
@@ -135,16 +139,30 @@ void main() {
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0) {   // a terraced world (terrace.ts): every layer a band of its own colour, the ledges between them earth walls with a light lip and a dark foot, after Godus
     float hgt = -vPos.z, lv = hgt / uTerrace + 0.04, lay = floor(lv), fr = fract(lv), up = -tn.z;   // (+0.04: a shelf sits exactly on a multiple of the step, so it must not flicker between two layers)
     float wq = isWater(c.rgb), grassK = smoothstep(-0.02, 0.06, c.g - c.r);
-    vec3 bt = lay < 6.0 ? mix(vec3(1.32, 1.22, 0.78), vec3(1.12, 1.14, 0.84), lay / 6.0) : lay < 15.0 ? mix(vec3(1.12, 1.14, 0.84), vec3(0.92, 1.02, 0.96), (lay - 6.0) / 9.0) : mix(vec3(0.92, 1.02, 0.96), vec3(1.18, 1.12, 1.06), clamp((lay - 15.0) / 12.0, 0.0, 1.0));   // (terrace.ts bandTint)
-    float alt = mod(lay, 2.0) > 0.5 ? 0.93 : 1.0;
+    vec3 bt = bandTint(lay), btUp = bandTint(lay + 1.0);   // (a ledge belongs to the shelf it climbs to: btUp)
+    float alt = mod(lay, 2.0) > 0.5 ? ${BAND_ALT.toFixed(2)} : 1.0;
     vec3 land = c.rgb * mix(vec3(1.0), bt, grassK) * alt;
     float cliff = 1.0 - smoothstep(0.84, 0.97, up), edge = 1.0 - smoothstep(0.975, 0.997, up);
-    vec3 wall = mix(vec3(0.74, 0.60, 0.40), mix(vec3(0.30, 0.46, 0.13) * bt, vec3(0.62, 0.50, 0.32), 0.7), grassK) * 0.86;
-    wall *= (0.80 + 0.30 * fr) * (0.94 + 0.12 * hash(vec2(floor(hgt * 16.0), lay)));   // darker at the foot, lighter towards the lip; strata an art pixel high
+    vec3 earth = mix(vec3(0.80, 0.66, 0.45), vec3(0.86, 0.78, 0.55) * btUp, 0.35);   // warm sandy cream, with a hint of the shelf above it
+    vec3 wall = mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9;
+    wall *= (0.78 + 0.30 * fr) * (0.93 + 0.14 * hash(vec2(floor(hgt * 16.0), lay)));   // darker at the foot, lighter towards the lip; strata an art pixel high
     land = mix(land, wall, cliff);
-    land = mix(land, land * 1.28 + 0.04, smoothstep(0.72, 0.9, fr) * edge);   // the lip: a light rim along the top of every ledge
-    land = mix(land, land * 0.72, (1.0 - smoothstep(0.04, 0.16, fr)) * edge * step(0.06, fr));   // the foot: a dark crease where the ledge meets the shelf below
-    c.rgb = mix(land, c.rgb, wq);
+    land = mix(land, land * 1.22 + 0.05, smoothstep(0.72, 0.9, fr) * edge);   // the lip: a light rim along the top of every ledge
+    land = mix(land, land * 0.68, (1.0 - smoothstep(0.04, 0.16, fr)) * edge * step(0.06, fr));   // the foot: a dark crease where the ledge meets the shelf below
+    // water lies on level ground only: a wall face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is an earth wall like any other, except where the water is on its high side and
+    // spills over (a few stretches of every rim, picked by a hash of the place): there it is a waterfall, falling streaks of foam and a white foot
+    vec2 nd = normalize(tn.xy + vec2(1e-5)) * uTileUv * 0.45;
+    float fallOn = cliff * step(0.5, waterAt(vUv - nd, dUx, dUy)) * (1.0 - step(0.5, waterAt(vUv + nd, dUx, dUy))) * step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 0.2), floor((vPos.x - vPos.y) * 0.2))));
+    vec3 fallC = mix(vec3(0.12, 0.46, 0.64), vec3(0.88, 0.96, 1.0), step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 8.0), floor(hgt * 12.0 + uTime * 6.0)))) * 0.8 + (1.0 - smoothstep(0.0, 0.12, fr)) * 0.5);
+    vec3 bedC = mix(texture(uTex, vUv).rgb * 0.5, vec3(0.05, 0.24, 0.32), 0.5);   // the ground under inland water: the picture's own sand, darkened and shifted to teal (water filters the light), so the see-through sheets over it read as depth
+    c.rgb = mix(mix(land, c.rgb, wq * (1.0 - cliff)), fallC, fallOn);
+    c.rgb = mix(c.rgb, bedC * mix(vec3(1.0), bt, 0.0) * alt, bedK * (1.0 - cliff) * (1.0 - step(0.5, uSurf)));
+  }
+  if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world: too coarse to be cut into steps, so each layer's contour is drawn instead, a thin dark line (and every other band a shade darker) wherever the height crosses a whole layer, which fades out once the bands are thinner than a few pixels
+    float lvf = -vPos.z / uTerrace, wf = max(fwidth(lvf), 1e-4), frf = fract(lvf + 0.04), fadeF = 1.0 - smoothstep(0.2, 0.55, wf);
+    float lineF = (1.0 - smoothstep(0.0, 1.5 * wf, frf)) * step(0.5, lvf) * fadeF;
+    c.rgb *= mix(1.0, mod(floor(lvf + 0.04), 2.0) > 0.5 ? 0.94 : 1.0, fadeF);
+    c.rgb = mix(c.rgb, c.rgb * vec3(0.58, 0.50, 0.42), lineF * 0.85);
   }
   if (uTerr > 0.5 && uBase.a > 0.5) {   // hill shading: slopes facing the sun are bright, those away from it dark; water (flat) keeps its own look
     float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);
@@ -162,6 +180,7 @@ void main() {
   if (lit < 0.5) c.rgb = mix(c.rgb, uNight.rgb, uNight.a);                  // night: the same tint the flat map lays over everything, done here
   c.rgb += moon;                                                             // (the moon's path on the water stays bright)
   o = c;
+  if (uSurf > 0.5) o.a = 0.45;   // a sheet of inland water: see-through (several lie over a deep bed, so it darkens with the depth)
 }`;
 
 // the skybox: one big triangle, each pixel looks along its own ray (camera basis + field of view), so the sky holds still when the view turns and tips
@@ -367,7 +386,7 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject; used?: number }>();
+  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; used?: number }>();
   /** Chunk textures no chunk is using, kept to be written over: making and freeing textures as you fly makes the driver stall, writing into one that exists does not. */
   private texPool: WebGLTexture[] = [];
   /** How many chunk textures one frame may upload at most (also stops at ~3 ms). The upload and its mipmaps mostly cost GPU time the frame's own timers cannot see, so it is a count, set by the game: a few while the screen first fills, then one or two. */
@@ -379,13 +398,17 @@ export class WorldGL {
   terrain: ((x: number, y: number) => number) | null = null;
   /** Mesh points a tile for the hilly chunks (1 = a vertex at every tile corner; the terraced world uses 2 so its ledges read as edges). Set with `terrain`, before the first chunk. */
   terrainSub = 1;
+  /** A terraced chunk's own mesh (right-angled terraces cut along the elevation's contours, see terrace.ts terraceChunkMesh): positions, normals and indices. Set with `terrain`, before the first chunk. */
+  terraceMesh: ((cx: number, cy: number) => { pos: Float32Array; nrm: Float32Array; idx: Uint32Array; sub: Uint8Array; wpos: Float32Array; widx: Uint32Array; wkind: Uint8Array }) | null = null;
   /** A terraced world's layer height in tiles (0 = not terraced): turns on the bands, walls and lips in the shader. */
   terraceStep = 0;
   /** While true, sprites are placed at heights above sea level (the clouds), not above the ground under them. */
   skyMode = false;
   private terrIbo: WebGLBuffer | null = null;
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
-  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number }[] | null = null;
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean }[] | null = null;
+  private farIbos = new Map<Uint32Array, WebGLBuffer>();   // the terraced far levels share their index arrays (see terrace.ts farIndices), so each size has one GPU buffer for good
+  private farStage = new Float32Array(0);                   // where a far level's vertices are interleaved before the upload (kept for the next one)
   private farOn = false;
   /** How far from the eye every visible chunk is built (set by the map each frame; Infinity = all of them). The far mesh's hole is never wider than this, so ground whose chunk is still being built is covered by the far mesh instead of left empty. */
   cover = Infinity;
@@ -457,7 +480,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -584,6 +607,9 @@ export class WorldGL {
     return soft + (raw - soft) * k;
   }
 
+  /** The ground under a walking eye. On the terraces a step up or down a ledge is a jump of a whole layer in the ground, and the eye eases over it (a quarter of a second or so) instead of snapping; other worlds' ground is smooth already. */
+  private walkGround(raw: number): number { return this.terraceStep > 0 ? this.smooth('eyeg', raw, 0.16) : raw; }
+
   setCamera(c: CameraSpec) {
     this.nearReach = 0; this.farOn = false;
     const now = performance.now(); this.camDt = Math.min(0.1, Math.max(0.001, (now - this.smAt) / 1000)); this.smAt = now;
@@ -609,10 +635,11 @@ export class WorldGL {
     this.noFog = !!c.noFog;
     this.reach = c.reach ?? D * 3.3; this.fogStart = c.reach ? c.reach * 0.7 : D * 1.8;
     let near = Math.max(0.004, D * 0.05), far = this.reach * 1.6 + D;
+    if (!(c.fpv && c.fpv.k > 0.5)) delete this.sm.eyeg;                   // (the walker's eased eye height starts afresh each time it lands)
     if (c.fpv && c.fpv.k > 0) {                                           // standing on the ground: eye, view direction and reach blend towards the walker's
       const k = Math.min(1, c.fpv.k), cp = Math.cos(c.fpv.pitch), sp = Math.sin(c.fpv.pitch), e = this.eye;
       const f1: Vec3 = [c.upX * cp, c.upY * cp, -sp], mix = (a: number, b: number) => a + (b - a) * k;
-      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - (T ? Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3)) : 0))];
+      this.eye = [mix(e[0], c.fpv.x), mix(e[1], c.fpv.y), mix(e[2], -c.fpv.eyeH - (T ? this.walkGround(Math.max(this.footGround(T(c.fpv.x, c.fpv.y), c.fpv.eyeH), this.groundNear(c.fpv.x, c.fpv.y, 0.3))) : 0))];
       f = norm([mix(f[0], f1[0]), mix(f[1], f1[1]), mix(f[2], f1[2])]);
       r = [-c.upY, c.upX, 0];                                             // (the right-hand side is level, whatever the pitch)
       const hasFar = !!T && !!this.farMesh;
@@ -879,7 +906,12 @@ export class WorldGL {
         for (let i = 0; i < drawn.length; i++) { gl.bindTexture(gl.TEXTURE_2D, drawn[i]); gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, i * 12); }
       }
     }
-    if (this.terrain) { gl.bindVertexArray(null); this.endTerrain(); }
+    if (this.terrain) {
+      gl.uniform1f(this.loc.uSurf, 1); gl.depthMask(false);   // the sheets of inland water, see-through, over the beds and the foot of the walls
+      for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || !ent.wvao) continue; gl.bindTexture(gl.TEXTURE_2D, ent.tex); gl.bindVertexArray(ent.wvao); gl.drawElements(gl.TRIANGLES, ent.wcount!, gl.UNSIGNED_INT, 0); }
+      gl.uniform1f(this.loc.uSurf, 0); gl.depthMask(true);
+      gl.bindVertexArray(null); this.endTerrain();
+    }
     gl.uniform1f(this.loc.uTerr, 0);
   }
 
@@ -892,38 +924,74 @@ export class WorldGL {
     if (this.terrain && !ent.vao) this.prepTerrain(c, ent, chunkTiles);
   }
 
-  /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. */
-  private prepTerrain(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, tiles: number) {
+  /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. A terraced world brings its own mesh (`terraceMesh`) instead: level pieces and vertical walls. */
+  private prepTerrain(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, T = this.terrain!, sub = this.terrainSub, n = tiles * sub, side = n + 1, st = 1 / sub;   // (n: quads a side; st: tiles between vertices)
-    if (!this.terrIbo) {
-      const idx = new Uint16Array(n * n * 6);
-      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * side + i, b = a + 1, d = a + side, e2 = d + 1; idx.set([a, b, e2, a, e2, d], (j * n + i) * 6); }
-      this.terrIbo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
-    }
-    if (!ent.mesh) {
-      const v = new Float32Array(side * side * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles, h = (x: number, y: number) => T(x, y);
-      for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
-        const x = x0 + i * st, y = y0 + j * st, o = (j * side + i) * FLOATS;
-        const gx = (h(x + st, y) - h(x - st, y)) / (2 * st), gy = (h(x, y + st) - h(x, y - st)) / (2 * st);        // the slope east and south; z is down, so the normal is (gx, gy, -1) up to its length
-        const l = Math.hypot(gx, gy, 1);
-        v[o] = x; v[o + 1] = y; v[o + 2] = -h(x, y); v[o + 3] = i / n; v[o + 4] = j / n;
-        v[o + 5] = (gx / l) * 0.5 + 0.5; v[o + 6] = (gy / l) * 0.5 + 0.5; v[o + 7] = (-1 / l) * 0.5 + 0.5; v[o + 8] = 1;
+    gl.bindVertexArray(null);   // (a chunk drawn just before still has its vertex array bound, and binding an index buffer now would swap that chunk's indices for this one's)
+    if (this.terraceMesh) {
+      if (!ent.mesh) {
+        const m = this.terraceMesh(c.cx, c.cy), nv = m.pos.length / 3, v = new Float32Array(nv * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles;
+        for (let i = 0; i < nv; i++) {
+          const o = i * FLOATS, x = m.pos[i * 3], y = m.pos[i * 3 + 1];
+          v[o] = x; v[o + 1] = y; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = (x - x0) / tiles; v[o + 4] = (y - y0) / tiles;
+          v[o + 5] = m.nrm[i * 3] * 0.5 + 0.5; v[o + 6] = m.nrm[i * 3 + 1] * 0.5 + 0.5; v[o + 7] = m.nrm[i * 3 + 2] * 0.5 + 0.5; v[o + 8] = m.sub[i] ? 0.5 : 1;   // (alpha 0.5 marks ground under water: the shader gives it a bed's colour)
+        }
+        ent.mesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+        ent.ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); ent.count = m.idx.length;
+        if (m.widx.length) {   // the sheet of inland water: its own little mesh, drawn see-through after the ground
+          const wn = m.wpos.length / 3, wv = new Float32Array(wn * FLOATS);
+          for (let i = 0; i < wn; i++) { const o = i * FLOATS, x = m.wpos[i * 3], y = m.wpos[i * 3 + 1]; wv[o] = x; wv[o + 1] = y; wv[o + 2] = m.wpos[i * 3 + 2]; wv[o + 3] = (x - x0) / tiles; wv[o + 4] = (y - y0) / tiles; wv[o + 5] = 0.5; wv[o + 6] = 0.5; wv[o + 7] = 0; wv[o + 8] = m.wkind[i] ? 0.5 : 1; }   // (alpha 0.5 on a sheet marks a beaver's pond: the shader tints it)
+          ent.wmesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.wmesh); gl.bufferData(gl.ARRAY_BUFFER, wv, gl.STATIC_DRAW);
+          ent.wibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.wibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.widx, gl.STATIC_DRAW); ent.wcount = m.widx.length;
+          const stride = FLOATS * 4;
+          ent.wvao = gl.createVertexArray()!; gl.bindVertexArray(ent.wvao);
+          gl.bindBuffer(gl.ARRAY_BUFFER, ent.wmesh); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.wibo);
+          gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
+          gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
+          gl.bindVertexArray(null);
+        }
       }
-      ent.mesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    } else {
+      if (!this.terrIbo) {
+        const idx = new Uint16Array(n * n * 6);
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * side + i, b = a + 1, d = a + side, e2 = d + 1; idx.set([a, b, e2, a, e2, d], (j * n + i) * 6); }
+        this.terrIbo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+      }
+      if (!ent.mesh) {
+        const v = new Float32Array(side * side * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles, h = (x: number, y: number) => T(x, y);
+        for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
+          const x = x0 + i * st, y = y0 + j * st, o = (j * side + i) * FLOATS;
+          const gx = (h(x + st, y) - h(x - st, y)) / (2 * st), gy = (h(x, y + st) - h(x, y - st)) / (2 * st);        // the slope east and south; z is down, so the normal is (gx, gy, -1) up to its length
+          const l = Math.hypot(gx, gy, 1);
+          v[o] = x; v[o + 1] = y; v[o + 2] = -h(x, y); v[o + 3] = i / n; v[o + 4] = j / n;
+          v[o + 5] = (gx / l) * 0.5 + 0.5; v[o + 6] = (gy / l) * 0.5 + 0.5; v[o + 7] = (-1 / l) * 0.5 + 0.5; v[o + 8] = 1;
+        }
+        ent.mesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+      }
     }
     if (!ent.vao) {   // the chunk's own vertex array: its buffers and attribute layout are set once, a draw is one bind and one call
       const stride = FLOATS * 4;
       ent.vao = gl.createVertexArray()!; gl.bindVertexArray(ent.vao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh!); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrIbo);
+      gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh!); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.ibo ?? this.terrIbo);
       gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
     }
   }
-  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }, tiles: number) {
+  /** Forget the meshes of these chunks (their ground changed under water): each is built again, from the new ground, the next time it is drawn. */
+  dropTerrainMeshes(keys: number[]) {
+    const gl = this.gl;
+    for (const k of keys) {
+      const e = this.chunkTex.get(k); if (!e || !e.vao) continue;
+      if (e.mesh) gl.deleteBuffer(e.mesh); if (e.ibo) gl.deleteBuffer(e.ibo); gl.deleteVertexArray(e.vao);
+      if (e.wmesh) gl.deleteBuffer(e.wmesh); if (e.wibo) gl.deleteBuffer(e.wibo); if (e.wvao) gl.deleteVertexArray(e.wvao);
+      e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined;
+    }
+  }
+  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, n = tiles * this.terrainSub;
     if (!ent.vao) this.prepTerrain(c, ent, tiles);
     gl.bindVertexArray(ent.vao!);
-    gl.drawElements(gl.TRIANGLES, n * n * 6, gl.UNSIGNED_SHORT, 0);
+    if (ent.count) gl.drawElements(gl.TRIANGLES, ent.count, gl.UNSIGNED_INT, 0); else gl.drawElements(gl.TRIANGLES, n * n * 6, gl.UNSIGNED_SHORT, 0);
   }
   /** Back to the shared buffers the sprites are written into. */
   private endTerrain() {
@@ -935,18 +1003,33 @@ export class WorldGL {
   /** Give a hilly world its far meshes, finest first (see lakeFarLods): positions, colours and indices of each. */
   setFar(lods: { pos: Float32Array; col: Float32Array; idx: Uint32Array }[] | null) {
     const gl = this.gl;
-    if (this.farMesh) for (const m of this.farMesh) if (m) { gl.deleteBuffer(m.vbo); gl.deleteBuffer(m.ibo); }
+    if (this.farMesh) for (const m of this.farMesh) if (m) { gl.deleteBuffer(m.vbo); if (!m.shared) gl.deleteBuffer(m.ibo); }
     this.farMesh = null;
     if (!lods || !lods.length) return;
     this.farMesh = lods.map(m => this.uploadFar(m));
     this.endTerrain();
   }
-  /** Replace one far level (the terraced world rebuilds each level around the eye as it travels; see terrace.ts terraceFarMesh). */
-  setFarLod(i: number, m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }) {
-    const gl = this.gl;
+  /**
+   * Replace one far level (the terraced world rebuilds each level around the eye as it travels; see terrace.ts terraceFarMesh). A generator, so the work spreads over frames: the
+   * vertices are interleaved a slice at a time, then uploaded in one go, over the old buffer's storage when the size is the same (it always is), and with the index buffer the
+   * level already has. The old level keeps drawing until the swap.
+   */
+  *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
+    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2, n = m.pos.length / 3, len = n * FLOATS;
+    if (this.farStage.length !== len) this.farStage = new Float32Array(len);
+    const v = this.farStage;
+    for (let a = 0; a < n; a += 24000) {
+      for (let k = a, e = Math.min(n, a + 24000); k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = 1; }
+      yield;
+    }
     this.farMesh ??= [];
-    const old = this.farMesh[i]; if (old) { gl.deleteBuffer(old.vbo); gl.deleteBuffer(old.ibo); }
-    this.farMesh[i] = this.uploadFar(m);
+    const old = this.farMesh[i];
+    let ibo = this.farIbos.get(m.idx);
+    if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
+    let vbo: WebGLBuffer;
+    if (old && old.bytes === v.byteLength) { vbo = old.vbo; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, 0, v); }
+    else { if (old) gl.deleteBuffer(old.vbo); vbo = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW); }
+    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true };
     this.endTerrain();
   }
   private uploadFar(m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }) {
@@ -956,7 +1039,7 @@ export class WorldGL {
     const vbo = gl.createBuffer()!, ibo = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
-    return { vbo, ibo, n: m.idx.length };
+    return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false };
   }
   private drawFar() {
     const gl = this.gl, stride = FLOATS * 4;
@@ -964,7 +1047,7 @@ export class WorldGL {
     this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
     const hole = this.coverSm * 0.9;
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
-    gl.uniform1f(this.loc.uFar, 1);
+    gl.uniform1f(this.loc.uFar, 1); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
     const kk = Math.max(1, this.drawK), rings = [[hole, hole + 260 * kk], [hole + 240 * kk, hole + 820 * kk], [hole + 800 * kk, 1e9]];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)   // (the rings overlap a little: no crack where two levels meet)
     gl.enable(gl.POLYGON_OFFSET_FILL);
@@ -1014,9 +1097,9 @@ export class WorldGL {
 
   /** Let go of the textures of chunks that are gone, and of the longest unseen ones when too many are kept; they go back to the pool to be written over. */
   prune(has: (key: number) => boolean) {
-    const drop = (k: number, e: { tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }) => {
+    const drop = (k: number, e: { tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }) => {
       if (this.texPool.length < TEX_POOL) this.texPool.push(e.tex); else this.gl.deleteTexture(e.tex);
-      if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k);
+      if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.ibo) this.gl.deleteBuffer(e.ibo); if (e.wmesh) this.gl.deleteBuffer(e.wmesh); if (e.wibo) this.gl.deleteBuffer(e.wibo); if (e.wvao) this.gl.deleteVertexArray(e.wvao); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k);
     };
     for (const [k, e] of this.chunkTex) if (!has(k) || this.groundFrames - (e.used ?? this.groundFrames) > 900) drop(k, e);   // (unseen for ~15 s: turning round soon after finds it still there, no upload)
     if (this.chunkTex.size > TEX_KEEP) {
@@ -1171,7 +1254,7 @@ export class WorldGL {
 
   dispose() {
     const gl = this.gl; this.disposed = true;
-    for (const e of this.chunkTex.values()) { gl.deleteTexture(e.tex); if (e.mesh) gl.deleteBuffer(e.mesh); if (e.vao) gl.deleteVertexArray(e.vao); }
+    for (const e of this.chunkTex.values()) { gl.deleteTexture(e.tex); if (e.mesh) gl.deleteBuffer(e.mesh); if (e.ibo) gl.deleteBuffer(e.ibo); if (e.wmesh) gl.deleteBuffer(e.wmesh); if (e.wibo) gl.deleteBuffer(e.wibo); if (e.wvao) gl.deleteVertexArray(e.wvao); if (e.vao) gl.deleteVertexArray(e.vao); }
     for (const t of this.texPool) gl.deleteTexture(t); this.texPool.length = 0;
     this.chunkTex.clear(); this.setFar(null); gl.deleteTexture(this.atlasTex); gl.deleteBuffer(this.vbo); gl.deleteBuffer(this.ibo); gl.deleteProgram(this.prog); this.freePost();
     gl.getExtension('WEBGL_lose_context')?.loseContext();

@@ -9,6 +9,7 @@ import { PixelButton } from '../ui/PixelButton';
 import { PixelCheckbox } from '../ui/misc';
 import { Icon } from '../ui/misc';
 
+const KINDS = [['procedural', 'worldKindFlat'], ['terraced', 'worldKindHills'], ['lakedistrict', 'worldKindLake']] as const;
 /** Bóbr world list (Android's WorldListScreen): make a world from a name and a seed, open it, delete it. */
 export function Worlds() {
   useEffect(() => enterWorldFromHome(false), []);   // coming through the list: closing a world comes back here
@@ -17,10 +18,11 @@ export function Worlds() {
   const [name, setName] = useState('');
   const [seedText, setSeedText] = useState('');
   const [note, setNote] = useState('');
-  const [lake, setLake] = useState(false), [coniston, setConiston] = useState(false), [hills, setHills] = useState(false);   // (hills and the Lake District are one or the other)
+  const [kind, setKind] = useState<'procedural' | 'terraced' | 'lakedistrict'>('procedural'), [coniston, setConiston] = useState(false);   // (flat, hills or the Lake District: one of the three)
+  const lake = kind === 'lakedistrict';
   const create = () => {
     const seed = seedText.trim() ? (/^\d+$/.test(seedText.trim()) ? Number(seedText.trim()) >>> 0 : seedFrom(seedText.trim())) : Math.floor(Math.random() * 4294967296);
-    const id = actions.createWorld(name.trim() || t('worldDefaultName', { n: worlds.length + 1 }), seed, lake ? 'lakedistrict' : hills ? 'terraced' : 'procedural', coniston ? 'coniston' : 'lakes');
+    const id = actions.createWorld(name.trim() || t('worldDefaultName', { n: worlds.length + 1 }), seed, kind, coniston ? 'coniston' : 'lakes');
     if (!id) { setNote(t('worldFull')); return; }
     navigate(`/games/paperplane/play/${id}`);
   };
@@ -34,8 +36,10 @@ export function Worlds() {
         <input className="field" type="text" maxLength={40} value={name} placeholder={t('worldName')} aria-label={t('worldName')} onChange={e => setName(e.target.value)} />
         <input className="field" type="text" maxLength={40} value={seedText} placeholder={t('worldSeed')} aria-label={t('worldSeed')} onChange={e => setSeedText(e.target.value)} />
         <div className="muted small">{t('worldSeedHint')}</div>
-        <PixelCheckbox big checked={hills} onChange={v => { setHills(v); if (v) setLake(false); }} label={t('worldTerraced')} />
-        <PixelCheckbox big checked={lake} onChange={v => { setLake(v); if (v) setHills(false); }} label={t('worldLake')} />
+        <div className="langs" role="group" aria-label={t('worldKind')}>
+          {KINDS.map(([k, label]) => <button key={k} className={`seg ${kind === k ? 'on' : ''}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{t(label)}</button>)}
+        </div>
+        <div className="muted small">{t(kind === 'terraced' ? 'worldTerraced' : lake ? 'worldLake' : 'worldKindFlatHint')}</div>
         {lake && <PixelCheckbox big checked={coniston} onChange={setConiston} label={t('worldLakeConiston')} />}
         {lake && <div className="muted small">{t(coniston ? 'worldLakeCreditLidar' : 'worldLakeCredit')}</div>}
         <PixelButton scale={1} onClick={create}>{t('worldCreate')}</PixelButton>
@@ -46,7 +50,7 @@ export function Worlds() {
         {worlds.length === 0 && <div className="muted small">{t('worldNone')}</div>}
         {[...worlds].sort((a, b) => b.playedAt - a.playedAt).map(w => (
           <div key={w.id} className="row between world-item">
-            <div className="row"><Icon name="home" size={32} alt="" /><div><strong>{w.name}</strong>
+            <div className="row"><Icon name="home" size={32} alt="" /><div><strong>{w.name}</strong>{w.kind === 'terraced' && <span className="muted small"> [{t('worldKindHills')}]</span>}{w.kind === 'lakedistrict' && <span className="muted small"> [{t('worldKindLake')}]</span>}
               <div className="muted small">{t('worldSeedIs', { seed: w.seed })} - {t('worldChanges', { n: w.changes.length })} - {new Date(w.playedAt).toLocaleDateString(lang === 'PL' ? 'pl-PL' : 'en-GB')}</div></div></div>
             <div className="row">
               <PixelButton scale={1} onClick={() => navigate(`/games/paperplane/play/${w.id}`)}>{t('worldOpen')}</PixelButton>
