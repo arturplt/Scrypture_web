@@ -1,6 +1,7 @@
 /** Saved Bóbr worlds: a seed plus only what changed (the generator rebuilds everything else), the plane, the sky and the wind. */
 import { tileKey, keyX, keyY, type TileState, type Terrain, type DecoKind, type Variant } from './worldgen';
 import { lakeSpawnFor, type LakeMapId } from './lakedistrict';
+import { terraceSpawn } from './terrace';
 import { defaultWind, type Wind } from './ecosystem';
 import { sanitizeBerries, type SavedBerry } from './berries';
 
@@ -34,7 +35,7 @@ export function addRunScore(list: RunScore[], hoops: number, metres: number, at:
 export interface SavedWorld {
   id: string; name: string; seed: number; createdAt: number; playedAt: number;
   map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m)
-  kind?: 'procedural' | 'lakedistrict';   // the Lake District is a real map (see lakedistrict.ts); a world without this is procedural
+  kind?: 'procedural' | 'lakedistrict' | 'terraced';   // the Lake District is a real map (see lakedistrict.ts), 'terraced' the stepped hills (terrace.ts); a world without this is procedural (flat)
   changes: SavedTile[];
   hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
@@ -100,9 +101,11 @@ export function sanitizeBeavers(raw: unknown): SavedBeavers {
 export interface WorldsSave { list: SavedWorld[] }
 export const emptyWorlds = (): WorldsSave => ({ list: [] });
 
-export const newSavedWorld = (id: string, name: string, seed: number, now: number, kind: 'procedural' | 'lakedistrict' = 'procedural', map: LakeMapId = 'lakes'): SavedWorld => ({
-  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
-  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' ? lakeSpawnFor(map) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
+/** Where a terraced world starts (see terraceSpawn): on a low shelf, in the middle of its tile. */
+export const terracePlaneSpawn = (seed: number) => { const p = terraceSpawn(seed); return { x: p.x, y: p.y, heading: Math.PI / 2, pitch: 0 }; };
+export const newSavedWorld = (id: string, name: string, seed: number, now: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes'): SavedWorld => ({
+  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : kind === 'terraced' ? { kind } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
+  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' ? lakeSpawnFor(map) : kind === 'terraced' ? terracePlaneSpawn(seed >>> 0) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
 });
 
 export const encodeChanges = (m: Map<number, TileState>): SavedTile[] =>
@@ -147,7 +150,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
     const wind = typeof w.wind === 'object' && w.wind !== null ? w.wind : {}, plane = typeof w.plane === 'object' && w.plane !== null ? w.plane : {};
     const dw = defaultWind();
     out.list.push({
-      ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : {}),
+      ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : w.kind === 'terraced' ? { kind: 'terraced' as const } : {}),
       id: w.id, name: (typeof w.name === 'string' ? w.name.trim().slice(0, 40) : '') || 'World', seed: fin(w.seed, 0) >>> 0,
       createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes,
       hour: clamp(fin(w.hour, 12), 0, 23.999),

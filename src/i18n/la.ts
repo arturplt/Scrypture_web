@@ -816,6 +816,7 @@ export const la: Record<Key, string> = {
   "worldLakeLoading": "Lacus onerantur...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",
   "worldLakeConiston": "Coniston solum, subtiliter (10 m)",
+  "worldTerraced": "Colles gradati (strata quasi gradus)",
   "worldLakeCreditLidar": "Map: Environment Agency LiDAR (OGL) and OpenStreetMap contributors (ODbL).",
   "worldList": "Mundi",
   "worldNone": "Nondum mundi.",

@@ -4,7 +4,7 @@
  * Outside the map is sea. Heights are given in tiles (what the renderer draws) and in glider metres (what the plane flies in).
  */
 
-export type WorldKind = 'procedural' | 'lakedistrict';
+export type WorldKind = 'procedural' | 'lakedistrict' | 'terraced';
 
 /** Which map a Lake District world plays on: the whole region at 50 m a tile, or a patch of it at 10 m (see LAKE_MAPS). */
 export type LakeMapId = 'lakes' | 'coniston';

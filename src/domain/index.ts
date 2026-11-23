@@ -20,6 +20,7 @@ export * from './exercise';
 export * from './planner';
 export * from './worldgen';
 export * from './lakedistrict';
+export * from './terrace';
 export * from './ecosystem';
 export * from './ecostats';
 export * from './sky';

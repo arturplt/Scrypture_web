@@ -815,6 +815,7 @@ export const en = {
   "worldLakeLoading": "Loading the Lake District...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",
   "worldLakeConiston": "Just Coniston, in 10 m detail",
+  "worldTerraced": "Terraced hills (stepped, like contour layers)",
   "worldLakeCreditLidar": "Map: Environment Agency LiDAR (OGL) and OpenStreetMap contributors (ODbL).",
   "worldList": "Worlds",
   "worldNone": "No worlds yet.",

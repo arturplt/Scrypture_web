@@ -816,6 +816,7 @@ export const pl: Record<Key, string> = {
   "worldLakeLoading": "Wczytuję Krainę Jezior...",
   "worldLakeCredit": "Map: Copernicus DEM (ESA) and OpenStreetMap contributors (ODbL).",
   "worldLakeConiston": "Tylko Coniston, dokładnie (10 m)",
+  "worldTerraced": "Tarasowe wzgórza (warstwice jak schodki)",
   "worldLakeCreditLidar": "Mapa: Environment Agency LiDAR (OGL) i współtwórcy OpenStreetMap (ODbL).",
   "worldList": "Światy",
   "worldNone": "Brak światów.",

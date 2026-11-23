@@ -448,7 +448,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       return { task, listed: actions.shortlistAdd(task.id) };
     },
     /** Bóbr world map: make a world (name + seed). Returns its id, or null when the list is full. */
-    createWorld(name: string, seed: number, kind: 'procedural' | 'lakedistrict' = 'procedural', map: 'lakes' | 'coniston' = 'lakes'): string | null {
+    createWorld(name: string, seed: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: 'lakes' | 'coniston' = 'lakes'): string | null {
       if (state.worlds.list.length >= MAX_WORLDS) return null;
       const w = newSavedWorld(genId(), name, seed, clock(), kind, map);
       set({ ...state, worlds: { list: [...state.worlds.list, w] } });

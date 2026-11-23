@@ -3,6 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
+import { TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, terraceFarMesh, terracePlaneSpawn, bandTint, type TerraceFarMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLanding, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
@@ -525,6 +526,8 @@ function WorldView({ id }: { id: string }) {
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
+    const farAt: ({ x: number; y: number } | null)[] = TERRACE_FAR_LODS.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
+    let farJob: { i: number; gen: Generator<null, TerraceFarMesh, void> } | null = null;
     let landEnv: GlideEnv | null = null, landT = 0, landAt: { x: number; y: number; kind: 'crash' | 'splash' | 'soft' | 'skim' | 'far' } | null = null, landShow: { x: number; y: number } | null = null, lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
     // The stage's real size, never 0: if layout has not settled (or the observer missed a change) fall back to the box around it or the window.
     const measure = () => {
@@ -572,7 +575,7 @@ function WorldView({ id }: { id: string }) {
     function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {
       const px = pxPool.pop() ?? new Uint8ClampedArray(CPX * CPX * 4), row = TILE_PX * 4, stride = CPX * 4;
       const decos: Deco[] = [];
-      const road = s.world.kind === 'lakedistrict';
+      const road = s.world.realMap;
       const tiles = s.world.chunkDrawn(cx, cy);
       yield;
       for (let j = 0; j < CHUNK; j++) { if (j > 0 && j % 4 === 0) yield; for (let i = 0; i < CHUNK; i++) {
@@ -617,20 +620,24 @@ function WorldView({ id }: { id: string }) {
       const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2)), fx = Math.round(f.x), fy = Math.round(f.y);   // (a map pixel is 2 x 2 screen pixels)
       const g = bc.getContext('2d')!;
       if (!bigFill || bigFill.w !== mw || bigFill.h !== mh || bigFill.scale !== scale || bigFill.x !== fx || bigFill.y !== fy) {
-        bc.width = mw; bc.height = mh; bigFill = { w: mw, h: mh, scale, x: fx, y: fy, row: 0, img: g.createImageData(mw, mh) };
+        bc.width = mw; bc.height = mh; bigFill = { w: mw, h: mh, scale, x: fx, y: fy, row: 0, img: g.createImageData(mw, mh), prev: new Int16Array(mw).fill(NO_LAYER) };
         bigFill.img.data.fill(10); for (let o = 3; o < bigFill.img.data.length; o += 4) bigFill.img.data[o] = 255;
       }
       const B = bigFill, d = B.img.data, row0 = B.row;
       while (B.row < mh && performance.now() - t0 < 6) {   // a few rows at a time: a chunk the small minimap already read is used as it is, the rest is sampled point by point
         const j = B.row++, y = Math.floor(fy + (j - mh / 2) * scale), cy = chunkOf(y);
-        let lastKey = NaN, seen = false, terr: Uint8Array | undefined;
+        let lastKey = NaN, seen = false, terr: Uint8Array | undefined, lay: Int8Array | undefined, left = NO_LAYER;
+        const hills = !!s.world.field, prev = B.prev;
         for (let i = 0; i < mw; i++) {
           const x = Math.floor(fx + (i - mw / 2) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * mw + i) * 4;
-          if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; }
-          if (!seen) continue;
-          const tt = terr ? terr[(y - cy * CHUNK) * CHUNK + (x - cx * CHUNK)] as Terrain : s.world.mapSample(x, y), c = MINI_RGB[tt];
+          if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; lay = terr && hills ? miniCache.lay.get(key) : undefined; }
+          if (!seen) { prev[i] = left = NO_LAYER; continue; }
+          const ti = (y - cy * CHUNK) * CHUNK + (x - cx * CHUNK), l = hills ? (lay ? lay[ti] : s.world.mapLayer(x, y)) : 0;
+          const tt = terr ? terr[ti] as Terrain : s.world.mapSample(x, y, l);
+          if (hills) { terracePixel(d, o, tt, l, left === NO_LAYER ? l : left, prev[i] === NO_LAYER ? l : prev[i], 1); prev[i] = left = l; }
+          else { const c = MINI_RGB[tt]; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; }
           const tk = tt === GRASS ? Math.min(0.85, s.world.mapTrees(x, y, Math.ceil(scale)) * 7) : 0;   // trees: the pixel darkens toward the tree green by how many stand in its patch
-          d[o] = c[0] + (TREE_RGB[0] - c[0]) * tk; d[o + 1] = c[1] + (TREE_RGB[1] - c[1]) * tk; d[o + 2] = c[2] + (TREE_RGB[2] - c[2]) * tk;
+          if (tk > 0) { d[o] += (TREE_RGB[0] - d[o]) * tk; d[o + 1] += (TREE_RGB[1] - d[o + 1]) * tk; d[o + 2] += (TREE_RGB[2] - d[o + 2]) * tk; }
         }
       }
       if (B.row > row0 || row0 === 0) {
@@ -641,7 +648,7 @@ function WorldView({ id }: { id: string }) {
         if (B.row < mh) { g.fillStyle = '#ffd54f'; g.fillRect(0, mh - 2, Math.round(mw * B.row / mh), 2); }   // (how far the filling has got)
       }
       // the ground round the plane, nearest first: built, then (3D view) uploaded, a few ms each
-      const pcx = chunkOf(f.x), pcy = chunkOf(f.y), R = s.world.kind === 'lakedistrict' ? 4 : 7, ring: GroundChunk[] = [];
+      const pcx = chunkOf(f.x), pcy = chunkOf(f.y), R = s.world.hilly ? 4 : 7, ring: GroundChunk[] = [];
       const near: [number, number][] = [];
       for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (Math.hypot(cx - pcx, cy - pcy) <= R + 0.5) near.push([cx, cy]);
       near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
@@ -653,7 +660,7 @@ function WorldView({ id }: { id: string }) {
       for (let r = 0; r <= MR && performance.now() - t2 < 3; r++) for (let cy = pcy - r; cy <= pcy + r; cy++) for (let cx = pcx - r; cx <= pcx + r; cx++) {
         if (Math.max(Math.abs(cx - pcx), Math.abs(cy - pcy)) !== r) continue;   // (ring by ring, nearest first)
         const key = tileKey(cx, cy);
-        if (s.explored.has(key) && !miniCache.terr.has(key) && performance.now() - t2 < 3) miniCache.terr.set(key, s.world.chunkTerrain(cx, cy));
+        if (s.explored.has(key) && !miniCache.terr.has(key) && performance.now() - t2 < 3) miniCache.read(s.world, cx, cy);
       }
     };
     const frame = (now: number) => {
@@ -682,7 +689,7 @@ function WorldView({ id }: { id: string }) {
       camEffRef.current = camEff; poseOkRef.current = !glFailed;
       for (const m of ['chase', 'free', 'flyby', 'duel'] as const) camZoomNow.current[m] += (camZoom.current[m] - camZoomNow.current[m]) * (1 - Math.exp(-12 * dt));
       const wantGL = (L.gl3d || camEff !== 'chase') && !glFailed && L.tool === 'fly';
-      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.kind === 'lakedistrict') glr.terrain = (x, y) => s.world.heightAt(x, y); glr.setFar(lakeFarLods()); } }
+      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
       if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
       glCv.style.display = useGL ? 'block' : 'none';
@@ -762,16 +769,16 @@ function WorldView({ id }: { id: string }) {
             const sp = WALK_SPEED * run * dt, hx = Math.cos(gl.psi), hy = Math.sin(gl.psi);
             let vx = (hx * fwd + hy * side) * sp, vy = (hy * fwd - hx * side) * sp;
             const lm = Math.hypot(vx, vy); if (lm > sp) { vx *= sp / lm; vy *= sp / lm; }
-            if (s.world.kind === 'lakedistrict') {                              // hills: steep ground is a climb (slower), a cliff is a wall
+            if (s.world.hilly) {                                                // hills: steep ground is a climb (slower), a cliff is a wall (a terrace ledge is a step: one layer can be climbed, a stack of them cannot)
               const rise = (s.world.heightAt(gl.x + vx, -(gl.y + vy)) - s.world.heightAt(gl.x, -gl.y)) / (lm || 1);
-              if (rise > 1.0) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
+              if (rise > (s.world.field ? 2.6 : 1.0)) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
             }
             const wet = (x: number, y: number) => s.world.terrainAt(Math.round(x), Math.round(-y)) === WATER;
             if (!wet(gl.x + vx, gl.y + vy) || wet(gl.x, gl.y)) { gl.x += vx; gl.y += vy; walkPh += dt * 7 * run; }   // (no wading in: only out of the water you landed in)
           }
         }
         if (walking || (useGL && aim.current.on && gl.landed)) camAng.current = gl.psi - Math.PI / 2;                      // the eyes look the way the bobr faces, at once
-        const hilly = s.world.kind === 'lakedistrict', ridgeLift = (x: number, y: number, wx: number, wy: number, agl: number) => {   // the wind climbing a slope: the air over the windward side of a fell rises (slope soaring), fading with height
+        const hilly = s.world.hilly, ridgeLift = (x: number, y: number, wx: number, wy: number, agl: number) => {   // the wind climbing a slope: the air over the windward side of a fell rises (slope soaring), fading with height
           const e = 0.6, gx = (s.world.groundZAt(x + e, -y) - s.world.groundZAt(x - e, -y)) / (2 * e), gy = (s.world.groundZAt(x, -(y + e)) - s.world.groundZAt(x, -(y - e))) / (2 * e);
           return Math.max(-3, Math.min(8, (wx * gx + wy * gy) * 0.8)) * Math.max(0, 1 - agl / 70);
         };
@@ -825,7 +832,7 @@ function WorldView({ id }: { id: string }) {
         }
         if (respawnReq.current) {   // Respawn pressed
           respawnReq.current = false; deadRef.current = false;
-          const o = s.world.kind === 'lakedistrict' ? lakeSpawnFor(initial.map ?? 'lakes') : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 };
+          const o = s.world.kind === 'lakedistrict' ? lakeSpawnFor(initial.map ?? 'lakes') : s.world.field ? terracePlaneSpawn(s.world.seed) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 };
           f.x = o.x; f.y = o.y; f.heading = o.heading; f.course = o.heading; gl.wet = 0; gl.boost = 0; gl.impact = null;
           if (s.world.kind === 'lakedistrict') { throwPlane(gl, f.x, -f.y, f.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); f.glideAlt = LAKE_START_ALT; f.glideLanded = false; }
           else { gl.x = f.x; gl.y = -f.y; gl.psi = f.heading; gl.landed = true; gl.z = 0; gl.vx = gl.vy = gl.vz = 0; f.glideAlt = 0; f.glideLanded = true; }
@@ -859,8 +866,8 @@ function WorldView({ id }: { id: string }) {
       // 3rd-person camera: the view eases to a point ahead of the plane while it flies, and back when it stops
       const flying = isFlying(f, Math.hypot(dx, dy) > 0.01);
       // how far ahead it looks grows with speed (0 when slow); the tilt starts at the slider's value and fades to flat at 190 m, so the floor follows it
-      const camZ = (camZRef.current = s.world.kind !== 'lakedistrict' || gl.landed || camZRef.current === null || Math.abs(gl.z - camZRef.current) > 150 ? gl.z : camZRef.current + (gl.z - camZRef.current) * (1 - Math.exp(-dt / 1.5)));
-      const altK = f.mode === 'glide' ? (s.world.kind === 'lakedistrict' ? 0.8 : tiltAltitudeFactor(camZ)) : 1;   // (over the fells the view keeps most of its tilt: looking straight down, the hills read as flat ground)
+      const camZ = (camZRef.current = !s.world.hilly || gl.landed || camZRef.current === null || Math.abs(gl.z - camZRef.current) > 150 ? gl.z : camZRef.current + (gl.z - camZRef.current) * (1 - Math.exp(-dt / 1.5)));
+      const altK = f.mode === 'glide' ? (s.world.hilly ? 0.8 : tiltAltitudeFactor(camZ)) : 1;   // (over the fells the view keeps most of its tilt: looking straight down, the hills read as flat ground)
       // (the view no longer follows the plane's pitch or speed: the tilt is the slider's value (fading with height) and nothing looks ahead, so the picture, and the ground it needs, stay the same)
       const pn = 0, dive = 0;
       const tiltSet = tiltPin.current ?? L.tilt, tiltNow = L.tool === 'fly' ? (tiltPin.current !== null ? tiltPin.current : L.tilt * altK * (1 - 0.5 * dive)) : 0;
@@ -1071,7 +1078,7 @@ function WorldView({ id }: { id: string }) {
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
       if (f.mode === 'glide' && useGL && performance.now() - t0 < 3) {
         // (only the ring right round the plane and a wedge ahead of it, 60 degrees either side of the course: what is behind is not where a throw or a landing looks)
-        const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
+        const R = s.world.hilly ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
         for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) {
           const dx = cx - pcx, dy = cy - pcy, dd = Math.hypot(dx, dy);
           if (dd > R + 0.5 || dd > 1.5 && (dx * hx + dy * hy) / dd < 0.5) continue;
@@ -1079,6 +1086,19 @@ function WorldView({ id }: { id: string }) {
         }
         near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
         for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
+      }
+      if (glr && s.world.field) {   // the terraced world has no edge: its far levels are built round the eye, a few rows a frame, and again when it has travelled a good way from where they were built (the finest first)
+        if (!farJob) for (let i = 0; i < TERRACE_FAR_LODS.length; i++) {
+          const L = TERRACE_FAR_LODS[i], at = farAt[i];
+          if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
+          const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
+          farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half) }; break;
+        }
+        const tf = performance.now(), farMs = frames < 150 ? 6 : 2;
+        while (farJob && performance.now() - tf < farMs) {
+          const r = farJob.gen.next();
+          if (r.done) { glr.setFarLod(farJob.i, r.value); farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob = null; }
+        }
       }
       if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; perf.f.build = performance.now() - t0; perf.f.built = built; mark('chunks'); }
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
@@ -2701,15 +2721,39 @@ const inCone = (f: Flight, x: number, y: number) => Math.abs(Math.atan2(Math.sin
 
 interface MiniMark { x: number; y: number; kind: 'hoop' | 'done' | 'heat'; r: number }
 /** The minimap's memory: each explored chunk's 16 x 16 terrain, read once (the eco marks a changed chunk and it is read again), and one image reused for every draw. */
-class MiniCache { terr = new Map<number, Uint8Array>(); img: ImageData | null = null; }
+class MiniCache {
+  terr = new Map<number, Uint8Array>(); img: ImageData | null = null;
+  lay = new Map<number, Int8Array>();   // a terraced world's layers per chunk tile (they never change, so they outlive the terrain copies)
+  /** A chunk's terrain for the maps, with its layers on a terraced world. */
+  read(world: World, cx: number, cy: number) {
+    const key = tileKey(cx, cy), t = world.chunkTerrain(cx, cy); this.terr.set(key, t);
+    if (world.field && !this.lay.has(key)) {
+      const l = new Int8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK;
+      for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) l[j * CHUNK + i] = Math.min(127, world.layerAt(x0 + i, y0 + j));
+      this.lay.set(key, l);
+    }
+    return t;
+  }
+}
+/** A terraced map pixel (written into d at o): the band colour of its layer, lit from the north-west by the steps to its left and above it, so the map reads as contours. */
+const BAND_TINT = Array.from({ length: 64 }, (_, i) => bandTint(i));
+function terracePixel(d: Uint8ClampedArray, o: number, t: Terrain, l: number, left: number, up: number, k: number) {
+  const c = MINI_RGB[t];
+  let r = c[0], g = c[1], b = c[2];
+  if (t === GRASS) { const bt = BAND_TINT[Math.max(0, Math.min(63, l))]; r *= bt[0]; g *= bt[1]; b *= bt[2]; }
+  else if (t === SAND && (l & 1)) { r *= 0.93; g *= 0.93; b *= 0.93; }
+  if (t !== WATER) k *= left > l || up > l ? 0.72 : left < l || up < l ? 1.16 : 1;
+  d[o] = r * k; d[o + 1] = g * k; d[o + 2] = b * k;
+}
 const MINI_RGB: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
 const TREE_RGB = [22, 62, 24];   // the full-screen map's tree green
+const NO_LAYER = -999, MINI_ROW = new Int16Array(100);   // (a map pixel with no layer: unexplored; the minimap's last row of layers)
 const MINI_NEW_MAX = 24;   // chunks read per draw at most (a big jump of the map fills in over a few draws, not one long frame)
 const MINI_NEW_MS = 2;   // ...and for at most this long
 /** Minimap zoom (tiles per pixel) from which the map opens full screen and time stops (zoom steps 3 to 5): one pixel is a quarter chunk or more, far too many chunks to read while flying. */
 const BIG_MAP_SCALE = 4;
 /** The full-screen map's state: filled a few rows a frame, from the plane's spot at the time it opened. */
-interface BigMapFill { w: number; h: number; scale: number; x: number; y: number; row: number; img: ImageData }
+interface BigMapFill { w: number; h: number; scale: number; x: number; y: number; row: number; img: ImageData; prev: Int16Array }   // prev: the last row's layers (a terraced world's contours)
 /** Draw the minimap; true when some chunks were not read yet and it should be drawn again soon. */
 function drawMinimap(cv: HTMLCanvasElement, cache: MiniCache, world: World, explored: Set<number>, f: Flight, cx0: number, cx1: number, cy0: number, cy1: number, scale: number, marks: MiniMark[] = []): boolean {
   if (world.kind === 'lakedistrict') {   // the whole map, shrunk to fit (see lakeOverview), with the plane on it
@@ -2726,24 +2770,31 @@ function drawMinimap(cv: HTMLCanvasElement, cache: MiniCache, world: World, expl
   const g = cv.getContext('2d')!;
   if (!cache.img) cache.img = g.createImageData(100, 100);
   const img = cache.img, d = img.data, fx = Math.round(f.x), fy = Math.round(f.y), t0 = performance.now();
-  if (cache.terr.size > 6000) cache.terr.clear();   // (a long flight: forget it all rather than grow without end)
+  if (cache.terr.size > 6000) { cache.terr.clear(); cache.lay.clear(); }   // (a long flight: forget it all rather than grow without end)
   const direct = scale >= CHUNK / 2;   // (zoomed far out a chunk is a pixel or two: read those tiles straight, reading whole chunks would be far more work)
-  let made = 0, left = false, lastKey = NaN, seen = false, terr: Uint8Array | null | undefined = null, near = false, bx = 0, by = 0;
-  for (let j = 0; j < 100; j++) { const y = Math.floor(fy + (j - 50) * scale), cy = chunkOf(y); for (let i = 0; i < 100; i++) {
+  let made = 0, left = false, lastKey = NaN, seen = false, terr: Uint8Array | null | undefined = null, near = false, bx = 0, by = 0, lay: Int8Array | undefined, prevL = NO_LAYER;
+  const hills = !!world.field, rowL = MINI_ROW.fill(NO_LAYER);
+  for (let j = 0; j < 100; j++) { const y = Math.floor(fy + (j - 50) * scale), cy = chunkOf(y); prevL = NO_LAYER; for (let i = 0; i < 100; i++) {
     const x = Math.floor(fx + (i - 50) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * 100 + i) * 4;
     if (key !== lastKey) {   // (the same chunk for many pixels in a row: looked up once)
       lastKey = key; bx = cx * CHUNK; by = cy * CHUNK; seen = explored.has(key); terr = null;
       if (seen && !direct) {
         terr = cache.terr.get(key);
         if (!terr) {
-          if (made < MINI_NEW_MAX && (made === 0 || performance.now() - t0 < MINI_NEW_MS)) { made++; terr = world.chunkTerrain(cx, cy); cache.terr.set(key, terr); }
+          if (made < MINI_NEW_MAX && (made === 0 || performance.now() - t0 < MINI_NEW_MS)) { made++; terr = cache.read(world, cx, cy); }
           else { left = true; seen = false; }
         }
       }
       near = cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1;
+      lay = terr && hills ? cache.lay.get(key) : undefined;
     }
-    if (!seen) { d[o] = d[o + 1] = d[o + 2] = 10; d[o + 3] = 255; continue; }
-    const c = MINI_RGB[terr ? terr[(y - by) * CHUNK + (x - bx)] as Terrain : world.mapSample(x, y)], k = near ? 1 : 0.55;
+    if (!seen) { d[o] = d[o + 1] = d[o + 2] = 10; d[o + 3] = 255; rowL[i] = prevL = NO_LAYER; continue; }
+    const ti = (y - by) * CHUNK + (x - bx), k = near ? 1 : 0.55;
+    if (hills) {
+      const l = lay ? lay[ti] : world.mapLayer(x, y), tt = terr ? terr[ti] as Terrain : world.mapSample(x, y, l);
+      terracePixel(d, o, tt, l, prevL === NO_LAYER ? l : prevL, rowL[i] === NO_LAYER ? l : rowL[i], k); d[o + 3] = 255; rowL[i] = prevL = l; continue;
+    }
+    const c = MINI_RGB[terr ? terr[ti] as Terrain : world.mapSample(x, y)];
     d[o] = c[0] * k; d[o + 1] = c[1] * k; d[o + 2] = c[2] * k; d[o + 3] = 255;
   } }
   g.putImageData(img, 0, 0);
