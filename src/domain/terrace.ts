@@ -159,13 +159,23 @@ function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array
   return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * 26 * land + (roll + wig) * land) * 1.5;
 }
 
-/** How moist a terraced world's region is, 0..1 (below 0.2 it is dry country: sand). */
-export const terraceMoist = (x: number, y: number, seed: number): number => (noise(x * 0.004, y * 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
+/** A hash of two whole numbers, 0..1 (the tile dither of the biome edges). */
+const dither = (x: number, y: number): number => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
+
+/**
+ * How moist a terraced world's region is, 0..1 (below 0.2 it is dry country: sand). A few hundredths of dither is mixed in tile by tile, so where one biome gives way to the next the edge is
+ * stippled (a mixed band some tiles wide, in pixel art's own way of blending) instead of a smooth line cut through the hills.
+ */
+export const terraceMoist = (x: number, y: number, seed: number): number => (noise(x * 0.004, y * 0.004, (seed ^ 0xd00d) | 0) + 1) / 2 + (dither(x, y) - 0.5) * 0.05;
+
+/** Each shelf is a little wetter or drier than its region says (up to 0.04), by its own layer: where the biome changes it likes to change at a ledge, so the edge follows the lie of the land, in steps, instead of cutting across it. */
+const layerMoist = (layer: number): number => (dither(layer, 17.3) - 0.5) * 0.08;
 
 /** A terraced world's biome (index into BIOME_LIST) from a tile's layer and how moist its region is (0..1). */
-export function terraceBiome(layer: number, moist: number): number {
+export function terraceBiome(layer: number, moistRaw: number): number {
   if (layer < 0) return 5;
   if (layer >= TERRACE_BARE) return 3;               // bare tops
+  const moist = moistRaw + layerMoist(layer);
   if (moist < 0.2) return 3;                         // dry country: sand
   if (layer <= 4) return moist > 0.62 ? 2 : 0;       // the low shelves: wet ground or meadows
   if (layer <= 18) return moist > 0.36 ? 1 : 0;      // the hillsides: woods
