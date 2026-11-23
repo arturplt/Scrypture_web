@@ -158,7 +158,7 @@ const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
 uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx;
-uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas; uniform float uHasT, uSea;   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
+uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas, uDrop; uniform float uHasT, uSea;   // uDrop: how far (degrees) the mountains, then the far, middle and near tree lines have sunk, the higher the eye   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
 // one band of picture: it runs from elevation eb (the picture's row vb) up by hDeg degrees to the top row, and repeats every span degrees round the horizon
@@ -217,7 +217,7 @@ void main() {
       S *= 1.0 - t.a * (i == 0 ? 0.85 : 0.97);   // a cloud blocks the stars behind it
     }
     if (uHas.w > 0.5) {   // the mountain range: its peaks stand about nine degrees up
-      vec4 t = band(uMount, az, el, 60.0, 20.0, 0.90, 0.0, 0.0, 0.0);
+      vec4 t = band(uMount, az, el + uDrop.x, 60.0, 20.0, 0.90, 0.0, 0.0, 12000.0);   // (the higher the eye, the lower they stand against the horizon, instead of vanishing)
       if (t.a > 0.01) {
         float lum = dot(t.rgb, vec3(0.3, 0.59, 0.11));
         vec3 col = mix(t.rgb, vec3(0.40, 0.52, 0.72) * (0.5 + 1.1 * lum), uNoon * 0.55);   // midday haze
@@ -226,16 +226,21 @@ void main() {
         S *= 1.0 - t.a;
       }
     }
-    if (el < 0.0) {       // the endless plane: grass all the way to the horizon, under the tree line, where the real ground has not drawn (far away, unloaded, or past the reach)
+    if (el + uDrop.x < 0.0) {       // the endless plane (its edge, the horizon, sinks with the mountains): grass all the way to the horizon, under the tree line, where the real ground has not drawn (far away, unloaded, or past the reach)
       vec3 col = vec3(0.30, 0.46, 0.13) * (0.45 + 0.55 * uDay);
-      if (uSea > 0.5) col = mix(vec3(0.06, 0.40, 0.52) * (0.45 + 0.55 * uDay), uHor * 0.92, pow(clamp(1.0 + el / 6.0, 0.0, 1.0), 2.0));   // a hilly world's edge: the sea out to the horizon, paling towards it
+      if (uSea > 0.5) col = mix(vec3(0.06, 0.40, 0.52) * (0.45 + 0.55 * uDay), uHor * 0.92, pow(clamp(1.0 + (el + uDrop.x) / 6.0, 0.0, 1.0), 2.0));   // a hilly world's edge: the sea out to the horizon, paling towards it
       col = mix(col, night * 0.5 + 0.1 * col, nk * 0.9);
       c = col; S = vec3(0.0);
     }
-    if (uHasT > 0.5) {    // the tree line in front
-      vec4 t = band(uTrees, az, el, 20.0, 6.6667, 0.80, -0.7, 0.0, 0.0);
-      if (t.a > 0.01) {
+    if (uHasT > 0.5) {    // the tree line in front: three copies of the one picture, far to near, each smaller, hazier and shifted round the horizon, and sinking faster the nearer they are
+      for (int i = 0; i < 3; i++) {
+        float sc = i == 0 ? 0.5 : (i == 1 ? 0.75 : 1.0);                   // size
+        float dr = i == 0 ? uDrop.y : (i == 1 ? uDrop.z : uDrop.w);
+        float shift = i == 0 ? 0.37 : (i == 1 ? 0.71 : 0.0);                // a different stretch of forest in each, so the trees do not line up
+        vec4 t = band(uTrees, az + shift * 6.2831853 / (360.0 / (20.0 * sc)), el + dr, 20.0 * sc, 6.6667 * sc, 0.80, -0.7 * sc, 0.0, i == 0 ? 4500.0 : (i == 1 ? 1800.0 : 700.0));   // (360 / span stays whole: 36, 24, 18)
+        if (t.a < 0.01) continue;
         vec3 col = mix(t.rgb, t.rgb * vec3(0.9, 1.0, 1.0) + 0.04, uNoon * 0.3);
+        col = mix(col, mix(col, uHor * 0.8, 0.5), i == 0 ? 0.55 : (i == 1 ? 0.28 : 0.0));   // distance haze
         col = mix(col, night * 0.5 + 0.1 * col, nk * 0.9);
         c = mix(c, col, t.a);
         S *= 1.0 - t.a;
@@ -364,8 +369,6 @@ export class WorldGL {
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
   private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number }[] | null = null;
   private farOn = false;
-  /** The painted mountain range and tree line round the horizon: on a hilly world (which has real fells of its own) only low down, under 50 m above sea level. */
-  private skyline = true;
   /** How far from the eye every visible chunk is built (set by the map each frame; Infinity = all of them). The far mesh's hole is never wider than this, so ground whose chunk is still being built is covered by the far mesh instead of left empty. */
   cover = Infinity;
   /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
@@ -435,7 +438,7 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
     for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
@@ -565,7 +568,6 @@ export class WorldGL {
 
   setCamera(c: CameraSpec) {
     this.nearReach = 0; this.farOn = false;
-    if (this.terrain) { const m = -this.eye[2] / 0.18; this.skyline = this.skyline ? m < 55 : m < 50; } else this.skyline = true;   // (metres above sea level of last frame's eye; a little hysteresis so it does not flicker at the edge)
     const now = performance.now(); this.camDt = Math.min(0.1, Math.max(0.001, (now - this.smAt) / 1000)); this.smAt = now;
     const fov = 0.72, tanY = Math.tan(fov / 2), tanX = tanY * (c.W / c.H);
     this.tanY = tanY; this.tanX = tanX; this.W = c.W; this.H = c.H;
@@ -784,7 +786,11 @@ export class WorldGL {
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
       if (this.starsTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.starsTex); gl.uniform1i(L.uStars, 2); gl.activeTexture(gl.TEXTURE0); }
       const lt = this.layerTex, names = ['uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees'];
-      gl.uniform4f(L.uHas, lt[0] ? 1 : 0, lt[1] ? 1 : 0, lt[2] ? 1 : 0, lt[3] && this.skyline ? 1 : 0); gl.uniform1f(L.uHasT, lt[4] && this.skyline ? 1 : 0); gl.uniform1f(L.uSea, this.terrain ? 1 : 0);
+      gl.uniform4f(L.uHas, lt[0] ? 1 : 0, lt[1] ? 1 : 0, lt[2] ? 1 : 0, lt[3] ? 1 : 0); gl.uniform1f(L.uHasT, lt[4] ? 1 : 0);
+      {   // the higher the eye (metres above sea level), the lower the layers stand: the angle a layer's base lies below the eye, for how far off it is (mountains far, the near trees close). A flat map's camera height is no altitude
+        const m = this.terrain ? Math.max(0, -this.eye[2] / 0.18) : 0, dg = (d: number) => Math.atan(m / d) * 180 / Math.PI;
+        gl.uniform4f(L.uDrop, dg(2500), dg(1800), dg(1100), dg(650));
+      } gl.uniform1f(L.uSea, this.terrain ? 1 : 0);
       lt.forEach((t, i) => { gl.activeTexture(gl.TEXTURE3 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(L[names[i]], 3 + i); });   // (units 3..7)
       gl.activeTexture(gl.TEXTURE0);
       gl.drawArrays(gl.TRIANGLES, 0, 3); gl.enable(gl.DEPTH_TEST);
