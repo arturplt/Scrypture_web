@@ -129,6 +129,16 @@ void main() {
       float s2 = 1.0 - 0.25 * (waterAt(vUv + vec2(d2, 0.0), dUx, dUy) + waterAt(vUv - vec2(d2, 0.0), dUx, dUy) + waterAt(vUv + vec2(0.0, d2), dUx, dUy) + waterAt(vUv - vec2(0.0, d2), dUx, dUy));
       float foam = clamp(s1 * 2.0, 0.0, 1.0) * 0.7 + clamp(s2 * 2.0, 0.0, 1.0) * 0.4 * (0.5 + 0.5 * sin(t * 1.6 + ph * 2.0));
       w = mix(w, vec3(0.86, 0.95, 1.0), min(foam, 0.85) * (1.0 - uSurf));   // (foam is worked out from the picture's water and shore: over a sheet the picture is the bed's sand, which would foam all over)
+      {   // pixel art: close up the water is not smooth shading but flat bands of colour, in art pixels (16 to a tile) that move in steps, like the sprites; far away, where the pixels are smaller than the screen's, it goes back to the smooth look above
+        vec2 pq = (floor(wq * 16.0) + 0.5) / 16.0; float ts = floor(t * 4.0) / 4.0;
+        float hv = vnoise(pq * vec2(1.6, 2.6) + vec2(ts * 0.30, ts * 0.10)) * 0.55 + vnoise(pq * vec2(3.4, 5.0) + vec2(-ts * 0.45, ts * 0.20) + 7.0) * 0.45;
+        float lvl = floor(clamp((hv - 0.5) * 1.7 + 0.5, 0.0, 0.999) * 4.0);       // four bands: trough, body, swell, crest
+        vec3 wx = c.rgb * (lvl < 0.5 ? 0.80 : lvl < 1.5 ? 0.93 : lvl < 2.5 ? 1.06 : 1.24);
+        wx = mix(wx, skyc, floor(fres * 3.0 + 0.5) / 3.0 * 0.35 * (1.0 - 0.9 * uSurf));    // (the sky's sheen in three steps, not a gradient)
+        float fq = step(0.5 + 0.35 * hash(floor(wq * 16.0) + floor(t * 3.0)), foam);    // the shore's foam: broken pixels, a few more of them nearer the bank
+        wx = mix(wx, vec3(0.86, 0.95, 1.0), fq * (1.0 - uSurf));
+        w = mix(wx, w, clamp(texel - 1.0, 0.0, 1.0));
+      }
       float sp = mix(step(0.6, hash(floor(wq * 16.0) + floor(t * 8.0) * 7.0)), 0.4, clamp(texel - 1.0, 0.0, 1.0));   // glitter: art pixels that flash, evened out far away
       float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, -uSun), 0.0);
       w += vec3(1.0, 0.86, 0.6) * (pow(sd, 60.0) * (0.25 + 1.75 * sp) + 3.0 * pow(sd, 400.0)) * uDay;
@@ -168,6 +178,26 @@ void main() {
     float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);
     c.rgb *= mix(clamp(sh, 0.45, 1.18), 1.0, isWater(c.rgb) * flatK);
   }
+  float cur = (uSurf > 0.5 && uTerr > 0.5 && vCol.a < 0.4) ? 1.0 : 0.0;   // a waterfall's curtain (the mesh marks it with alpha 0.25): water falling from one surface to the lower one
+  if (cur > 0.5) {
+    if (dot(V, tn) > 0.0) discard;                                                   // seen from behind (from the high side, the way the water comes): not drawn, the wall is what stands there
+    // pixel art, like the sprites: art pixels 16 to a tile, a palette of five colours and no blending between them, and the picture steps eight times a second, a whole pixel at a time
+    vec2 tg = normalize(vec2(-tn.y, tn.x) + vec2(1e-5));                              // (the mesh gives a curtain its facing as its normal: along the wall runs the tangent, so the columns follow it at any angle)
+    float hg = -vPos.z, lv2 = hg / max(uTerrace, 1e-3);
+    float col = floor(dot(vPos.xy, tg) * 16.0), rowF = floor(hg * 16.0), step8 = floor(uTime * 8.0);
+    float h1 = hash(vec2(col, 3.7)), h2 = hash(vec2(col * 0.37, 11.3));
+    float speed = 1.0 + floor(h1 * 3.0);                                              // 1 to 3 pixels a step, column by column
+    float period = 5.0 + floor(h2 * 7.0);                                             // each column's own rhythm of streaks
+    float ph = mod(rowF + step8 * speed + floor(h2 * 40.0), period);                  // (+ time: the pattern climbs the rows, so on screen the water runs down)
+    float quiet = step(h1, 0.22);                                                     // (some columns are only body: a fall is not a wall of foam)
+    float edgePx = min(fract(lv2 + 0.02), 1.0 - fract(lv2 + 0.02)) * max(uTerrace, 1e-3) * 16.0;   // (art pixels to the nearest layer line: the lip of the fall and the splash at its foot)
+    vec3 deep = vec3(0.09, 0.33, 0.52), mid = vec3(0.16, 0.50, 0.70), light = vec3(0.36, 0.72, 0.88), foam = vec3(0.82, 0.95, 1.0);
+    vec3 body = mod(col, 2.0) < 1.0 ? mid : deep;                                     // (alternate columns a shade apart, the grain of the water)
+    vec3 pix = body;
+    if (quiet < 0.5) { if (ph < 1.0) pix = foam; else if (ph < 3.0) pix = light; else if (ph < 4.0) pix = mid; }
+    if (edgePx < 1.2) pix = step(0.35, hash(vec2(col, step8))) > 0.5 ? foam : light;    // lip and foot: broken foam, a pixel high, flickering
+    c.rgb = pix;
+  }
   if (c.a < uCut) discard;
   vec3 fog = uFog;
   bool onGround = (uBase.a > 0.5 || uCut > 0.25) && uFar < 0.5;   // (the far fells fade into the sky's haze, not the grass plane)   // the ground and the solid sprites (trees, bushes, rocks); clouds and other blended sprites keep the sky
@@ -180,7 +210,7 @@ void main() {
   if (lit < 0.5) c.rgb = mix(c.rgb, uNight.rgb, uNight.a);                  // night: the same tint the flat map lays over everything, done here
   c.rgb += moon;                                                             // (the moon's path on the water stays bright)
   o = c;
-  if (uSurf > 0.5) o.a = 0.45;   // a sheet of inland water: see-through (several lie over a deep bed, so it darkens with the depth)
+  if (uSurf > 0.5) o.a = mix(0.45, 0.92, cur);   // a sheet of inland water: see-through (several lie over a deep bed, so it darkens with the depth)
 }`;
 
 // the skybox: one big triangle, each pixel looks along its own ray (camera basis + field of view), so the sky holds still when the view turns and tips
@@ -940,7 +970,7 @@ export class WorldGL {
         ent.ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); ent.count = m.idx.length;
         if (m.widx.length) {   // the sheet of inland water: its own little mesh, drawn see-through after the ground
           const wn = m.wpos.length / 3, wv = new Float32Array(wn * FLOATS);
-          for (let i = 0; i < wn; i++) { const o = i * FLOATS, x = m.wpos[i * 3], y = m.wpos[i * 3 + 1]; wv[o] = x; wv[o + 1] = y; wv[o + 2] = m.wpos[i * 3 + 2]; wv[o + 3] = (x - x0) / tiles; wv[o + 4] = (y - y0) / tiles; wv[o + 5] = 0.5; wv[o + 6] = 0.5; wv[o + 7] = 0; wv[o + 8] = m.wkind[i] ? 0.5 : 1; }   // (alpha 0.5 on a sheet marks a beaver's pond: the shader tints it)
+          for (let i = 0; i < wn; i++) { const o = i * FLOATS, x = m.wpos[i * 3], y = m.wpos[i * 3 + 1]; wv[o] = x; wv[o + 1] = y; wv[o + 2] = m.wpos[i * 3 + 2]; wv[o + 3] = (x - x0) / tiles; wv[o + 4] = (y - y0) / tiles; const k = m.wkind[i]; if (k >= 2) { const an = (k - 2) / 250 * Math.PI * 2 - Math.PI; wv[o + 5] = Math.cos(an) * 0.5 + 0.5; wv[o + 6] = Math.sin(an) * 0.5 + 0.5; wv[o + 7] = 0.5; wv[o + 8] = 0.25; } else { wv[o + 5] = 0.5; wv[o + 6] = 0.5; wv[o + 7] = 0; wv[o + 8] = k ? 0.5 : 1; } }   // (a waterfall's curtain (kind 2 and up, which way it faces in the number) carries that facing as its normal, flat sheets point up)   // (alpha 0.5 on a sheet marks a beaver's pond: the shader tints it)
           ent.wmesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.wmesh); gl.bufferData(gl.ARRAY_BUFFER, wv, gl.STATIC_DRAW);
           ent.wibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.wibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.widx, gl.STATIC_DRAW); ent.wcount = m.widx.length;
           const stride = FLOATS * 4;

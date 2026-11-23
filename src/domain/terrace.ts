@@ -442,7 +442,7 @@ export const WATER_SHEETS_MAX = 5;
  * same edge of the same two grid points the same way.
  */
 /** `waterTop(x, y)` gives the layer of the surface of inland water at a point (-1 for none), plus a quarter if it is a beaver's pond. */
-export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterTop?: (x: number, y: number) => number): TerraceMesh {
+export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterTop?: (x: number, y: number) => number, groundAt?: (x: number, y: number) => number): TerraceMesh {
   const G = TERRACE_G, st = 1 / TERRACE_SUB, x0 = cx * CHUNK, y0 = cy * CHUNK;
   let pos = new Float32Array(G * G * 6 + 4096), nrm = new Float32Array(pos.length), sub = new Uint8Array(pos.length / 3), vn = 0;
   let idx = new Uint32Array(G * G * 6 + 4096), tn = 0;
@@ -470,6 +470,31 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     kindNow = v - top > 0.25 ? 1 : 0;
     return top;
   };
+  const ground = groundAt ?? ((x: number, y: number): number => {   // the ground's height at a point, from this chunk's own grid when the caller gave none (clamped to the chunk: beyond it the nearest edge)
+    const gx = Math.max(0, Math.min(G - 1 - 1e-6, (x - x0) / st)), gy = Math.max(0, Math.min(G - 1 - 1e-6, (y - y0) / st)), ix = Math.floor(gx), iy = Math.floor(gy), tx = gx - ix, ty = gy - iy, k = iy * G + ix;
+    const ea = e[k], eb = e[k + 1], ec = e[k + G], ed = e[k + G + 1];
+    return terraceH(tx >= ty ? ea + (eb - ea) * tx + (ed - eb) * ty : ea + (ed - ec) * tx + (ec - ea) * ty);
+  });
+  /** The open sides of a sheet: along each edge of a piece of water where the water beside it (or, with none, the ground) lies lower than this surface, a curtain of falling water hangs from the one down to the other, facing outward. It does not depend on a wall standing there: on level ground the water's edge simply ends. */
+  const falls = (pts: number[][], top: number) => {
+    let cxm = 0, cym = 0; for (const p of pts) { cxm += p[0]; cym += p[1]; } cxm /= pts.length; cym /= pts.length;
+    const surf = TERRACE_STEP * top;
+    for (let k = 0; k < pts.length; k++) {
+      const a = pts[k], b = pts[(k + 1) % pts.length], dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+      if (len < 1e-4) continue;
+      let nx = dy / len, ny = -dx / len; const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      if (nx * (mx - cxm) + ny * (my - cym) < 0) { nx = -nx; ny = -ny; }   // (outward: away from the piece's middle)
+      const ox = mx + nx * 0.08, oy = my + ny * 0.08, v = waterTop!(ox, oy), tp = v < 0 ? -1 : Math.floor(v + 1e-9);
+      if (tp === top) continue;   // (the same water on the other side: nothing falls)
+      const g = ground(ox, oy), low = tp >= 0 && g < TERRACE_STEP * tp - 1e-6 ? TERRACE_STEP * tp : g;
+      if (low >= surf - 1e-6) continue;   // (the water beside it is as high, or a bank stands as high: it is held)
+      const o = 0.02, ex = dx / len * 0.03, ey = dy / len * 0.03, b0 = wp.length / 3;
+      const ax = a[0] - ex + nx * o, ay = a[1] - ey + ny * o, bx = b[0] + ex + nx * o, by = b[1] + ey + ny * o;   // (a hair outward of the edge, and a hair longer at each end, so neighbouring curtains overlap round a bend)
+      wp.push(ax, ay, -low, bx, by, -low, bx, by, -surf, ax, ay, -surf);
+      const dir = 2 + Math.round((Math.atan2(ny, nx) + Math.PI) / (2 * Math.PI) * 250);   // (kind 2 and up marks a curtain, and says which way it faces in 250 steps of the compass: the renderer draws it only to a viewer in front of it)
+      wk.push(dir, dir, dir, dir); wi.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
+    }
+  };
   const sheets = (pts: number[][], bed: number, top: number) => {
     if (top === 0) {   // water on the beach shelf, which cannot be sunk below the sea: a thin film just over the ground
       const b = wp.length / 3;
@@ -482,6 +507,7 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
       for (const p of pts) { wp.push(p[0], p[1], -TERRACE_STEP * L); wk.push(kindNow); }
       for (let k = 2; k < pts.length; k++) wi.push(b, b + k - 1, b + k);
     }
+    if (waterTop) falls(pts, top);
   };
   // the polygon being cut: x, y, e of each corner (at most 3 + one per cut)
   type P = [number, number, number][];

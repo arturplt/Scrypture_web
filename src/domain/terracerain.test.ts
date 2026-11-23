@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Ecosystem, defaultWind } from './ecosystem';
 import { World, WATER, tileKey, keyX, keyY, plainTile } from './worldgen';
-import { terraceSpawn, onLedge, TerraceField, TERRACE_STEP, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf } from './terrace';
+import { terraceSpawn, onLedge, TerraceField, TERRACE_STEP, TERRACE_G, TERRACE_SUB, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf } from './terrace';
 import { mulberry32 } from './sanctuary';
 
 /** A terraced world with the weather ready: no clouds of its own, the area watched round the spawn. */
@@ -205,5 +205,20 @@ describe('ponds on the terraced hills', () => {
     expect(m.widx.length).toBeGreaterThan(0);
     for (let v = 0; v < m.wpos.length / 3; v++) expect(-m.wpos[v * 3 + 2]).toBeCloseTo(TERRACE_STEP * 0.18, 6);
     expect(spawnOf(7)).toBeDefined();
+  });
+  it('hangs a curtain of falling water (kind 2) on a ledge where the water on the high side stands over its lip and the water below is lower', () => {
+    const G = TERRACE_G, e = new Float32Array(G * G), half = Math.floor(G / 2);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) e[j * G + i] = i < half ? 3.5 : 2.5;   // (a ledge one layer high, running north-south)
+    const xs = (half - 0.5) / TERRACE_SUB;
+    const m = terraceChunkMesh(e, 0, 0, (x) => (x < xs ? 5 : 3));   // (the pool above stands at layer 5, over the lip at 3, and the one below at layer 3)
+    const fall: number[] = []; for (let v = 0; v < m.wkind.length; v++) if (m.wkind[v] >= 2) fall.push(-m.wpos[v * 3 + 2]);
+    expect(fall.length).toBeGreaterThanOrEqual(4);
+    expect(Math.min(...fall)).toBeCloseTo(TERRACE_STEP * 3, 5); expect(Math.max(...fall)).toBeCloseTo(TERRACE_STEP * 5, 5);
+    const brim = terraceChunkMesh(e, 0, 0, (x) => (x < xs ? 3 : -1));   // (water flush with the lip, dry ground below: a lake meeting its bank, nothing pours from the bank's wall)
+    expect([...brim.wkind].filter(k => k >= 2).length).toBe(0);
+    const flat = terraceChunkMesh(e, 0, 0, () => -1);   // (no water: no curtain)
+    expect(flat.wkind.length).toBe(0);
+    const same = terraceChunkMesh(e, 0, 0, () => 5);   // (one level of water on both sides: nothing falls)
+    expect([...same.wkind].filter(k => k >= 2).length).toBe(0);
   });
 });
