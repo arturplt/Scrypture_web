@@ -628,8 +628,9 @@ function WorldView({ id }: { id: string }) {
           const x = Math.floor(fx + (i - mw / 2) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * mw + i) * 4;
           if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; }
           if (!seen) continue;
-          const c = MINI_RGB[terr ? terr[(y - cy * CHUNK) * CHUNK + (x - cx * CHUNK)] as Terrain : s.world.mapSample(x, y)];
-          d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2];
+          const tt = terr ? terr[(y - cy * CHUNK) * CHUNK + (x - cx * CHUNK)] as Terrain : s.world.mapSample(x, y), c = MINI_RGB[tt];
+          const tk = tt === GRASS ? Math.min(0.85, s.world.mapTrees(x, y, Math.ceil(scale)) * 7) : 0;   // trees: the pixel darkens toward the tree green by how many stand in its patch
+          d[o] = c[0] + (TREE_RGB[0] - c[0]) * tk; d[o + 1] = c[1] + (TREE_RGB[1] - c[1]) * tk; d[o + 2] = c[2] + (TREE_RGB[2] - c[2]) * tk;
         }
       }
       if (B.row > row0 || row0 === 0) {
@@ -2702,6 +2703,7 @@ interface MiniMark { x: number; y: number; kind: 'hoop' | 'done' | 'heat'; r: nu
 /** The minimap's memory: each explored chunk's 16 x 16 terrain, read once (the eco marks a changed chunk and it is read again), and one image reused for every draw. */
 class MiniCache { terr = new Map<number, Uint8Array>(); img: ImageData | null = null; }
 const MINI_RGB: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
+const TREE_RGB = [22, 62, 24];   // the full-screen map's tree green
 const MINI_NEW_MAX = 24;   // chunks read per draw at most (a big jump of the map fills in over a few draws, not one long frame)
 const MINI_NEW_MS = 2;   // ...and for at most this long
 /** Minimap zoom (tiles per pixel) from which the map opens full screen and time stops (zoom steps 3 to 5): one pixel is a quarter chunk or more, far too many chunks to read while flying. */

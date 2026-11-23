@@ -293,6 +293,22 @@ export class World {
     const b = biomeAt(x, y, this.seed);
     return isWater(x, y, this.seed, b) ? WATER : b.id === 'desert' ? SAND : GRASS;
   }
+  /** Tree cover of the tile block from (x, y) to (x + n, y + n) for a zoomed-out map, 0..1 (a few hash reads on a 4 x 4 sample, nothing generated or cached; the hilly world has no generated trees). */
+  mapTrees(x: number, y: number, n: number): number {
+    if (this.kind === 'lakedistrict') return 0;
+    const step = Math.max(1, n / 4), m = Math.min(4, n);
+    let b: Biome | null = null, hit = 0, cnt = 0;
+    for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
+      const tx = Math.floor(x + i * step), ty = Math.floor(y + j * step), c = this.changes.get(tileKey(tx, ty));
+      cnt++;
+      if (c) { if (c.t === GRASS && c.d >= DECO_CONIFER) hit++; continue; }
+      b ??= biomeAt(tx, ty, this.seed);
+      if (b.id === 'grassland' || b.id === 'desert') continue;
+      const r = hash01(tx, ty, this.seed, 1);
+      if (r < (b.id === 'forest' ? 0.15 : 0.05) && Math.floor(hash01(tx, ty, this.seed, 2) * 5) >= 3 && !isWater(tx, ty, this.seed, b)) hit++;
+    }
+    return hit / cnt;
+  }
   /** Ground height in tiles at a point (0 on the flat procedural worlds), and in glider metres. */
   heightAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundTiles(px, py) : 0; }
   /** Real ground height in metres at a tile's centre (0 on the flat worlds). */
