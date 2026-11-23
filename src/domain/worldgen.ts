@@ -279,6 +279,20 @@ export class World {
     }
     return g;
   }
+  /** A chunk's 16 x 16 terrain with the changes laid over it, for the maps: from the cache when it is there, otherwise generated and not kept (a map that reads hundreds of chunks must not push out the ones the game is drawing). */
+  chunkTerrain(cx: number, cy: number): Uint8Array {
+    const g = this.cache.get(tileKey(cx, cy)) ?? (this.kind === 'lakedistrict' ? generateLakeChunk(cx, cy) : generateChunk(cx, cy, this.seed));
+    const out = new Uint8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK, ch = this.changes.size > 0;
+    for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) out[j * CHUNK + i] = (ch ? this.changes.get(tileKey(x0 + i, y0 + j))?.t : undefined) ?? g.t[(j + MARGIN) * SIDE + i + MARGIN];
+    return out;
+  }
+  /** One tile's terrain for a zoomed-out map, cheaply (a couple of noise reads, nothing generated or cached): beaches are left out, being narrower than a map pixel there. */
+  mapSample(x: number, y: number): Terrain {
+    const c = this.changes.get(tileKey(x, y)); if (c) return c.t;
+    if (this.kind === 'lakedistrict') return lakeWaterAt(x, y) !== LAKE_LAND ? WATER : GRASS;
+    const b = biomeAt(x, y, this.seed);
+    return isWater(x, y, this.seed, b) ? WATER : b.id === 'desert' ? SAND : GRASS;
+  }
   /** Ground height in tiles at a point (0 on the flat procedural worlds), and in glider metres. */
   heightAt(px: number, py: number): number { return this.kind === 'lakedistrict' ? groundTiles(px, py) : 0; }
   /** Real ground height in metres at a tile's centre (0 on the flat worlds). */

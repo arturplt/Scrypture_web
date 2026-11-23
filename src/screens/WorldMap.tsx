@@ -26,7 +26,7 @@ import { loadPlaneModel } from './planemodel';
 import { Slot } from '../ui/Inventory';
 import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
 import type { Key, TFn } from '../i18n';
-import { WorldGL, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
+import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
 import { flammability, SCORCH_COOLDOWN, WET_TIME, RAIN_SCALE, rainRadius } from '../domain/ecosystem';
@@ -44,7 +44,8 @@ import { endDogfight, foeBearing, shotTolerance, sliderPos, startDogfight, stepD
 import './world.css';
 
 interface Deco { x: number; y: number; cell: Cell; scale: number }
-interface ChunkImg { cv: HTMLCanvasElement; decos: Deco[]; stale?: boolean }
+/** A built chunk: its ground as raw pixels (the 3D view uploads them as they are; the flat view makes a canvas from them the first time it draws the chunk), and its trees, bushes and rocks. */
+interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean }
 interface Hud { landed: boolean; hour: number; temp: number; weather: 'heat' | 'cold' | null; x: number; y: number; layer: number; clouds: number; water: number; fps: number; ms: number; biome: string }
 type Tool = 'fly' | 'paint';
 
@@ -202,6 +203,7 @@ function WorldView({ id }: { id: string }) {
   const stage = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement>(null);
+  const bigMap = useRef<HTMLCanvasElement>(null);   // the full-screen map (minimap zoom 3 to 5): time stops while it is open
   const liftMsg = useRef<HTMLDivElement>(null);   // "+1.8 m/s" above the last instrument while the plane climbs in rising air
   const liftHint = useRef<HTMLDivElement>(null), liftArrow = useRef<HTMLImageElement>(null), liftDist = useRef<HTMLSpanElement>(null);
   const hoopHint = useRef<HTMLDivElement>(null), hoopArrow = useRef<HTMLImageElement>(null), hoopDist = useRef<HTMLSpanElement>(null);   // and to the nearest hoop not yet flown   // the arrow to the nearest air lift
@@ -302,7 +304,7 @@ function WorldView({ id }: { id: string }) {
   const [wind, setWind] = useState({ ...initial.wind });
   const [windAuto, setWindAuto] = useState(prefs0.windAuto);   // natural wind: strength and direction drift over time (the dial, the sliders or a double tap take over)
   const altZoom = useRef(1);   // 1 near the ground, down to 0.15 high up (smooth)
-  const [miniScale, setMiniScale] = useState(prefs0.miniScale);   // world tiles per minimap pixel
+  const [miniScale, setMiniScale] = useState(Math.min(prefs0.miniScale, BIG_MAP_SCALE / 2));   // world tiles per minimap pixel (a world never opens on the full-screen map, which stops time)
   const miniDirty = useRef(false);
   const [miniSize, setMiniSize] = useState(prefs0.miniSize);   // minimap size multiplier: 2 (standard) or 3; double tap toggles
   const lastTap = useRef(0);
@@ -538,27 +540,50 @@ function WorldView({ id }: { id: string }) {
     addEventListener('resize', fit);
     let syncAcc = 0;
 
-    // A chunk is drawn in slices (a few rows of tiles at a time, see `stepChunk`): drawing all 256 tiles of one in a single go took 8-17 ms on a phone, a hitch by itself.
+    // A chunk is built in slices (a few rows of tiles at a time, see `stepChunk`), straight into a pixel array: each tile is a 16 x 16 block, already laid over the water
+    // colour, copied row by row. No canvas: drawing tiles on a canvas and reading it back for the 3D view cost a 256 KB read-back per chunk, and the canvases were heavy to free.
+    const CPX = CHUNK * TILE_PX;
+    const tileBlocks = new Map<number, Uint8ClampedArray>();   // (sheet cell, road or not) -> its 16 x 16 pixels over water
+    const blockCv = document.createElement('canvas'); blockCv.width = blockCv.height = TILE_PX;
+    const blockG = blockCv.getContext('2d', { willReadFrequently: true })!; blockG.imageSmoothingEnabled = false;
+    const tileBlock = (col: number, row: number, road: boolean) => {
+      const k = ((col * 256 + row) << 1) | (road ? 1 : 0);
+      let b = tileBlocks.get(k);
+      if (!b) {   // made once per kind of tile, exactly as the chunk canvas used to draw it: water underneath (water and shore tiles are partly see-through), the tile, a road darkened like tarmac
+        const g = blockG; g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, TILE_PX, TILE_PX);
+        if (road) {
+          const t = document.createElement('canvas'); t.width = t.height = TILE_PX; const tg = t.getContext('2d')!; tg.imageSmoothingEnabled = false;
+          tg.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, 0, 0, TILE_PX, TILE_PX);
+          tg.globalCompositeOperation = 'source-atop'; tg.fillStyle = 'rgba(34,32,38,0.68)'; tg.fillRect(0, 0, TILE_PX, TILE_PX);
+          g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, TILE_PX, TILE_PX); g.drawImage(t, 0, 0);
+        } else { g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, TILE_PX, TILE_PX); g.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, 0, 0, TILE_PX, TILE_PX); }
+        b = g.getImageData(0, 0, TILE_PX, TILE_PX).data; tileBlocks.set(k, b);
+      }
+      return b;
+    };
+    const pxPool: Uint8ClampedArray<ArrayBuffer>[] = [];   // pixel arrays of dropped chunks, used again (256 KB each)
+    const freeChunk = (ch: ChunkImg | undefined) => { if (ch && pxPool.length < 24) pxPool.push(ch.src.px); };
+    const dropChunk = (key: number) => { freeChunk(chunks.current.get(key)); chunks.current.delete(key); };
+    /** The flat view's canvas for a chunk, made from its pixels the first time it is drawn. */
+    const chunkCanvas = (ch: ChunkImg) => {
+      if (!ch.cv) { const c = document.createElement('canvas'); c.width = c.height = CPX; c.getContext('2d')!.putImageData(new ImageData(ch.src.px, CPX, CPX), 0, 0); ch.cv = c; }
+      return ch.cv;
+    };
     function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {
-      const c = document.createElement('canvas'); c.width = c.height = CHUNK * TILE_PX;
-      const g = c.getContext('2d', { willReadFrequently: true })!; g.imageSmoothingEnabled = false;   // memory-backed: the 3D view reads the pixels once to make its texture, and a GPU canvas would stall on that read
-      g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, c.width, c.height);   // water underneath: the water and shore tiles are partly see-through, and the 3D view has no flat water backdrop
+      const px = pxPool.pop() ?? new Uint8ClampedArray(CPX * CPX * 4), row = TILE_PX * 4, stride = CPX * 4;
       const decos: Deco[] = [];
-      const road = s.world.kind === 'lakedistrict', roadTile = road ? document.createElement('canvas') : c, rg = road ? ((roadTile.width = roadTile.height = TILE_PX), roadTile.getContext('2d')!) : g;   // (scratch tile for the darkened road sand)
-      if (road) rg.imageSmoothingEnabled = false;
+      const road = s.world.kind === 'lakedistrict';
       const tiles = s.world.chunkDrawn(cx, cy);
       yield;
       for (let j = 0; j < CHUNK; j++) { if (j > 0 && j % 4 === 0) yield; for (let i = 0; i < CHUNK; i++) {
         const x = cx * CHUNK + i, y = cy * CHUNK + j, d = tiles[j * CHUNK + i];
-        if (road && s.world.terrainAt(x, y) === SAND && lakeRoadAt(x, y)) {   // a road: its sand tile, darkened (tarmac), made as the chunk is drawn
-          rg.globalCompositeOperation = 'copy'; rg.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, 0, 0, TILE_PX, TILE_PX);
-          rg.globalCompositeOperation = 'source-atop'; rg.fillStyle = 'rgba(34,32,38,0.68)'; rg.fillRect(0, 0, TILE_PX, TILE_PX);
-          g.drawImage(roadTile, i * TILE_PX, j * TILE_PX);
-        } else g.drawImage(img, d.ground[0] * TILE_PX, d.ground[1] * TILE_PX, TILE_PX, TILE_PX, i * TILE_PX, j * TILE_PX, TILE_PX, TILE_PX);
+        const b = tileBlock(d.ground[0], d.ground[1], road && s.world.terrainAt(x, y) === SAND && !!lakeRoadAt(x, y));
+        for (let r = 0, o = (j * TILE_PX * CPX + i * TILE_PX) * 4; r < TILE_PX; r++, o += stride) px.set(b.subarray(r * row, r * row + row), o);
         if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
       } }
-      return { cv: c, decos };
+      return { src: { px, size: CPX }, decos };
     }
+    const miniCache = new MiniCache();
     const building = new Map<number, Generator<void, ChunkImg>>();
     /** Work on a chunk until `endAt` (ms, performance.now) or until it is done (at least one slice); true when it is finished and stored. */
     const stepChunk = (cx: number, cy: number, endAt: number): boolean => {
@@ -568,7 +593,7 @@ function WorldView({ id }: { id: string }) {
       let r = gen.next();
       while (!r.done && performance.now() < endAt) r = gen.next();
       if (!r.done) return false;
-      chunks.current.set(key, r.value); building.delete(key); return true;
+      freeChunk(chunks.current.get(key)); chunks.current.set(key, r.value); building.delete(key); return true;
     };
 
     // thermals: warm bare ground makes the strongest rising air, water and forest the weakest; heat waves help, cold snaps hurt
@@ -584,7 +609,52 @@ function WorldView({ id }: { id: string }) {
     let flyHeld = false, lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0;
     if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
     const mark = (k: string) => { if (!perf.on) return; const t = performance.now(); perf.ph[k] = (perf.ph[k] ?? 0) + (t - perf.pt); perf.pt = t; };   // (?perf: where the frame's time goes, averaged over 2 s)
-    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, ev: '' }, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
+    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, mini: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }, gpuWait: !/nogpu/.test(location.href), hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
+    let mapWasOpen = false, bigFill: BigMapFill | null = null, uploadBoost = 0;
+    /** One frame of the full-screen map: fill more of it (a few ms), then build and upload the ground round the plane and read chunks for the small minimap, so closing the map finds them ready. */
+    const mapFrame = (scale: number) => {
+      const bc = bigMap.current!, t0 = performance.now(), f = s.flight;
+      const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2)), fx = Math.round(f.x), fy = Math.round(f.y);   // (a map pixel is 2 x 2 screen pixels)
+      const g = bc.getContext('2d')!;
+      if (!bigFill || bigFill.w !== mw || bigFill.h !== mh || bigFill.scale !== scale || bigFill.x !== fx || bigFill.y !== fy) {
+        bc.width = mw; bc.height = mh; bigFill = { w: mw, h: mh, scale, x: fx, y: fy, row: 0, img: g.createImageData(mw, mh) };
+        bigFill.img.data.fill(10); for (let o = 3; o < bigFill.img.data.length; o += 4) bigFill.img.data[o] = 255;
+      }
+      const B = bigFill, d = B.img.data, row0 = B.row;
+      while (B.row < mh && performance.now() - t0 < 6) {   // a few rows at a time: a chunk the small minimap already read is used as it is, the rest is sampled point by point
+        const j = B.row++, y = Math.floor(fy + (j - mh / 2) * scale), cy = chunkOf(y);
+        let lastKey = NaN, seen = false, terr: Uint8Array | undefined;
+        for (let i = 0; i < mw; i++) {
+          const x = Math.floor(fx + (i - mw / 2) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * mw + i) * 4;
+          if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; }
+          if (!seen) continue;
+          const c = MINI_RGB[terr ? terr[(y - cy * CHUNK) * CHUNK + (x - cx * CHUNK)] as Terrain : s.world.mapSample(x, y)];
+          d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2];
+        }
+      }
+      if (B.row > row0 || row0 === 0) {
+        g.putImageData(B.img, 0, 0);
+        const px = mw / 2, py = mh / 2, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;   // the plane
+        g.beginPath(); g.moveTo(px + dx * 7, py + dy * 7); g.lineTo(px - dx * 4 + qx * 4.5, py - dy * 4 + qy * 4.5); g.lineTo(px - dx * 1.5, py - dy * 1.5); g.lineTo(px - dx * 4 - qx * 4.5, py - dy * 4 - qy * 4.5); g.closePath();
+        g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
+        if (B.row < mh) { g.fillStyle = '#ffd54f'; g.fillRect(0, mh - 2, Math.round(mw * B.row / mh), 2); }   // (how far the filling has got)
+      }
+      // the ground round the plane, nearest first: built, then (3D view) uploaded, a few ms each
+      const pcx = chunkOf(f.x), pcy = chunkOf(f.y), R = s.world.kind === 'lakedistrict' ? 4 : 7, ring: GroundChunk[] = [];
+      const near: [number, number][] = [];
+      for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (Math.hypot(cx - pcx, cy - pcy) <= R + 0.5) near.push([cx, cy]);
+      near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
+      const t1 = performance.now();
+      for (const [cx, cy] of near) { if (performance.now() - t1 > 6) break; const ch = chunks.current.get(tileKey(cx, cy)); if (!ch || ch.stale) stepChunk(cx, cy, t1 + 6); }
+      if (glr) { for (const [cx, cy] of near) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) ring.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); } glr.preload(ring, CHUNK, 4); }
+      // the small minimap's chunks round the plane (out to what its widest zoom shows), so it is whole when the map closes
+      const t2 = performance.now(), MR = Math.ceil(52 * (BIG_MAP_SCALE / 2) / CHUNK) + 1;
+      for (let r = 0; r <= MR && performance.now() - t2 < 3; r++) for (let cy = pcy - r; cy <= pcy + r; cy++) for (let cx = pcx - r; cx <= pcx + r; cx++) {
+        if (Math.max(Math.abs(cx - pcx), Math.abs(cy - pcy)) !== r) continue;   // (ring by ring, nearest first)
+        const key = tileKey(cx, cy);
+        if (s.explored.has(key) && !miniCache.terr.has(key) && performance.now() - t2 < 3) miniCache.terr.set(key, s.world.chunkTerrain(cx, cy));
+      }
+    };
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       { const cap = live.current.fpsCap; if (cap > 0 && now - lastRunAt < 1000 / cap - 2) return; lastRunAt = now; }   // (the frame cap: a steady 30 feels smoother than a 22-40 that keeps jumping)
@@ -592,8 +662,8 @@ function WorldView({ id }: { id: string }) {
       if (perf.on) {
         const gp = perf.lastNow ? now - perf.lastNow : 0;
         if (gp > 0) perf.gap = Math.max(perf.gap, gp);
-        if (gp > 100) { const o = perf.f; perf.hitches.unshift(`${gp.toFixed(0)}ms w${o.work.toFixed(0)} ch${o.build.toFixed(0)}/${o.built} gr${o.ground.toFixed(0)} sv${o.persist.toFixed(0)} mk${(glr?.oneMs ?? 0).toFixed(0)} gpu${o.gpu.toFixed(0)}${o.ev} @${(now / 1000).toFixed(1)}s`); perf.hitches.length = Math.min(perf.hitches.length, 5); }   // (the gap before this frame: what the frame before it was doing)
-        perf.f = { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, ev: '' }; if (glr) glr.oneMs = 0;
+        if (gp > 100) { const o = perf.f; perf.hitches.unshift(`${gp.toFixed(0)}ms w${o.work.toFixed(0)} ch${o.build.toFixed(0)}/${o.built} gr${o.ground.toFixed(0)} sv${o.persist.toFixed(0)} mk${(glr?.oneMs ?? 0).toFixed(0)} up${glr?.oneN ?? 0} mi${o.mini.toFixed(1)} gpu${o.gpu.toFixed(0)}${o.ev} @${(now / 1000).toFixed(1)}s`); perf.hitches.length = Math.min(perf.hitches.length, 5); }   // (the gap before this frame: what the frame before it was doing)
+        perf.f = { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }; if (glr) { glr.oneMs = 0; glr.oneN = 0; }
         perf.lastNow = now; perf.pt = performance.now(); perf.n++;
       }
       syncAcc += 1;
@@ -601,6 +671,10 @@ function WorldView({ id }: { id: string }) {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       const L = live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
+      // the full-screen map (minimap zoom 3 to 5): time stops, nothing is drawn behind it, and the frame goes on filling the map and building the ground round the plane instead
+      { const open = L.miniScale >= BIG_MAP_SCALE && !!bigMap.current;
+        if (open) { mapFrame(L.miniScale); workMs += performance.now() - w0; workN++; mapWasOpen = true; return; }
+        if (mapWasOpen) { mapWasOpen = false; bigFill = null; miniDirty.current = true; uploadBoost = 90; } }
       const simDt = L.paused ? 0 : dt;   // the world's own clock: everything that lives in it (the plane, the beavers, the weather, the score) runs on this; the camera and the menus go on with the real one
       // the 3D view (WebGL) takes over while tilt or the behind-plane view is on; the flat canvas stays for everything else
       const camEff: CamMode = L.mode === 'glide' && !glFailed && L.tool === 'fly' ? L.camMode : 'chase';   // (the free view and the flyby are for the glider, in the 3D view)
@@ -956,7 +1030,7 @@ function WorldView({ id }: { id: string }) {
         if (key !== actKey.current) { actKey.current = key; const a: Act = { dam: n, bush, beaver: bv ? { id: bv.id, sex: bv.sex, full: bv.full > 0, trust } : null }; actRef.current = a; setAct(a); }
       }
       mark('before'); s.eco.step(simDt); s.eco.easeClouds(simDt); mark('eco');                                                              // the world keeps living while you fly
-      for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; }   // keep showing the old picture until the new one is ready
+      for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
       s.eco.dirty.clear();
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
         lastStrike = b.id;
@@ -976,7 +1050,7 @@ function WorldView({ id }: { id: string }) {
       mark('camera');
       // ground: chunks that never existed are built first, then changed ones, within ~6 ms a frame (at least one);
       // a changed chunk keeps its old picture on screen meanwhile, so nothing flashes
-      const decos: Deco[] = [], glChunks: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[] = [];
+      const decos: Deco[] = [], glChunks: GroundChunk[] = [];
       const missing: [number, number][] = [], stale: [number, number][] = [];
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (!chunkVis(cx, cy)) continue;
@@ -995,8 +1069,13 @@ function WorldView({ id }: { id: string }) {
       if (glr) { let cover = Infinity; for (const [cx, cy] of missing) if (!chunks.current.has(tileKey(cx, cy))) cover = Math.min(cover, Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) - CHUNK); glr.cover = Math.min(Math.max(0, cover), glr.capD); }   // (the far mesh covers the ground whose chunks are not built yet: no gap between the chunks and the far hills)
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
       if (f.mode === 'glide' && useGL && performance.now() - t0 < 3) {
-        const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [];
-        for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (!chunks.current.has(tileKey(cx, cy))) near.push([cx, cy]);
+        // (only the ring right round the plane and a wedge ahead of it, 60 degrees either side of the course: what is behind is not where a throw or a landing looks)
+        const R = s.world.kind === 'lakedistrict' ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
+        for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) {
+          const dx = cx - pcx, dy = cy - pcy, dd = Math.hypot(dx, dy);
+          if (dd > R + 0.5 || dd > 1.5 && (dx * hx + dy * hy) / dd < 0.5) continue;
+          if (!chunks.current.has(tileKey(cx, cy))) near.push([cx, cy]);
+        }
         near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
         for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
       }
@@ -1004,15 +1083,15 @@ function WorldView({ id }: { id: string }) {
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (!chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
-        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, cv: ch.cv }); else g.drawImage(ch.cv, ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
+        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); else g.drawImage(chunkCanvas(ch), ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
       }
       if (chunks.current.size > (cx1 - cx0 + 1) * (cy1 - cy0 + 1) * 3) {                // drop the far chunks; they rebuild exactly from the seed
-        for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) chunks.current.delete(key); }
+        for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) dropChunk(key); }
       }
       const heldCap = Math.max(240, Math.ceil(glChunks.length * 1.25) + 40);   // (never fewer than what is on screen, or they would be dropped and rebuilt every frame)
       if (chunks.current.size > heldCap) {   // a hard cap: every chunk's picture is 256 KB of memory, and a phone has to hold the GPU copies as well; the farthest from the plane go first
         const far = [...chunks.current.keys()].sort((a, b) => Math.hypot(keyX(b) - chunkOf(f.x), keyY(b) - chunkOf(f.y)) - Math.hypot(keyX(a) - chunkOf(f.x), keyY(a) - chunkOf(f.y)));
-        for (const k of far.slice(0, chunks.current.size - (heldCap - 40))) chunks.current.delete(k);
+        for (const k of far.slice(0, chunks.current.size - (heldCap - 40))) dropChunk(k);
       }
 
       // shared by both views: the plane's state, thermals, the sky's drift
@@ -1151,6 +1230,8 @@ function WorldView({ id }: { id: string }) {
         { G.setHour(s.hour); const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders;
         G.begin();
+        if (uploadBoost > 0) uploadBoost--;
+        G.uploadMax = frames < 150 || aim.current.on || uploadBoost > 0 ? 6 : frameEma < 0.02 ? 2 : 1;   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
         { const g0 = performance.now(); G.ground(glChunks, CHUNK); if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
         if (++glFrames % 40 === 0) G.prune(k => chunks.current.has(k));
 
@@ -1374,7 +1455,7 @@ function WorldView({ id }: { id: string }) {
           }
         }
         G.end();
-        mark('hoops-model-end'); if (perf.on) { perf.f.gpu = G.gpuWaitMs(); perf.gpu = Math.max(perf.gpu, perf.f.gpu); mark('gpuwait'); }   // (it makes the frame wait for the GPU, so the readout itself slows things down a little)
+        mark('hoops-model-end'); if (perf.on && perf.gpuWait) { perf.f.gpu = G.gpuWaitMs(); perf.gpu = Math.max(perf.gpu, perf.f.gpu); mark('gpuwait'); }   // (it makes the frame wait for the GPU, so the readout itself slows things down a little; ?perf=nogpu leaves it out)
         pp = G.projectAgl(f.x, f.y, hP) ?? pp; pg = G.projectAgl(shx, shy, 0) ?? pg; planeY.current = pp[1];
       } else {
       // the river lines the clouds are drawn to (a debug view in Android, a toggle here)
@@ -1745,19 +1826,20 @@ function WorldView({ id }: { id: string }) {
           dogHud.current.style.display = on ? 'block' : 'none';
         }
       }
-      // HUD numbers 4x a second, the minimap when we moved or the world changed
+      // HUD numbers 4x a second, the minimap when we moved or the world changed (on a frame that built or uploaded no chunk, unless it has waited a second)
       hudAcc += dt; miniAcc += dt; saveAcc += dt;
       if (hudAcc >= 0.25) {
         hudAcc = 0;
         hudRef.current = { landed: glide && gl.landed, ms: workN ? Math.round((workMs / workN) * 10) / 10 : 0, hour: s.hour, temp: s.eco.temperature, weather: s.eco.weather?.kind ?? null, x: Math.round(f.x), y: Math.round(f.y), layer: Math.round(layer * 10) / 10, clouds: s.eco.clouds.length, water: s.eco.waterTiles, fps, biome: s.world.biomeOf(Math.round(f.x), Math.round(f.y)).id };
         workMs = 0; workN = 0;
       }
-      if (mini.current && (miniDirty.current || miniAcc > 0.15 && Math.abs(Math.atan2(Math.sin(f.course - lastMiniH), Math.cos(f.course - lastMiniH))) > 0.12 || miniAcc > 0.4 && (Math.hypot(f.x - lastMini.x, f.y - lastMini.y) >= 4 || miniAcc > 2))) {   // at most 2.5 times a second
+      if (mini.current && (miniAcc > 1 || built === 0 && (!useGL || !glr || glr.lastMade === 0)) && (miniDirty.current || miniAcc > 0.15 && Math.abs(Math.atan2(Math.sin(f.course - lastMiniH), Math.cos(f.course - lastMiniH))) > 0.12 || miniAcc > 0.4 && (Math.hypot(f.x - lastMini.x, f.y - lastMini.y) >= 4 || miniAcc > 2))) {   // at most 2.5 times a second
          miniDirty.current = false; miniAcc = 0; lastMini = { x: f.x, y: f.y }; lastMiniH = f.course; {
           const span = 52 * L.miniScale, marks: MiniMark[] = [];   // the hoops (gold, green once flown) and, in the glider, the thermals (hot air, orange) that are on the little map
           if (L.miniHoops) for (const hp of hoopsIn(s.world.seed, f.x - span, f.y - span, f.x + span, f.y + span)) marks.push({ x: hp.x, y: hp.y, kind: hoopsDone.has(hp.key) ? 'done' : 'hoop', r: hp.r });
           if (glide && L.hints && L.miniHeat) for (const th of thermalsIn(thermalEnv(), f.x - span, f.y - span, f.x + span, f.y + span, gl.t, 0)) if (th.w > 0.3) marks.push({ x: th.x, y: th.y, kind: 'heat', r: th.r });
-          drawMinimap(mini.current, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks); }
+          const m0 = performance.now(); if (drawMinimap(mini.current, miniCache, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks)) miniDirty.current = true;   // (true: some chunks were left for the next draw)
+          if (perf.on) { perf.f.mini = performance.now() - m0; perf.mini = Math.max(perf.mini, perf.f.mini); } }
         }
       mark('overlay');
       { const fl = f.mode === 'glide' && !gl.landed; if (fl !== flyHeld) { flyHeld = fl; holdSync(fl); if (!fl && saveAcc >= 10) saveAcc = 45; } }   // (in flight the cloud sync waits and the periodic save is put off: both come when the plane lands)
@@ -1769,7 +1851,7 @@ function WorldView({ id }: { id: string }) {
           const avg = Object.entries(perf.ph).map(([k, v]) => `${k} ${(v / Math.max(1, perf.n)).toFixed(1)}`);
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
-            `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}`,
+            `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
             `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)`,
             `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)`,
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
@@ -1779,7 +1861,7 @@ function WorldView({ id }: { id: string }) {
           ].filter(Boolean).join('\n');
           (window as unknown as { __instMs?: number }).__instMs = 0;
           perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
-          perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
+          perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = perf.mini = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
         }
         (window as unknown as { __perfTxt?: string }).__perfTxt = perf.txt;
         ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `8px ${PXF}`; ctx.fillStyle = '#0009'; const lines = [...perf.txt.split('\n'), ...perf.hitches.map(h => '! ' + h)]; ctx.fillRect(4, H / 2 - 12, Math.min(W - 8, 400), 14 + lines.length * 11); ctx.fillStyle = '#fff'; lines.forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 11)); ctx.restore();
@@ -2128,6 +2210,17 @@ function WorldView({ id }: { id: string }) {
           </div>
           </div>
         </PixelFrame>
+      )}
+      {miniScale >= BIG_MAP_SCALE && (
+        <div className="world-bigmap" role="dialog" aria-label={t('worldMap')}>
+          <canvas ref={bigMap} className="world-bigmap-cv" aria-label={t('worldMap')} role="img" />
+          <div className="world-bigmap-bar">
+            <PixelFrame theme="green_ornate" scale={1} className="wui-banner">{t('paused')}</PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomIn')} onClick={() => setMiniScale(v => Math.max(1, v / 2))}><Icon name="symbol_plus" size={16} alt="" /></PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setMiniScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
+            <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('close')} onClick={() => setMiniScale(BIG_MAP_SCALE / 2)}><Icon name="symbol_cross" size={16} alt="" /></PixelFrame>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2606,7 +2699,17 @@ const CONE = (80 * Math.PI) / 180;
 const inCone = (f: Flight, x: number, y: number) => Math.abs(Math.atan2(Math.sin(Math.atan2(-(y - f.y), x - f.x) - f.course), Math.cos(Math.atan2(-(y - f.y), x - f.x) - f.course))) <= CONE;
 
 interface MiniMark { x: number; y: number; kind: 'hoop' | 'done' | 'heat'; r: number }
-function drawMinimap(cv: HTMLCanvasElement, world: World, explored: Set<number>, f: Flight, cx0: number, cx1: number, cy0: number, cy1: number, scale: number, marks: MiniMark[] = []) {
+/** The minimap's memory: each explored chunk's 16 x 16 terrain, read once (the eco marks a changed chunk and it is read again), and one image reused for every draw. */
+class MiniCache { terr = new Map<number, Uint8Array>(); img: ImageData | null = null; }
+const MINI_RGB: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
+const MINI_NEW_MAX = 24;   // chunks read per draw at most (a big jump of the map fills in over a few draws, not one long frame)
+const MINI_NEW_MS = 2;   // ...and for at most this long
+/** Minimap zoom (tiles per pixel) from which the map opens full screen and time stops (zoom steps 3 to 5): one pixel is a quarter chunk or more, far too many chunks to read while flying. */
+const BIG_MAP_SCALE = 4;
+/** The full-screen map's state: filled a few rows a frame, from the plane's spot at the time it opened. */
+interface BigMapFill { w: number; h: number; scale: number; x: number; y: number; row: number; img: ImageData }
+/** Draw the minimap; true when some chunks were not read yet and it should be drawn again soon. */
+function drawMinimap(cv: HTMLCanvasElement, cache: MiniCache, world: World, explored: Set<number>, f: Flight, cx0: number, cx1: number, cy0: number, cy1: number, scale: number, marks: MiniMark[] = []): boolean {
   if (world.kind === 'lakedistrict') {   // the whole map, shrunk to fit (see lakeOverview), with the plane on it
     const ov = lakeOverview(), g = cv.getContext('2d')!;
     if (ov) {
@@ -2615,18 +2718,32 @@ function drawMinimap(cv: HTMLCanvasElement, world: World, explored: Set<number>,
       const px = ox + (f.x + (ov.width >> 1) + 0.5) * k, py = oy + (f.y + (ov.height >> 1) + 0.5) * k, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;
       g.beginPath(); g.moveTo(px + dx * 6, py + dy * 6); g.lineTo(px - dx * 3.5 + qx * 3.5, py - dy * 3.5 + qy * 3.5); g.lineTo(px - dx * 1.2, py - dy * 1.2); g.lineTo(px - dx * 3.5 - qx * 3.5, py - dy * 3.5 - qy * 3.5); g.closePath();
       g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
-      return;
+      return false;
     }
   }
-  const g = cv.getContext('2d')!, img = g.createImageData(100, 100), d = img.data;
-  const rgb: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
-  for (let j = 0; j < 100; j++) for (let i = 0; i < 100; i++) {
-    const x = Math.round(f.x) + (i - 50) * scale, y = Math.round(f.y) + (j - 50) * scale, o = (j * 100 + i) * 4;
-    const seen = explored.has(tileKey(chunkOf(x), chunkOf(y)));
+  const g = cv.getContext('2d')!;
+  if (!cache.img) cache.img = g.createImageData(100, 100);
+  const img = cache.img, d = img.data, fx = Math.round(f.x), fy = Math.round(f.y), t0 = performance.now();
+  if (cache.terr.size > 6000) cache.terr.clear();   // (a long flight: forget it all rather than grow without end)
+  const direct = scale >= CHUNK / 2;   // (zoomed far out a chunk is a pixel or two: read those tiles straight, reading whole chunks would be far more work)
+  let made = 0, left = false, lastKey = NaN, seen = false, terr: Uint8Array | null | undefined = null, near = false, bx = 0, by = 0;
+  for (let j = 0; j < 100; j++) { const y = Math.floor(fy + (j - 50) * scale), cy = chunkOf(y); for (let i = 0; i < 100; i++) {
+    const x = Math.floor(fx + (i - 50) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * 100 + i) * 4;
+    if (key !== lastKey) {   // (the same chunk for many pixels in a row: looked up once)
+      lastKey = key; bx = cx * CHUNK; by = cy * CHUNK; seen = explored.has(key); terr = null;
+      if (seen && !direct) {
+        terr = cache.terr.get(key);
+        if (!terr) {
+          if (made < MINI_NEW_MAX && (made === 0 || performance.now() - t0 < MINI_NEW_MS)) { made++; terr = world.chunkTerrain(cx, cy); cache.terr.set(key, terr); }
+          else { left = true; seen = false; }
+        }
+      }
+      near = cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1;
+    }
     if (!seen) { d[o] = d[o + 1] = d[o + 2] = 10; d[o + 3] = 255; continue; }
-    const c = rgb[world.terrainAt(x, y)], near = chunkOf(x) >= cx0 && chunkOf(x) <= cx1 && chunkOf(y) >= cy0 && chunkOf(y) <= cy1, k = near ? 1 : 0.55;
+    const c = MINI_RGB[terr ? terr[(y - by) * CHUNK + (x - bx)] as Terrain : world.mapSample(x, y)], k = near ? 1 : 0.55;
     d[o] = c[0] * k; d[o + 1] = c[1] * k; d[o + 2] = c[2] * k; d[o + 3] = 255;
-  }
+  } }
   g.putImageData(img, 0, 0);
   for (const m of marks) {
     const i = (m.x - f.x) / scale + 50, j = (m.y - f.y) / scale + 50;
@@ -2637,6 +2754,7 @@ function drawMinimap(cv: HTMLCanvasElement, world: World, explored: Set<number>,
   const dx = Math.cos(f.heading), dy = -Math.sin(f.heading), px = -dy, py = dx;   // the plane: an arrow pointing the way it flies (north is up)
   g.beginPath(); g.moveTo(50 + dx * 7, 50 + dy * 7); g.lineTo(50 - dx * 4 + px * 4.5, 50 - dy * 4 + py * 4.5); g.lineTo(50 - dx * 1.5, 50 - dy * 1.5); g.lineTo(50 - dx * 4 - px * 4.5, 50 - dy * 4 - py * 4.5); g.closePath();
   g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
+  return left;
 }
 
 /** Warm what a world needs (sprites, plane model, the tile sheet) so opening one from Home does not wait on them. */

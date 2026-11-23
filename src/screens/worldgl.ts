@@ -320,6 +320,12 @@ export interface CameraSpec {
 
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }
 
+/** A chunk's ground picture as raw RGBA pixels, `size` x `size`. A new object whenever the chunk is drawn again (that is how the texture knows to update). */
+export interface ChunkPx { px: Uint8ClampedArray<ArrayBuffer>; size: number }
+export interface GroundChunk { key: number; cx: number; cy: number; src: ChunkPx }
+const TEX_POOL = 48;   // spare chunk textures kept to be written over
+const TEX_KEEP = 200;   // chunk textures kept at most (the longest unseen go first; ~350 KB each with mipmaps)
+
 export class WorldGL {
   private fpvK = 0;
   private noFog = false;
@@ -342,7 +348,13 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { cv: HTMLCanvasElement; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject; used?: number }>();
+  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject; used?: number }>();
+  /** Chunk textures no chunk is using, kept to be written over: making and freeing textures as you fly makes the driver stall, writing into one that exists does not. */
+  private texPool: WebGLTexture[] = [];
+  /** How many chunk textures one frame may upload at most (also stops at ~3 ms). The upload and its mipmaps mostly cost GPU time the frame's own timers cannot see, so it is a count, set by the game: a few while the screen first fills, then one or two. */
+  uploadMax = 2;
+  /** (how many chunk textures the last ground() call uploaded: the game puts other occasional work, the minimap, on a quieter frame) */
+  lastMade = 0;
   private groundFrames = 0;   // (counts the ground draws: a chunk's GPU copy that has not been drawn for a few seconds is freed)
   /** Ground height in tiles under a point (a hilly world: the Lake District); null = flat ground at 0. Set it before the first frame. */
   terrain: ((x: number, y: number) => number) | null = null;
@@ -390,7 +402,7 @@ export class WorldGL {
   /** The draw distance setting: 1 = the usual cap (320 tiles) on how far the ground is drawn when the horizon is in view. */
   drawK = 1;
   /** (the ?perf readout: the longest time one frame spent making new chunk textures and meshes, and how many it made) */
-  madeMs = 0; madeN = 0; oneMs = 0;
+  madeMs = 0; madeN = 0; oneMs = 0; oneN = 0;
   private gbuf: Float32Array | null = null; private gdrawn: WebGLTexture[] = [];   // (the flat chunks' quads, all at once)
   /** On foot: how far the real chunks reach, as a multiple of the usual 200 tiles (the options slider). */
   walkK = 1;
@@ -796,7 +808,7 @@ export class WorldGL {
   }
 
   /** Draw the chunks (each a ground-sized quad textured with its canvas). New or rebuilt canvases are uploaded once. */
-  ground(list: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }[], chunkTiles: number) {
+  ground(list: GroundChunk[], chunkTiles: number) {
     const gl = this.gl;
     this.groundFrames++;
     if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHoleMax, this.coverSm * 0.9 + 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
@@ -807,14 +819,15 @@ export class WorldGL {
     // a new chunk costs a texture (read back, uploaded, mip-mapped) and, on hills, a mesh: far too much for one frame when a lot come in at once (flying fast, a camera jump).
     // So only a few are made each frame, the nearest first (at least one, then while ~3 ms last); the rest are skipped this frame and drawn once their turn comes.
     let pending: typeof list | null = null;
-    for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || ent.cv !== c.cv || (this.terrain && !ent.vao)) (pending ??= []).push(c); }
+    for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || ent.src !== c.src || (this.terrain && !ent.vao)) (pending ??= []).push(c); }
     let made = 0;
+    this.lastMade = 0;
     if (pending) {
       const ex = this.eye[0], ey = this.eye[1];
       pending.sort((a, b) => Math.hypot((a.cx + 0.5) * chunkTiles - ex, (a.cy + 0.5) * chunkTiles - ey) - Math.hypot((b.cx + 0.5) * chunkTiles - ex, (b.cy + 0.5) * chunkTiles - ey));
       const t0 = performance.now();
-      for (const c of pending) { if (made > 0 && performance.now() - t0 > 3) break; made++; const e0 = performance.now(); this.ensureChunk(c, chunkTiles); this.oneMs = Math.max(this.oneMs, performance.now() - e0); }
-      this.madeMs = Math.max(this.madeMs, performance.now() - t0); this.madeN += made;
+      for (const c of pending) { if (made > 0 && (made >= this.uploadMax || performance.now() - t0 > 3)) break; made++; const e0 = performance.now(); this.ensureChunk(c, chunkTiles); this.oneMs = Math.max(this.oneMs, performance.now() - e0); }
+      this.madeMs = Math.max(this.madeMs, performance.now() - t0); this.madeN += made; this.oneN += made; this.lastMade = made;
     }
     if (this.terrain) {
       for (const c of list) {
@@ -847,13 +860,11 @@ export class WorldGL {
   }
 
   /** Make (or remake, when the chunk's picture was redrawn) a chunk's texture; the mesh of a hilly chunk is built by its first draw. */
-  private ensureChunk(c: { key: number; cx: number; cy: number; cv: HTMLCanvasElement }, chunkTiles: number) {
-    const gl = this.gl; let ent = this.chunkTex.get(c.key);
-    if (!ent || ent.cv !== c.cv) {
-      if (ent) gl.deleteTexture(ent.tex);
-      ent = { cv: c.cv, tex: this.makeTexture(c.cv, true), mesh: ent?.mesh, vao: ent?.vao };
-      this.chunkTex.set(c.key, ent);
-    }
+  private ensureChunk(c: GroundChunk, chunkTiles: number) {
+    let ent = this.chunkTex.get(c.key);
+    if (!ent) { ent = { src: c.src, tex: this.chunkTexture(c.src, null) }; this.chunkTex.set(c.key, ent); }
+    else if (ent.src !== c.src) { this.chunkTexture(c.src, ent.tex); ent.src = c.src; }   // (a changed chunk is written into its own texture)
+
     if (this.terrain && !ent.vao) this.prepTerrain(c, ent, chunkTiles);
   }
 
@@ -939,9 +950,46 @@ export class WorldGL {
   /** (the ?perf readout) how many chunk textures are held on the GPU */
   get texCount() { return this.chunkTex.size; }
 
-  /** Free the textures of chunks that are gone. */
+  /** Upload chunk textures (and hill meshes) ahead of drawing them, nearest first as given, for up to `ms`: the big map keeps the ground ready while time stands still. */
+  preload(list: GroundChunk[], chunkTiles: number, ms: number) {
+    const t0 = performance.now();
+    for (const c of list) {
+      if (performance.now() - t0 > ms) break;
+      const ent = this.chunkTex.get(c.key);
+      if (ent && ent.src === c.src && (!this.terrain || ent.vao)) { ent.used = this.groundFrames; continue; }
+      this.ensureChunk(c, chunkTiles); const e2 = this.chunkTex.get(c.key); if (e2) e2.used = this.groundFrames;
+    }
+  }
+
+  /** A chunk's pixels into a texture: `into`, or one from the pool, or a new one (storage made once, at the chunk's size, with room for its mipmaps). */
+  private chunkTexture(src: ChunkPx, into: WebGLTexture | null) {
+    const gl = this.gl, n = src.size;
+    let tex = into ?? this.texPool.pop() ?? null;
+    if (!tex) {
+      tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, Math.floor(Math.log2(n)) + 1, gl.RGBA8, n, n);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);   // (blocky when close, smooth when far: see makeTexture)
+      const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+      if (ext && this.aniso > 1) gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, this.aniso);
+    } else gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, src.px);   // (raw pixels straight from the chunk: no canvas to read back)
+    gl.generateMipmap(gl.TEXTURE_2D);
+    return tex;
+  }
+
+  /** Let go of the textures of chunks that are gone, and of the longest unseen ones when too many are kept; they go back to the pool to be written over. */
   prune(has: (key: number) => boolean) {
-    for (const [k, e] of this.chunkTex) if (!has(k) || this.groundFrames - (e.used ?? this.groundFrames) > 240) { this.gl.deleteTexture(e.tex); if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k); }
+    const drop = (k: number, e: { tex: WebGLTexture; mesh?: WebGLBuffer; vao?: WebGLVertexArrayObject }) => {
+      if (this.texPool.length < TEX_POOL) this.texPool.push(e.tex); else this.gl.deleteTexture(e.tex);
+      if (e.mesh) this.gl.deleteBuffer(e.mesh); if (e.vao) this.gl.deleteVertexArray(e.vao); this.chunkTex.delete(k);
+    };
+    for (const [k, e] of this.chunkTex) if (!has(k) || this.groundFrames - (e.used ?? this.groundFrames) > 900) drop(k, e);   // (unseen for ~15 s: turning round soon after finds it still there, no upload)
+    if (this.chunkTex.size > TEX_KEEP) {
+      const old = [...this.chunkTex].sort((a, b) => (a[1].used ?? 0) - (b[1].used ?? 0));
+      for (const [k, e] of old.slice(0, this.chunkTex.size - TEX_KEEP)) if (e.used !== this.groundFrames) drop(k, e);
+    }
   }
 
   /** A quad from its centre and two half-axes (world vectors), textured with `uv`, tinted `rgba`. */
@@ -1091,6 +1139,7 @@ export class WorldGL {
   dispose() {
     const gl = this.gl; this.disposed = true;
     for (const e of this.chunkTex.values()) { gl.deleteTexture(e.tex); if (e.mesh) gl.deleteBuffer(e.mesh); if (e.vao) gl.deleteVertexArray(e.vao); }
+    for (const t of this.texPool) gl.deleteTexture(t); this.texPool.length = 0;
     this.chunkTex.clear(); this.setFar(null); gl.deleteTexture(this.atlasTex); gl.deleteBuffer(this.vbo); gl.deleteBuffer(this.ibo); gl.deleteProgram(this.prog); this.freePost();
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
