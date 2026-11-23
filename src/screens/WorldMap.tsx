@@ -41,6 +41,7 @@ import { fpvAttitude, fpvBasis, fpvEase, type FpvAtt, MIN_EYE_H, duelLine, duelP
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import { newSas, nextSasMode, stepSas, type SasMode } from '../domain/sas';
+import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
 import { STEP_KINDS, defaultStep, deleteSelected, loadPatterns, resetPatterns, stamped, savePatterns, startManeuver, stepManeuver, stepUnit, type Maneuver, type MCtl, type Pattern, type PatternStore } from '../domain/maneuver';
 import { endDogfight, foeBearing, shotTolerance, sliderPos, startDogfight, stepDog, tapShot, type Dog, type DogEvent, type SliderSpec } from '../domain/dogfight';
 import './world.css';
@@ -489,6 +490,17 @@ function WorldView({ id }: { id: string }) {
     addEventListener('keydown', esc);
     return () => { removeEventListener('wheel', wheel); removeEventListener('pointermove', move); removeEventListener('pointerdown', move); removeEventListener('pointerdown', press); removeEventListener('pointerup', lift); removeEventListener('pointercancel', lift); removeEventListener('keydown', esc); };
   }, []);
+  // gamepad: left stick pitch + roll (walks on foot), right stick yaw (looks round on foot), L3 run; A throws / boosts, X interact, Y camera, LB autopilot, RB pattern, Back dog, Start pauses
+  const padPrev = useRef<ReadonlySet<number>>(new Set()), padPressRef = useRef((_b: number) => {});
+  padPressRef.current = (b: number) => {
+    if (b === PAD.A) throwRef.current();
+    else if (b === PAD.X) interactRef.current();
+    else if (b === PAD.Y) cycleCamRef.current();
+    else if (b === PAD.RB) patternRef.current();
+    else if (b === PAD.LB) cycleSasRef.current();
+    else if (b === PAD.BACK) dogToggleRef.current();
+    else if (b === PAD.START) setPaused(p => !p);
+  };
   // keyboard: arrows / WASD fly (in glide: W/S pitch, A/D roll, Q/E yaw, Space throws), Q / E lower / raise the plane otherwise, P pauses
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -731,12 +743,14 @@ function WorldView({ id }: { id: string }) {
       }
       if (fpsAcc >= 1) { fps = frames; frames = 0; fpsAcc = 0; }
 
-      // input: joystick or keys
-      let dx = stick.current.dx, dy = stick.current.dy;
+      // input: joystick, gamepad or keys
+      const pd = typeof navigator !== 'undefined' && navigator.getGamepads ? readPad(pickPad(navigator.getGamepads())) : NO_PAD;
+      if (pd.active || padPrev.current.size) { const ev = padEdges(padPrev.current, pd.down); padPrev.current = pd.down; for (const b of ev.pressed) padPressRef.current(b); if (ev.released.includes(PAD.A)) releaseAim(); }
+      let dx = stick.current.dx + pd.lx, dy = stick.current.dy + pd.ly;
       const k = keys.current;
       if (k.size) { dx += (k.has('arrowright') || k.has('d') ? 1 : 0) - (k.has('arrowleft') || k.has('a') ? 1 : 0); dy += (k.has('arrowdown') || k.has('s') ? 1 : 0) - (k.has('arrowup') || k.has('w') ? 1 : 0); }
       if (rot !== 0 && f.mode !== 'glide') { const sx = dx, sy = dy; dx = sx * Math.cos(rot) + sy * Math.sin(rot); dy = -sx * Math.sin(rot) + sy * Math.cos(rot); }   // the stick points on the screen, the plane flies in the world
-      const climb = (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0);                   // E up (lower layer number), Q down
+      const climb = (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) - pd.ry;                   // E up (lower layer number), Q down
       if (climb && f.mode !== 'glide') { const np = Math.max(-45, Math.min(45, f.pitch + climb * 40 * dt)); f.pitch = np; setPitch(Math.round(np * 10) / 10); }
       if (!L.paused) s.hour = advanceHour(s.hour, dt);
       const gl = s.glider;
@@ -761,15 +775,15 @@ function WorldView({ id }: { id: string }) {
           const R = ACRO_R, dz = (a: number) => (Math.abs(a) < 0.08 ? 0 : Math.max(-1, Math.min(1, a)));
           for (const d of dual.current.values()) { const ax = dz((d.x - d.x0) / R), ay = dz((d.y - d.y0) / R); if (d.side === 'L') dyaw = ax; else { mx = ax; my = ay; } }
         }
-        const pull = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0) + stick.current.dy + my;
-        const roll = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + stick.current.dx + mx;
-        const yaw = Math.max(-1, Math.min(1, (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) + dyaw + yawStick.current.dx));
+        const pull = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0) + stick.current.dy + pd.ly + my;
+        const roll = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + stick.current.dx + pd.lx + mx;
+        const yaw = Math.max(-1, Math.min(1, (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) + dyaw + yawStick.current.dx + (gl.landed ? 0 : pd.rx)));
         if (aim.current.on && gl.landed) { aim.current.t += dt; gl.psi -= Math.max(-1, Math.min(1, roll + aim.current.dx)) * 2.2 * dt; gl.z = launchHeight(upRef.current.launch); }   // holding the plane up at the launch height (1 m on the ground, higher with the shop's launchers), turning it to where it will go
         // landed: the plane turns into the bobr, who walks about in first person (W / S forward and back, A / D turn, Q / E sidestep); Space picks the plane up to throw it again
         walking = useGL && gl.landed && !aim.current.on && !L.paused;
-        if (gl.landed && !aim.current.on && !L.paused && (lookStick.current.dx || lookStick.current.dy)) { gl.psi -= lookStick.current.dx * 2.4 * dt; lookCam.current.pitch = Math.max(-1.1, Math.min(1.2, lookCam.current.pitch - lookStick.current.dy * 1.6 * dt)); }   // the look joystick turns the bobr and tips the view
+        if (gl.landed && !aim.current.on && !L.paused && (lookStick.current.dx || lookStick.current.dy || pd.rx || pd.ry)) { gl.psi -= (lookStick.current.dx + pd.rx) * 2.4 * dt; lookCam.current.pitch = Math.max(-1.1, Math.min(1.2, lookCam.current.pitch - (lookStick.current.dy + pd.ry) * 1.6 * dt)); }   // the look joystick turns the bobr and tips the view
         if (walking) {
-          const fwd = -pull, turn = roll, side = yaw, run = k.has('shift') ? 2 : 1, moving = Math.hypot(fwd, side) > 0.05;
+          const fwd = -pull, turn = roll, side = yaw, run = k.has('shift') || pd.down.has(PAD.L3) ? 2 : 1, moving = Math.hypot(fwd, side) > 0.05;
           gl.psi -= turn * 1.9 * dt;
           if (moving) {
             const sp = WALK_SPEED * run * dt, hx = Math.cos(gl.psi), hy = Math.sin(gl.psi);

@@ -966,7 +966,7 @@ export const pl: Record<Key, string> = {
   "worldSpeed": "Prędkość",
   "worldPitch": "Pochylenie",
   "worldLayer": "Warstwa chmur {n} z 10, prędkość nad ziemią {p}%",
-  "worldHelp": "Przeciągaj joystick albo używaj strzałek lub WASD. Ręczny leci dalej z ustawioną prędkością. P zatrzymuje czas.",
+  "worldHelp": "Przeciągaj joystick albo używaj strzałek lub WASD. Ręczny leci dalej z ustawioną prędkością. P zatrzymuje czas. Działa też pad: lewa gałka steruje, prawa skręca, A przyspiesza, Start zatrzymuje.",
   "worldGlideShort": "ŚLIZG",
   "worldGlide": "Szybowanie",
   "worldGlideHelp": "Szybowanie: W/S pochylenie (W dziób w dół, S w górę), A/D przechył, Q/E zbaczanie, Spacja daje przyspieszenie i wzniesienie (co kilka sekund), a po lądowaniu rzuca samolot jeszcze raz. Przechyl, by skręcić. Rozgrzana ziemia daje prąd wznoszący: wlecz w niego, krąż w środku i lekko ściągnij, by lecieć wolno. Poznasz go po drgającym powietrzu i małych chmurkach nad nim.",

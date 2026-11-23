@@ -966,7 +966,7 @@ export const la: Record<Key, string> = {
   "worldSpeed": "Celeritas",
   "worldPitch": "Inclinatio",
   "worldLayer": "Stratum nubium {n} ex 10, celeritas terrae {p}%",
-  "worldHelp": "Regulam trahe vel sagittas aut WASD utere. Manu cum celeritate posita volare pergit. P tempus sistit.",
+  "worldHelp": "Regulam trahe vel sagittas aut WASD utere. Manu cum celeritate posita volare pergit. P tempus sistit. Etiam machina lusoria valet: sinistra regit, dextra vertit, A impellit, Start sistit.",
   "worldGlideShort": "LAPSUS",
   "worldGlide": "Lapsus",
   "worldGlideHelp": "Lapsus: W/S inclinatio (W rostrum deorsum, S sursum), A/D inclinatio alarum, Q/E deviatio, Spatium celeritatem et sublationem dat (aliquot secundis interpositis), et post descensum aeroplanum iterum iacit. Inclina ut vertas. Terra calida aerem ascendentem facit: intra, in eo circumvola et leviter retrahe ut tarde volet. Cognosces eum aere tremulo et nubeculis supra.",

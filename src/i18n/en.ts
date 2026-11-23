@@ -965,7 +965,7 @@ export const en = {
   "worldSpeed": "Speed",
   "worldPitch": "Pitch",
   "worldLayer": "Cloud layer {n} of 10, ground speed {p}%",
-  "worldHelp": "Drag the joystick or use arrow keys or WASD. Manual keeps flying at the set speed. P pauses time.",
+  "worldHelp": "Drag the joystick or use arrow keys or WASD. Manual keeps flying at the set speed. P pauses time. A gamepad works too: left stick flies, right stick turns, A boosts, Start pauses.",
   "worldGlideShort": "GLIDE",
   "worldGlide": "Glide",
   "worldGlideHelp": "Glide: W/S pitch (W nose down, S nose up), A/D roll, Q/E yaw, Space gives a boost of speed and lift (every few seconds), and throws the plane again once it has landed. Bank to turn. Warm ground makes rising air: fly into it, circle inside and pull back a little to fly slow. Find it by the heat shimmer and the small clouds on top.",
