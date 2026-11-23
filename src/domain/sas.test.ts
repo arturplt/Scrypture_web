@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, stepGlider, type GlideEnv } from './glider';
+import { refuel } from './glider';
+import { circularSpeed } from './orbit';
 import { captureSas, newSas, nextSasMode, stepSas, type SasInput, type SasMode } from './sas';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
@@ -95,5 +97,34 @@ describe('stability assist: target', () => {
     const g = settled(), s = newSas('target'); captureSas(s, g); const g0 = g.gamma;
     for (let i = 0; i < 600; i++) { const c = stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60, 0, null); stepGlider(g, c, still, 1 / 60); }
     expect(Math.abs(deg(g.gamma - g0))).toBeLessThan(8);
+  });
+});
+
+describe('orbit assists', () => {
+  const inOrbit = () => { const g = newGlider(0, 0, 0, 30000), v = circularSpeed(30000); g.vx = v; g.vy = 0; g.vz = 0; g.airspeed = v; g.alpha = 0; refuel(g, 20); return g; };
+  const noseVsPath = (g: ReturnType<typeof newGlider>) => { const v = Math.hypot(g.vx, g.vy, g.vz); return (g.fwd[0] * g.vx + g.fwd[1] * g.vy + g.fwd[2] * g.vz) / v; };
+  const run = (mode: SasMode, secs: number, g = inOrbit(), rocket = false) => { const s = newSas(mode); captureSas(s, g); for (let i = 0; i < secs * 60; i++) { const c = stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60); stepGlider(g, { ...c, rocket }, still, 1 / 60); } return g; };
+  it('in space the T round is off, prograde, retro, entry; in air it never offers them', () => {
+    expect(nextSasMode('off', false, true)).toBe('prograde'); expect(nextSasMode('prograde', false, true)).toBe('retro'); expect(nextSasMode('retro', false, true)).toBe('entry'); expect(nextSasMode('entry', false, true)).toBe('off');
+    expect(nextSasMode('hold', false, true)).toBe('prograde'); expect(nextSasMode('acro')).toBe('off'); expect(nextSasMode('target', true)).toBe('off'); expect(nextSasMode('entry')).toBe('off');
+  });
+  it('prograde holds the nose on the flight path', () => { expect(noseVsPath(run('prograde', 10))).toBeGreaterThan(0.99); });
+  it('retro turns the nose round against the flight path, and a burn then slows the plane', () => {
+    const g = run('retro', 8); expect(noseVsPath(g)).toBeLessThan(-0.95);
+    const v0 = g.airspeed, h = run('retro', 14, inOrbit(), true); expect(h.airspeed).toBeLessThan(v0 - 60);
+  });
+  it('entry holds the nose broadside to the path, and the wings level', () => {
+    const g = run('entry', 8); expect(Math.abs(noseVsPath(g))).toBeLessThan(0.15); expect(Math.abs(g.phi)).toBeLessThan(0.2);
+  });
+  it('the stick takes over while it is moved', () => {
+    const g = inOrbit(), s = newSas('prograde'); captureSas(s, g);
+    expect(stepSas(s, g, { pitch: 0.8, roll: 0, yaw: 0 }, 1 / 60).pitch).toBe(0.8);
+  });
+  it('the wing assists do not throw the nose about in thin air', () => {
+    const g = inOrbit(), s = newSas('hold'); captureSas(s, g); s.gammaT = 0.5;
+    expect(stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60).pitch).toBeCloseTo(0, 6);
+  });
+  it('in the air the orbit assists leave the wing alone', () => {
+    const g = settled(), s = newSas('retro'); captureSas(s, g); expect(stepSas(s, g, { pitch: 0, roll: 0, yaw: 0 }, 1 / 60).pitch).toBe(0);
   });
 });

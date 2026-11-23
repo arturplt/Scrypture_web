@@ -448,3 +448,28 @@
 .world-bigmap-cv { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 .world-bigmap-bar { position: absolute; top: calc(10 * var(--u, 1px)); right: calc(10 * var(--u, 1px)); display: flex; align-items: center; gap: calc(6 * var(--u, 1px)); line-height: 1; }
 .world-bigmap-bar .wui-banner { padding: calc(6 * var(--u, 1px)) calc(10 * var(--u, 1px)); font-size: var(--fs-sm); }
+
+/* the rocket stage: the button (held to burn), the orbit readout and the ORBIT REACHED banner */
+.wui-rocket { right: calc(8 * var(--u)); bottom: calc(96 * var(--u)); }
+.wui-rocketbtn { position: relative; display: grid; place-items: center; width: calc(64 * var(--u)); height: calc(52 * var(--u)); box-sizing: border-box; padding: 0 calc(4 * var(--u)) calc(8 * var(--u)); font: inherit; font-size: calc(7 * var(--u)); color: #fff; background: #5a2a14; border: calc(2 * var(--u)) solid #ffb36b; cursor: pointer; touch-action: none; user-select: none; }
+.wui-rocketbtn[data-ready='false'] { opacity: 0.45; }
+.wui-rocketbtn:active { background: #b4521f; }
+.wui-rocketfuel { position: absolute; left: calc(4 * var(--u)); right: calc(4 * var(--u)); bottom: calc(4 * var(--u)); height: calc(4 * var(--u)); background: #2a1208; }
+.wui-rocketfuel::after { content: ''; position: absolute; inset: 0; width: calc(var(--fuel, 1) * 100%); background: #ffb36b; }
+.wui-orbit { left: calc(8 * var(--u)); top: 30%; gap: calc(4 * var(--u)); font-size: calc(7 * var(--u)); line-height: 1.2; color: #7dff72; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 rgba(2, 40, 8, 0.85); pointer-events: none; }
+.wui-orbit[data-orbited='true'] { color: #9fe8ff; }
+.wui-orbitbadge { color: #ffd54a; font-size: calc(9 * var(--u)); }
+.wui-orbitheat { color: #ffb300; }
+.wui-orbitheat[data-hot='true'] { color: #ff5a3c; animation: wui-orbit-blink 0.4s steps(2) infinite; }
+@keyframes wui-orbit-blink { 50% { opacity: 0.35; } }
+.wui-orbitpop { left: 50%; top: 22%; transform: translateX(-50%); justify-items: center; text-align: center; gap: calc(6 * var(--u)); padding: calc(10 * var(--u)) calc(16 * var(--u)); font-size: calc(8 * var(--u)); color: #eaffef; background: rgba(8, 20, 40, 0.82); border: calc(2 * var(--u)) solid #ffd54a; animation: wui-pick-in 0.25s ease-out; }
+.wui-orbitpop b { font-size: calc(12 * var(--u)); color: #ffd54a; }
+/* reentry: the screen's edges glow orange with the paper's heat, with streaks racing past */
+.world-reentry { position: absolute; inset: 0; z-index: 4; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgba(255, 140, 40, 0) 38%, rgba(255, 110, 30, 0.55) 78%, rgba(255, 60, 20, 0.85) 100%), repeating-linear-gradient(100deg, rgba(255, 220, 140, 0) 0 22px, rgba(255, 220, 140, 0.16) 22px 24px); background-size: auto, 48px 100%; animation: world-reentry-streak 0.18s linear infinite; mix-blend-mode: screen; }
+@keyframes world-reentry-streak { to { background-position: 0 0, -48px 0; } }
+/* settings: the direction arrows (to the next hoop, to lift, to the other plane) can be turned off */
+.world[data-arrows='off'] .wui-hint { display: none !important; }
+.wui-rocket { gap: calc(4 * var(--u)); }
+.wui-autobtn { width: calc(64 * var(--u)); height: calc(24 * var(--u)); box-sizing: border-box; padding: 0; font: inherit; font-size: calc(7 * var(--u)); color: #fff; background: #123a4a; border: calc(2 * var(--u)) solid #6fd3ff; cursor: pointer; touch-action: none; user-select: none; }
+.wui-autobtn[aria-pressed='true'] { background: #1f7aa0; box-shadow: 0 0 0 calc(2 * var(--u)) #bfeaff inset; }
+.wui-orbitauto { color: #6fd3ff; }

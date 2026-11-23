@@ -17,7 +17,12 @@ export const POINTS_PER_COIN = 100, BOOST_PRICE = 1, MAX_BOOSTS = 9;
 export const coinsFor = (points: number) => Math.max(0, Math.floor(points / POINTS_PER_COIN));
 /** Points: 100 per hoop, 1 per metre flown, 2 per metre of height climbed above the launch point, plus the landing bonus or penalty. */
 export const HEIGHT_POINTS = 2;
-export const runPoints = (hoops: number, metres: number, bonus = 0, height = 0) => Math.max(0, Math.round(hoops) * 100 + Math.round(metres) + Math.round(height) * HEIGHT_POINTS + Math.round(bonus));
+/** The height that counts for points stops here (a rocket would otherwise pay for tens of thousands of metres: orbit has its own bonus). */
+export const HEIGHT_CAP = 500;
+/** Reaching orbit: points added to the run (so, coins too). */
+export const ORBIT_BONUS = 2500;
+export const heightPoints = (height: number) => Math.min(Math.max(0, Math.round(height)), HEIGHT_CAP) * HEIGHT_POINTS;
+export const runPoints = (hoops: number, metres: number, bonus = 0, height = 0) => Math.max(0, Math.round(hoops) * 100 + Math.round(metres) + heightPoints(height) + Math.round(bonus));
 /** How the plane touched down: a soft landing (sinking under 3 m/s, wings nearly level) earns 50..150, anything harder costs 50..200. */
 export const SOFT_SINK = 3, SOFT_BANK = 0.6;
 export function landingScore(impact: { sink: number; bank: number } | null, onWater = false): { soft: boolean; water: boolean; bonus: number } {
@@ -32,6 +37,16 @@ export function addRunScore(list: RunScore[], hoops: number, metres: number, at:
   if (points < 10) return list;
   return [...list, { points, hoops: Math.round(hoops), metres: Math.round(metres), height: Math.round(height), bonus: Math.round(bonus), at }].sort((a, b) => b.points - a.points || a.at - b.at).slice(0, MAX_SCORES);
 }
+/** Orbit record of a world: flights that reached orbit, the highest apoapsis and the highest periapsis flown, when it last happened. */
+export interface SavedOrbit { reached: number; bestApo: number; bestPeri: number; at: number }
+export const emptyOrbit = (): SavedOrbit => ({ reached: 0, bestApo: 0, bestPeri: 0, at: 0 });
+/** An orbit reached: the record with it counted in. */
+export const addOrbit = (o: SavedOrbit | undefined, apo: number, peri: number, at: number): SavedOrbit => { const p = o ?? emptyOrbit(); return { reached: p.reached + 1, bestApo: Math.max(p.bestApo, Number.isFinite(apo) ? Math.round(apo) : 0), bestPeri: Math.max(p.bestPeri, Math.round(peri)), at }; };
+export function sanitizeOrbit(raw: unknown): SavedOrbit | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const r = raw as Record<string, unknown>, n = (v: unknown, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(Math.round(v), 0, hi) : 0), reached = n(r.reached, 1e6);
+  return reached > 0 ? { reached, bestApo: n(r.bestApo, 1e8), bestPeri: n(r.bestPeri, 1e8), at: n(r.at, 1e15) } : undefined;
+}
 export interface SavedWorld {
   id: string; name: string; seed: number; createdAt: number; playedAt: number;
   map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m)
@@ -40,9 +55,10 @@ export interface SavedWorld {
   hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
   scores?: RunScore[];            // this world's leaderboard (best runs first)
+  orbit?: SavedOrbit;             // the world's orbit record: how many flights reached orbit, and the best orbit (heights above sea level, m)
   burned?: number;                // how many times fire or lightning has burned the plane (and sent it back to the start)
   boosts?: number;                // boosts in hand, carried over from run to run (and between visits)
-  shop?: { launch: number; paper: number; insurance: number; float: number; double: number };   // what was bought in the shop (see shop.ts)
+  shop?: { launch: number; paper: number; rocket: number; insurance: number; float: number; double: number; heatshield: number };   // what was bought in the shop (see shop.ts)
   sticks?: string[];              // keys of the sticks already picked up (see sticks.ts)
   stones?: string[];              // and of the stones
   berries?: SavedBerry[];         // berry bushes picked and not yet ripe again (see berries.ts)
@@ -116,10 +132,10 @@ export const decodeChanges = (a: SavedTile[]): [number, TileState][] =>
 const fin = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function sanitizeShop(raw: unknown): { launch: number; paper: number; insurance: number; float: number; double: number } {
+function sanitizeShop(raw: unknown): { launch: number; paper: number; rocket: number; insurance: number; float: number; double: number; heatshield: number } {
   const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
   const n = (v: unknown, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(Math.round(v), 0, hi) : 0);
-  return { launch: n(r.launch, 3), paper: n(r.paper, 3), insurance: n(r.insurance, 5), float: n(r.float, 5), double: n(r.double, 5) };
+  return { launch: n(r.launch, 3), paper: n(r.paper, 3), rocket: n(r.rocket, 3), insurance: n(r.insurance, 5), float: n(r.float, 5), double: n(r.double, 5), heatshield: n(r.heatshield, 5) };
 }
 
 function sanitizeScores(raw: unknown): RunScore[] {
@@ -156,7 +172,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
       hour: clamp(fin(w.hour, 12), 0, 23.999),
       wind: { enabled: wind.enabled !== false, strength: clamp(fin(wind.strength, dw.strength), 0, 10), dir: fin(wind.dir, dw.dir) },
       plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45), ...(plane.landed === true ? { landed: true } : {}) },
-      scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), burned: clamp(Math.round(fin(w.burned, 0)), 0, 1e6), shop: sanitizeShop(w.shop),
+      scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), burned: clamp(Math.round(fin(w.burned, 0)), 0, 1e6), shop: sanitizeShop(w.shop), ...(sanitizeOrbit(w.orbit) ? { orbit: sanitizeOrbit(w.orbit) } : {}),
       sticks: (Array.isArray(w.sticks) ? w.sticks : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),
       stones: (Array.isArray(w.stones) ? w.stones : []).filter((k: unknown): k is string => typeof k === 'string' && k.length < 24).slice(0, 5000),
       beavers: sanitizeBeavers(w.beavers), berries: sanitizeBerries(w.berries),

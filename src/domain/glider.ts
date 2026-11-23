@@ -12,6 +12,7 @@
  */
 import { hash01 } from './worldgen';
 import { sunElevation } from './sky';
+import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir } from './orbit';
 
 export const G = 9.81;
 export const ALT_MAX = 120;                 // the altitude of layer 1 (the top of the picture)
@@ -72,14 +73,24 @@ export interface Glider {
   dragK: number;                            // 1 = plain paper; below 1 = a slicker plane (the shop's paper tiers)
   wet: number;                              // 0 dry .. 1 soaked (it came down in the water): wet paper is heavy. It dries in the air, faster in warm air, and slowly on the ground
   boostCharges: number;                     // boosts in hand: one at the start, one more for every hoop flown, one spent per boost
+  // the rocket stage and the orbit (see orbit.ts)
+  fuel: number;                             // seconds of rocket burn left (filled by the shop's rocket tier at each launch)
+  rocketOn: boolean;                        // the rocket burned during the last step
+  fair: number;                             // 1 while the stage burns (the paper rides in its nose cone, which cuts drag and heat), easing back to 0 over ORBIT.FAIR_OFF seconds after burnout
+  heat: number;                             // 0..1: how hot the paper is from fast flight in thick air; at 1 it burns
+  heatK: number;                            // 1 = bare paper; below 1 = a heat shield
+  apo: number; peri: number;                // the orbit it is on now (heights above sea level, m; apo is Infinity on an escape path)
+  orbitT: number;                           // seconds the periapsis has been clear of the air
+  orbited: boolean;                         // this flight has reached orbit
 }
-export interface GlideControls { pitch: number; roll: number; yaw: number; freeStall?: boolean; aero?: boolean; thrust?: number }   // freeStall: the elevator reaches past the stall angle and nothing eases the nose back, so a hard pull really stalls; -1..1; pitch + = pull up, roll + = right, yaw + = right
+export interface GlideControls { pitch: number; roll: number; yaw: number; freeStall?: boolean; aero?: boolean; thrust?: number; rocket?: boolean }   // freeStall: the elevator reaches past the stall angle and nothing eases the nose back, so a hard pull really stalls; -1..1; pitch + = pull up, roll + = right, yaw + = right
 export interface GlideEnv { windX: number; windY: number; ground?: (x: number, y: number) => number;   /* the ground's height under (x, y), in the plane's metres (hills): `z` stays the height above it, so the ground rising under the plane is a climb in the ground, not in the air */  air: (x: number, y: number, t: number) => number; turb?: (x: number, y: number, t: number) => number; heat?: (x: number, y: number, t: number) => number }   // heat: 0..1, how warm and drying the air is here (a thermal, a fire, a wind tunnel)   // turb: 0..1, how rough the air is here (rain): the plane is jolted about its roll and pitch
 
 export function newGlider(x = 0, y = 0, heading = Math.PI / 2, z = THROW_ALT): Glider {
   const g: Glider = {
     x, y, z, vx: 0, vy: 0, vz: 0, alpha: ALPHA_TRIM, phi: 0, wx: Math.sin(heading), wy: -Math.cos(heading), wz: 0, nx: 0, ny: 0, nz: 1, fwd: [1, 0, 0], top: [0, 0, 1], rollRate: 0, course: heading, courseSwing: 0, invT: 0, elev: 0, ail: 0, rud: 0, psi: heading, gamma: 0, airspeed: TRIM_SPEED, load: 1, stalled: false, landed: false, t: 0,
     pitch: 0, turnRate: 0, vsi: 0, energyRate: 0, airLift: 0, boost: 0, boostCd: 0, boostEase: 0, boostCharges: START_BOOSTS, impact: null, dragK: 1, wet: 0,
+    fuel: 0, rocketOn: false, fair: 0, heat: 0, heatK: 1, apo: 0, peri: 0, orbitT: 0, orbited: false,
   };
   throwPlane(g, x, y, heading, z);
   return g;
@@ -107,9 +118,14 @@ export function throwPlane(g: Glider, x: number, y: number, heading: number, z =
   const v = speed ?? (TRIM_SPEED * 1.2) / (1 + 0.3 * g.wet), up = climb;   // (a wet plane leaves the hand slower)
   g.x = x; g.y = y; g.z = z; g.psi = heading; g.phi = 0; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0;
   g.vx = Math.cos(heading) * v * Math.cos(up); g.vy = Math.sin(heading) * v * Math.cos(up); g.vz = v * Math.sin(up);
-  g.gamma = up; g.airspeed = v; g.landed = false; g.impact = null; g.stalled = false; g.load = 1; g.vsi = g.vz; g.energyRate = 0; g.airLift = 0; g.pitch = up + ALPHA_TRIM; g.boost = 0; g.boostCd = 0; g.boostEase = 0;
+  g.gamma = up; g.airspeed = v; g.landed = false; g.impact = null; g.stalled = false; g.load = 1; g.vsi = g.vz; g.energyRate = 0; g.airLift = 0; g.pitch = up + ALPHA_TRIM; g.boost = 0; g.boostCd = 0; g.boostEase = 0; resetOrbit(g);
   setAttitude(g, heading, up);
 }
+
+/** A new flight: cool paper, no orbit yet (the rocket's fuel is the shop's: see `refuel`). */
+function resetOrbit(g: Glider) { g.heat = 0; g.rocketOn = false; g.fair = 0; g.orbitT = 0; g.orbited = false; g.apo = g.peri = 0; }
+/** Fill the rocket stage for a flight (seconds of burn, from the rocket tier). */
+export const refuel = (g: Glider, seconds: number) => { g.fuel = Math.max(0, seconds); };
 
 /** Space in the air: kick the plane along (thrust and lift for a moment). False when it is landed, out of boosts or still pausing from the last one. */
 export function boostPlane(g: Glider): boolean {
@@ -131,7 +147,7 @@ export function launchPlane(g: Glider, x: number, y: number, heading: number, po
   const p = Math.max(0, Math.min(1, power)), v = (TRIM_SPEED * (2 + 3.4 * p)) / (1 + 0.3 * g.wet), up = 0.45 + 0.3 * p;
   g.x = x; g.y = y; g.z = z0; g.psi = heading; g.phi = 0; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0;
   g.vx = Math.cos(heading) * v * Math.cos(up); g.vy = Math.sin(heading) * v * Math.cos(up); g.vz = v * Math.sin(up);
-  g.gamma = up; g.airspeed = v; g.landed = false; g.impact = null; g.stalled = false; g.load = 1; g.vsi = g.vz; g.energyRate = 0; g.airLift = 0; g.pitch = up + ALPHA_TRIM; g.boost = 0; g.boostCd = 0; g.boostEase = LAUNCH_EASE;
+  g.gamma = up; g.airspeed = v; g.landed = false; g.impact = null; g.stalled = false; g.load = 1; g.vsi = g.vz; g.energyRate = 0; g.airLift = 0; g.pitch = up + ALPHA_TRIM; g.boost = 0; g.boostCd = 0; g.boostEase = LAUNCH_EASE; resetOrbit(g);
   setAttitude(g, heading, up);
 }
 
@@ -195,18 +211,20 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   g.t += dt;
   if (g.boostCd > 0) g.boostCd = Math.max(0, g.boostCd - dt);
   if (g.boostEase > 0) g.boostEase = Math.max(0, g.boostEase - dt);
-  if (g.landed) { if (env.ground) g.gnd = env.ground(g.x, g.y); g.vx = g.vy = g.vz = 0; g.vsi = g.energyRate = 0; g.turnRate = 0; g.rollRate = 0; g.phi *= 0.9; g.wet = Math.max(0, g.wet - dt / WET_DRY_GROUND); g.course = g.psi; g.courseSwing = 0; g.invT = 0; return; }
+  if (g.landed) { if (env.ground) g.gnd = env.ground(g.x, g.y); g.vx = g.vy = g.vz = 0; g.vsi = g.energyRate = 0; g.turnRate = 0; g.rollRate = 0; g.phi *= 0.9; g.wet = Math.max(0, g.wet - dt / WET_DRY_GROUND); g.rocketOn = false; g.heat = Math.max(0, g.heat - ORBIT.HEAT_COOL * dt); g.course = g.psi; g.courseSwing = 0; g.invT = 0; return; }
   // controls move towards the keys, and spring back when they are let go
   g.elev = approach(g.elev, ctl.pitch, ctl.pitch === 0 ? 5 : 4, dt);
   g.ail = approach(g.ail, ctl.roll, ctl.roll === 0 ? 5 : 5, dt);
   g.rud = approach(g.rud, ctl.yaw, ctl.yaw === 0 ? 5 : 4, dt);
 
-  const w = env.air(g.x, g.y, g.t);
-  const rx = g.vx - env.windX, ry = g.vy - env.windY, rz = g.vz - w;
+  // the air thins with height above sea level (orbit.ts): the thermals, the ridge lift and the wind fade with it (full strength up to 1000 m)
+  const hAbs = g.z + (g.gnd ?? 0), dens = airDensity(hAbs), thin = thinness(dens), wX = env.windX * dens, wY = env.windY * dens;
+  const w = env.air(g.x, g.y, g.t) * dens;
+  const rx = g.vx - wX, ry = g.vy - wY, rz = g.vz - w;
   const V = Math.max(0.8, Math.hypot(rx, ry, rz));
   const cp0 = Math.cos(g.psi), sp0 = Math.sin(g.psi);
   // wet paper: heavier (the air's forces move it less), drying as it flies, and faster in warm air
-  const Kw = K / (1 + WET_MASS * g.wet);
+  const Kw = K * dens / (1 + WET_MASS * g.wet);
   if (g.wet > 0) g.wet = Math.max(0, g.wet - (dt / WET_DRY_AIR) * (0.5 + 0.5 * Math.min(2, V / TRIM_SPEED)) * (1 + WET_DRY_HEAT * (env.heat ? Math.max(0, Math.min(1, env.heat(g.x, g.y, g.t))) : 0)));
   // a change in the rising air (the edge of a thermal, a gust) pitches the plane to meet it, wings as they were: it does not leave it slipping
   { const dW = w - g.airLift, s0 = Math.hypot(rx, ry, rz + dW); if (dW !== 0 && s0 > 0.5) carry(g, rx / s0, ry / s0, (rz + dW) / s0, 0, 0, -dW / s0); }
@@ -217,7 +235,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   const sinBeta = ex * g.wx + ey * g.wy + ez * g.wz;                  // sideslip: the air comes from beside the nose
 
   // angle of attack follows the elevator (the short-period motion of a stable plane is far quicker than anything the player does)
-  g.stalled = g.alpha > ALPHA_STALL;
+  g.stalled = g.alpha > ALPHA_STALL && thin < 0.5;           // (no stall in air too thin to lift)
   const tb = env.turb ? env.turb(g.x, g.y, g.t) : 0;                  // rough air: quick, uneven jolts
   const free = !!ctl.freeStall, aero = !!ctl.aero;   // aero: loops, inverted flight and rolls past the vertical are allowed
   // (aerobatics: upside down the hands-off wing lifts the other way, so a roll does not end in a dive; a pull on the stick keeps the plain trim, so loops and the split S pull as before.
@@ -237,13 +255,18 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
     if (g.gamma > 0.95) aCmd += lim * (Math.min(aCmd, ALPHA_TRIM - (g.gamma - 0.95) * 1.5) - aCmd);
     else if (g.gamma < -0.95) aCmd += lim * (Math.max(aCmd, ALPHA_TRIM + (-0.95 - g.gamma) * 1.5) - aCmd);   // (and the same on the way down: no bunt through the vertical)
   }
+  // in thin air the wing does nothing and the stick turns the whole nose (a gimbal): full back is a retrograde burn, hands off holds the path (prograde)
+  // (and a burning stage steers its thrust in the thick air too, over a smaller range: its fairing keeps the wing out of it)
+  { const wgt = Math.max(thin, g.fair), span = Math.PI * (thin + (1 - thin) * 0.3); if (wgt > 0) aCmd += wgt * (Math.max(-span, Math.min(span, g.elev * span)) - aCmd); }
   if (g.stalled) aCmd -= (g.alpha - ALPHA_STALL) * 1.6;            // the nose falls through
-  g.alpha += (aCmd - g.alpha) * (1 - Math.exp(-dt / 0.28));
+  g.alpha += (aCmd - g.alpha) * (1 - Math.exp(-dt / (0.28 + 0.5 * thin)));
   const cl = liftCoeff(g.alpha);
   const over = Math.max(0, Math.abs(g.alpha) - ALPHA_STALL);
   // ground effect: close to the ground the wing sheds less induced drag and gains a little lift, fading out by GROUND_EFFECT_H (a smooth bump)
   const ge2 = groundEffect(g.z);
-  const cd = (CD0 + CD_K * (1 - 0.55 * ge2) * cl * cl + 2.2 * over * over + 1.2 * sinBeta * sinBeta) * g.dragK;
+  const burning = !!ctl.rocket && g.fuel > 0, sail = !!ctl.rocket && g.fuel <= 0 && dens < ORBIT.SAIL_RHO; g.rocketOn = burning || sail;
+  g.fair = burning ? 1 : (V < ORBIT.CONE_DROP_V || dens < ORBIT.CONE_DROP_RHO) ? Math.max(0, g.fair - dt / ORBIT.FAIR_OFF) : g.fair; const fairK = 1 - g.fair * (1 - ORBIT.FAIRING);   // (the stage's fairing: the plane is tucked in the nose cone while it burns, and the cone stays on while the plane is fast in thick air, then falls away slowly)
+  const cd = (CD0 + CD_K * (1 - 0.55 * ge2) * cl * cl + 2.2 * over * over + 1.2 * sinBeta * sinBeta) * g.dragK * fairK;
   const q = Kw * V * V;
   const lift = Math.max(-MAX_LIFT, Math.min(MAX_LIFT, q * cl * (1 + 0.12 * ge2))), drag = q * cd;
 
@@ -256,12 +279,16 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   // (the debug throttle pushes along the nose; the boost along the heading and up, strongest at the start, and it eases the stall)
   let tx = 0, ty = 0, tz = 0;
   if (ctl.thrust) { const a = ctl.thrust * THRUST_MAX, ca = Math.cos(g.alpha), sa = Math.sin(g.alpha); tx += (bx * ca + g.nx * sa) * a; ty += (by * ca + g.ny * sa) * a; tz += (bz * ca + g.nz * sa) * a; }
+  if (burning) { g.fuel = Math.max(0, g.fuel - dt); const ca = Math.cos(g.alpha), sa = Math.sin(g.alpha); tx += (bx * ca + g.nx * sa) * ORBIT.THRUST; ty += (by * ca + g.ny * sa) * ORBIT.THRUST; tz += (bz * ca + g.nz * sa) * ORBIT.THRUST; }
+  if (sail) { const ca = Math.cos(g.alpha), sa = Math.sin(g.alpha); tx += (bx * ca + g.nx * sa) * ORBIT.SAIL; ty += (by * ca + g.ny * sa) * ORBIT.SAIL; tz += (bz * ca + g.nz * sa) * ORBIT.SAIL; }
   if (g.boost > 0) {
     const k = g.boost / BOOST_TIME; g.boost = Math.max(0, g.boost - dt);
     tx += cp0 * BOOST_THRUST * k; ty += sp0 * BOOST_THRUST * k; tz += BOOST_LIFT * k;
     if (g.stalled) g.alpha -= (g.alpha - ALPHA_STALL) * Math.min(1, dt * 6);
   }
-  const fx = (g.nx - cut * hx) * lift - (rx / V) * drag + tx, fy = (g.ny - cut * hy) * lift - (ry / V) * drag + ty, fz = g.nz * lift - (rz / V) * drag - G + tz;
+  // (a round planet: gravity weakens with height, the curve of the ground falls away under a fast plane (v^2 / r, up), and the horizontal speed shrinks as the plane climbs and grows as it falls)
+  const rr = ORBIT.R + Math.max(0, hAbs), cor = -g.vz / rr, vh2 = g.vx * g.vx + g.vy * g.vy;
+  const fx = (g.nx - cut * hx) * lift - (rx / V) * drag + tx + cor * g.vx, fy = (g.ny - cut * hy) * lift - (ry / V) * drag + ty + cor * g.vy, fz = g.nz * lift - (rz / V) * drag - gravityAt(hAbs) + vh2 / rr + tz - (hAbs > ORBIT.CEILING ? (hAbs - ORBIT.CEILING) * ORBIT.CEILING_K + g.vz * ORBIT.CEILING_DAMP : 0);
   const ax = fx + g.wx * side, ay = fy + g.wy * side, az = fz + g.wz * side;
   g.vx += ax * dt; g.vy += ay * dt; g.vz += az * dt;
   // the wing axis goes round with the path as far as lift, drag, gravity and thrust bend it (not the fin's push: that is the path catching up with the nose)
@@ -273,7 +300,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   // Carried round a climbing or sinking turn the wings would slowly change their bank against the horizon; a plane left alone holds it,
   // so that drift is taken out again (not near the vertical, where there is no horizon to hold a bank against)
   const phi0 = Math.atan2(lat, g.nx * F.ux + g.ny * F.uy + g.nz * F.uz);
-  const M = bodyFrame(g, g.vx - env.windX, g.vy - env.windY, g.vz - w);
+  const M = bodyFrame(g, g.vx - wX, g.vy - wY, g.vz - w);
   const hold = -sstep(M.cg, 0.15, 0.5) * wrapPi(Math.atan2(g.nx * M.hx + g.ny * M.hy, g.nx * M.ux + g.ny * M.uy + g.nz * M.uz) - phi0);
   const phiNow = Math.atan2(g.nx * M.hx + g.ny * M.hy, g.nx * M.ux + g.ny * M.uy + g.nz * M.uz) + hold;
   let dPhi = g.ail * (aero ? 3 : 1.7) * (1 - 0.25 * g.wet) + g.rud * 0.45 - (aero ? 0.06 * Math.sin(2 * phiNow) * M.cg : phiNow * 0.12) + (g.stalled ? Math.sin(g.t * 9) * 0.7 : 0) + tb * 1.8 * (Math.sin(g.t * 9.1) + Math.sin(g.t * 13.7 + 1)) * 0.5;
@@ -284,7 +311,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   g.rollRate = dPhi;
 
   // read-outs, from where the plane goes now: heading, bank, nose
-  const R = bodyFrame(g, g.vx - env.windX, g.vy - env.windY, g.vz - w);
+  const R = bodyFrame(g, g.vx - wX, g.vy - wY, g.vz - w);
   if (R.cg > 0.02) { const d = wrapPi(Math.atan2(R.by, R.bx) - g.psi); if (Math.abs(d) < 2) g.turnRate = d / dt; g.psi += d; }   // (straight up or down there is no heading: it keeps the last one. Over the top it turns round at once: that is not a turn)
   g.phi = Math.atan2(g.nx * R.hx + g.ny * R.hy, g.nx * R.ux + g.ny * R.uy + g.nz * R.uz);
   { const ca = Math.cos(g.alpha), sa = Math.sin(g.alpha);
@@ -299,6 +326,8 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   const energy = g.z + (g.gnd ?? 0) + (g.vx * g.vx + g.vy * g.vy + g.vz * g.vz) / (2 * G);
   g.energyRate = energyRateFilter(g, energy, dt);
   g.airLift = w;
+  g.heat = Math.max(0, Math.min(1.5, g.heat + (heatRate(dens, V) * g.heatK * fairK - ORBIT.HEAT_COOL) * dt));
+  { const el = orbitElements(g.z + (g.gnd ?? 0), Math.hypot(g.vx, g.vy), g.vz); g.apo = el.apo; g.peri = el.peri; g.orbitT = clearsAir(el) ? g.orbitT + dt : 0; if (g.orbitT >= ORBIT.HOLD) g.orbited = true; }
   if (g.z <= 0 || (g.vz <= 0 && g.z <= hullDipM(g.phi, g.pitch))) { g.impact = { sink: Math.max(0, -g.vz), speed: Math.hypot(g.vx, g.vy), bank: Math.abs(g.phi) }; g.z = 0; g.landed = true; g.vx = g.vy = g.vz = 0; }
 }
 

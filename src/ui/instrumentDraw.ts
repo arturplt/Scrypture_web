@@ -24,11 +24,16 @@ export interface Instruments {
   stalled: boolean;
   load: number;
   landed: boolean;
+  fuel: number; fuelMax: number;   // the rocket stage: seconds of burn left, and what the tier carries (0 = none bought)
+  apo: number; peri: number;       // the orbit it is on now, heights above sea level in m (apo is Infinity on an escape path)
+  heat: number;                    // 0..1: the paper's heat from a fast reentry; it burns at 1
+  orbited: boolean; rocketOn: boolean;
+  auto: string;                    // the auto orbit's phase (climb, coast, insert, done, fail), '' when it is not flying
   mouse: boolean;          // mouse flying is on: the attitude indicator wears an amber ring
   view: { pitch: number; bank: number; heading: number; nosePitch: number; noseDh: number; pathDh: number } | null;   // the FPV camera, which is eased and so is not quite where the nose is: its own pitch, bank and compass heading, and (rad) where the nose and the path are in it (nose pitch, and how far left of the view the nose and the path point)
   foe: { theta: number; phi: number; dist: number; hunter: boolean; lock: number } | null;   // dogfight: the other plane as seen from the nose (angle off it, which way round, metres, whether it is hunting you, the lock 0..1)
 }
-export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, gamma: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, mouse: false, view: null, foe: null });
+export const emptyInstruments = (): Instruments => ({ airspeed: 0, stallSpeed: 5, bestGlide: 7, altitude: 0, vsi: 0, energyRate: 0, heading: 0, pitch: 0, gamma: 0, bank: 0, turnRate: 0, slip: 0, stalled: false, load: 1, landed: false, fuel: 0, fuelMax: 0, apo: 0, peri: 0, heat: 0, orbited: false, rocketOn: false, auto: '', mouse: false, view: null, foe: null });
 
 const FACE = '#10151b', BEZEL = '#2b333d', RIM = '#58626f', INK = '#e6edf4', DIM = '#8d99a6', AMBER = '#ffb300', RED = '#ef5350', GREEN = '#66bb6a', CYAN = '#4dd0e1', SKY = '#3f8fd2', GROUND = '#8a5a2b';
 const FONT = "'Press Start 2P', ui-monospace, monospace";   // the pixel font; its glyphs are 1 em wide, so the sizes below are scaled down to fit the dials

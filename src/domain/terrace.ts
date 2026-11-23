@@ -631,5 +631,8 @@ function farIndices(cols: number): Uint32Array {
   }
   return idx;
 }
-/** The far levels for a terraced world: fine, medium, coarse (step, half-size in tiles, and how far the eye may move before it is rebuilt). */
-export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true }, { step: 12, half: 2400, moveBy: 480, stepped: false }, { step: 32, half: 4000, moveBy: 800, stepped: false }] as const;
+/** The far levels for a terraced world: fine, medium, coarse, then two for height (step, half-size in tiles, and how far the eye may move before it is rebuilt). Each is about the same number of vertices: the higher the eye, the coarser and wider the ground, so it costs no more to build. */
+export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true }, { step: 12, half: 2400, moveBy: 480, stepped: false }, { step: 32, half: 4000, moveBy: 800, stepped: false }, { step: 128, half: 12000, moveBy: 2400, stepped: false }, { step: 400, half: 40000, moveBy: 8000, stepped: false }] as const;
+/** The finest far level worth having when the eye is this high (tiles above the ground) or this far from where it will be when a level is rebuilt (the flying speed, tiles a second, times about 25 s): from up there the finer ones are pixels, or the plane is off their edge before they are ready, so they are neither built nor drawn. */
+export const FAR_LEVEL_FROM = [0, 500, 1600, 5000, 16000] as const;
+export const farLevelFor = (eyeH: number) => { let lo = 0; for (let i = 0; i < FAR_LEVEL_FROM.length; i++) if (eyeH >= FAR_LEVEL_FROM[i]) lo = i; return lo; };

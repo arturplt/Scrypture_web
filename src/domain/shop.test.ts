@@ -34,7 +34,16 @@ describe('shop', () => {
     expect(Math.hypot(b.x, b.y)).toBeGreaterThan(Math.hypot(a.x, a.y) + 15);
   });
   it('is cleaned on load', () => {
-    expect(sanitizeUpgrades({ launch: 9, paper: -1, insurance: 'x', float: 2.4, double: 99 })).toEqual({ launch: 3, paper: 0, insurance: 0, float: 2, double: MAX_STOCK });
+    expect(sanitizeUpgrades({ launch: 9, paper: -1, rocket: 7, insurance: 'x', float: 2.4, double: 99, heatshield: 3 })).toEqual({ launch: 3, paper: 0, rocket: 3, insurance: 0, float: 2, double: MAX_STOCK, heatshield: 3 });
     expect(sanitizeUpgrades(null)).toEqual(emptyUpgrades());
+  });
+  it('sells the rocket stage in three tiers, in order, and keeps it', () => {
+    let up = emptyUpgrades(), coins = 1000;
+    for (let i = 0; i < TIERS.rocket.prices.length; i++) { const r = buy('rocket', up, coins)!; expect(r.cost).toBe(TIERS.rocket.prices[i]); up = r.up; coins -= r.cost; }
+    expect(up.rocket).toBe(3); expect(buy('rocket', up, coins)).toBeNull(); expect(offer('rocket', up, coins).price).toBeNull();
+  });
+  it('sells heat shields as a stock', () => {
+    let up = emptyUpgrades(); for (let i = 0; i < MAX_STOCK; i++) up = buy('heatshield', up, 100)!.up;
+    expect(up.heatshield).toBe(MAX_STOCK); expect(buy('heatshield', up, 100)).toBeNull();
   });
 });

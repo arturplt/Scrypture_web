@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addRunScore, coinsFor, BOOST_PRICE, MAX_BOOSTS, landingScore, MAX_SCORES, newSavedWorld, runPoints, sanitizeWorlds } from './worldsave';
+import { addOrbit, emptyOrbit, heightPoints, HEIGHT_CAP, HEIGHT_POINTS, ORBIT_BONUS, sanitizeOrbit, addRunScore, coinsFor, BOOST_PRICE, MAX_BOOSTS, landingScore, MAX_SCORES, newSavedWorld, runPoints, sanitizeWorlds } from './worldsave';
 
 describe('leaderboard', () => {
   it('scores a hoop as 100 and a metre as 1, ignores runs that went nowhere, keeps the best first and at most ten', () => {
@@ -47,5 +47,22 @@ describe('leaderboard', () => {
     expect(list[0].points).toBe(130); expect(list[0].height).toBe(40);
     const back = sanitizeWorlds(JSON.parse(JSON.stringify({ list: [{ ...newSavedWorld('a', 'A', 5, 1), scores: list }] }))).list[0];
     expect(back.scores![0]).toEqual(list[0]);
+  });
+});
+
+describe('orbit scoring and record', () => {
+  it('pays for the height climbed only up to a cap, so a rocket does not break the economy', () => {
+    expect(heightPoints(100)).toBe(100 * HEIGHT_POINTS); expect(heightPoints(HEIGHT_CAP)).toBe(HEIGHT_CAP * HEIGHT_POINTS); expect(heightPoints(30000)).toBe(HEIGHT_CAP * HEIGHT_POINTS);
+    expect(runPoints(0, 0, 0, 30000)).toBe(HEIGHT_CAP * HEIGHT_POINTS); expect(coinsFor(runPoints(0, 0, ORBIT_BONUS, 30000))).toBeGreaterThan(coinsFor(runPoints(0, 0, 0, 30000)));
+  });
+  it('counts the orbits reached and keeps the best apoapsis and periapsis', () => {
+    let o = addOrbit(undefined, 40000, 26000, 5); expect(o).toEqual({ reached: 1, bestApo: 40000, bestPeri: 26000, at: 5 });
+    o = addOrbit(o, 30000, 27000, 9); expect(o).toEqual({ reached: 2, bestApo: 40000, bestPeri: 27000, at: 9 });
+    expect(addOrbit(o, Infinity, 28000, 10).bestApo).toBe(40000);   // (an escape path has no apoapsis to record)
+    expect(emptyOrbit().reached).toBe(0);
+  });
+  it('is cleaned on load', () => {
+    expect(sanitizeOrbit({ reached: 2.4, bestApo: -5, bestPeri: 'x', at: 7 })).toEqual({ reached: 2, bestApo: 0, bestPeri: 0, at: 7 });
+    expect(sanitizeOrbit({ reached: 0 })).toBeUndefined(); expect(sanitizeOrbit(null)).toBeUndefined(); expect(sanitizeOrbit('x')).toBeUndefined();
   });
 });

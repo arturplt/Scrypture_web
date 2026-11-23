@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt } from './terrace';
+import { TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor } from './terrace';
 import { World, GRASS, SAND, WATER, DECO_NONE, CHUNK, MARGIN, SIDE, generateTerraceChunk } from './worldgen';
 import { newSavedWorld, sanitizeWorlds } from './worldsave';
 
@@ -222,5 +222,20 @@ describe('terraced height field', () => {
     }
     expect(edge).toBeGreaterThan(40);
     expect(grass).toBe(0); expect(tooTall / edge).toBeLessThan(0.03); expect(stepUp / edge).toBeGreaterThan(0.8);
+  });
+});
+
+describe('far levels by height', () => {
+  it('each level is wider and coarser than the one before, and they all cost about the same to build', () => {
+    for (let i = 1; i < TERRACE_FAR_LODS.length; i++) { expect(TERRACE_FAR_LODS[i].step).toBeGreaterThan(TERRACE_FAR_LODS[i - 1].step); expect(TERRACE_FAR_LODS[i].half).toBeGreaterThan(TERRACE_FAR_LODS[i - 1].half); }
+    for (const L of TERRACE_FAR_LODS) { const side = Math.floor((L.half * 2) / L.step) + 1; expect(side * side).toBeLessThan(170000); }
+    expect(FAR_LEVEL_FROM.length).toBe(TERRACE_FAR_LODS.length);
+  });
+  it('the higher the eye, the coarser the finest level wanted', () => {
+    expect(farLevelFor(0)).toBe(0); expect(farLevelFor(499)).toBe(0); expect(farLevelFor(500)).toBe(1); expect(farLevelFor(3000)).toBe(2); expect(farLevelFor(8000)).toBe(3); expect(farLevelFor(1e6)).toBe(4);
+    let last = 0; for (let h = 0; h < 40000; h += 100) { const l = farLevelFor(h); expect(l).toBeGreaterThanOrEqual(last); last = l; }
+  });
+  it('a coarse level covers the ground under a plane well up: its half-size is more than the eye height at which it starts', () => {
+    for (let i = 1; i < TERRACE_FAR_LODS.length; i++) expect(TERRACE_FAR_LODS[i].half).toBeGreaterThan(FAR_LEVEL_FROM[i]);
   });
 });
