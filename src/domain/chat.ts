@@ -29,6 +29,8 @@ export interface ChatFlow {
   suggestedTaskId?: string;
   rerolls: number;
   previous: string[];
+  /** the joke / quote / tip / fact / pep talk just shown, so the next one is a different one */
+  lastLine?: string;
 }
 export const initialFlow = (): ChatFlow => ({ mode: 'main', step: 1, rerolls: 0, previous: [] });
 export const MAX_REROLLS = 2;
@@ -36,12 +38,20 @@ export const MAX_REROLLS = 2;
 const FEELINGS: Record<string, Key> = { feeling_good: 'chatFeelingGood', feeling_okay: 'chatFeelingOkay', feeling_tired: 'chatFeelingTired', feeling_stressed: 'chatFeelingStressed', feeling_energetic: 'chatFeelingEnergetic' };
 const TIMES: Record<string, Key> = { time_5min: 'chatTime5Min', time_15min: 'chatTime15Min', time_30min: 'chatTime30Min', time_1hour: 'chatTime1Hour', time_more: 'chatTimeMore' };
 const WILLS: Record<string, Key> = { will_yes: 'chatYes', will_maybe: 'chatMaybe', will_no: 'chatNo' };
+const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i + 1}` as Key);
 const MOTIVATION_KEYS: Key[] = [
   'masterBuilderMessage', 'damGrowsMightyMessage', 'progressImpressiveMessage', 'everyTaskAddsStickMessage', 'damGrowsStrongerMessage',
-  ...Array.from({ length: 16 }, (_, i) => `motivationalMessage${i + 1}` as Key),
+  ...numbered('motivationalMessage', 36),
 ];
-export const MOTIVATION_COUNT = MOTIVATION_KEYS.length;
-export const FACT_COUNT = 10, BERRY_THANKS_COUNT = 3;
+const FACT_KEYS = numbered('chatFact', 20), JOKE_KEYS = numbered('chatJoke', 20), QUOTE_KEYS = numbered('chatQuote', 22), TIP_KEYS = numbered('chatTip', 14);
+export const MOTIVATION_COUNT = MOTIVATION_KEYS.length, FACT_COUNT = FACT_KEYS.length, JOKE_COUNT = JOKE_KEYS.length, QUOTE_COUNT = QUOTE_KEYS.length, TIP_COUNT = TIP_KEYS.length;
+export const BERRY_THANKS_COUNT = 3;
+/** A random line from `keys`, never the one shown just before (asking again always gives a new one). */
+function pickLine(keys: readonly Key[], f: ChatFlow, rand: () => number): Key {
+  let i = Math.min(keys.length - 1, Math.floor(rand() * keys.length));
+  if (keys[i] === f.lastLine) i = (i + 1) % keys.length;
+  return keys[i];
+}
 const MOOD_KEY: Record<Emotion, Key> = { HAPPY: 'chatMoodHappy', NEUTRAL: 'chatMoodNeutral', SLEEPY: 'chatMoodSleepy', EXCITED: 'chatMoodExcited', HUNGRY: 'chatMoodHungry', MISCHIEVOUS: 'chatMoodNeutral', SAD: 'chatMoodSad' };
 const STAT_KEY: Record<Category, Key> = { BODY: 'body', MIND: 'mind', SOUL: 'soul' };
 
@@ -188,7 +198,7 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
     const list: [string, string][] = [];
     if (have(c, 'berry')) list.push(['feed_berry', t('chatGiveBerry', { n: have(c, 'berry') })]);
     if (have(c, 'hay') && moodOf(c) === 'HUNGRY') list.push(['feed_hay', t('chatGiveHay', { n: have(c, 'hay') })]);
-    list.push(['berries_ask', t('chatBerriesAsk')], ['fact_ask', t('chatFactAsk')], ['go_back', t('chatGoBack')]);
+    list.push(['berries_ask', t('chatBerriesAsk')], ['fact_ask', t('chatFactAsk')], ['joke_ask', t('chatJokeAsk')], ['go_back', t('chatGoBack')]);
     return opts(list);
   }
   if (f.mode === 'achievements') {
@@ -199,7 +209,7 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
       ['achievements_back', t('chatGoBack')],
     ]);
   }
-  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['motivation_ask', t('chatMotivateMe')], ['stats_ask', t('chatMyStats')]];
+  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['motivation_ask', t('chatMotivateMe')], ['quote_ask', t('chatQuoteAsk')], ['tip_ask', t('chatTipAsk')], ['stats_ask', t('chatMyStats')]];
   if (c.tasks.length) list.push(['tasks_ask', t('chatMyTasks')]);
   if (c.tasks.some(x => (x.completionCount ?? 0) > 0)) list.push(['favourite_ask', t('chatFavouriteAsk')]);
   if (c.habits.length) list.push(['habits_ask', t('chatMyHabits')]);
@@ -322,7 +332,11 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
       return { reply: t('chatHayThanks'), flow: f, feed: 'hay' };
     }
     case 'berries_ask': return same(`${t('chatBerriesWhere')}\n\n${t('chatBerriesHave', { n: have(c, 'berry') })}`);
-    case 'fact_ask': return same(t(`chatFact${1 + Math.floor(rand() * FACT_COUNT)}` as Key));
+    case 'fact_ask': case 'joke_ask': case 'motivation_ask': case 'quote_ask': case 'tip_ask': {
+      const keys = id === 'fact_ask' ? FACT_KEYS : id === 'joke_ask' ? JOKE_KEYS : id === 'quote_ask' ? QUOTE_KEYS : id === 'tip_ask' ? TIP_KEYS : MOTIVATION_KEYS;
+      const k = pickLine(keys, f, rand);
+      return same(t(k), { ...f, lastLine: k });
+    }
     case 'xp_ask': return same(scaleText(c));
     // ---- ideas from the catalogue
     case 'idea_ask': return offerIdea(c, initialFlow(), ideaDifficulty(stats.level));
@@ -335,7 +349,6 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
       if (!idea) return same(WHAT_TO_DO, initialFlow());
       return { reply: `${t('taskAdded', { taskName: t(idea.title) })}\n\n${t('chatIdeaAdded')}`, flow: { ...initialFlow(), previous: f.previous }, addStarterId: idea.id };
     }
-    case 'motivation_ask': return same(t(MOTIVATION_KEYS[Math.floor(rand() * MOTIVATION_KEYS.length)]));
     case 'improve_ask': {
       const pending = c.tasks.filter(x => !x.completed).length, best = bestStreak();
       let m = `${t('chatImprove')}\n\n`;

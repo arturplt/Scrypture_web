@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GUIDE, chatGreeting, ideaDifficulty, STARTER_TASKS, HUNGER_FULL_MS, chatOptions, chatReply, initialFlow, seedAchievements, initialStats, MOTIVATION_COUNT, type ChatContext, type ChatFlow, type Task } from './index';
+import { GUIDE, chatGreeting, ideaDifficulty, STARTER_TASKS, HUNGER_FULL_MS, chatOptions, chatReply, initialFlow, seedAchievements, initialStats, MOTIVATION_COUNT, FACT_COUNT, JOKE_COUNT, QUOTE_COUNT, TIP_COUNT, type ChatContext, type ChatFlow, type Task } from './index';
 import { makeT } from '../i18n';
 
 const mk = (id: string, o: Partial<Task> = {}): Task => ({
@@ -19,7 +19,7 @@ function walk(c: ChatContext, picks: string[]) {
 
 describe('chat options', () => {
   it('main menu depends on context', () => {
-    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'motivation_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
+    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'motivation_ask', 'quote_ask', 'tip_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
     const full = ctx({ tasks: [mk('a')], habits: [{ id: 'h', title: 'h', category: 'BODY', frequency: 'DAILY', streak: 0, bestStreak: 0, lastCompleted: null, createdAt: 0, updatedAt: 0 }] });
     expect(ids(full)).toContain('tasks_ask'); expect(ids(full)).toContain('habits_ask');
   });
@@ -72,8 +72,8 @@ describe('replies', () => {
     const first = chatReply('motivation_ask', ctx(), initialFlow(), () => 0).reply;
     const last = chatReply('motivation_ask', ctx(), initialFlow(), () => 0.999).reply;
     expect(first).toBe('You are a Master Builder! Your dam stands strong.');
-    expect(last).toBe('Your dam is a testament to your dedication! Keep adding those sticks.');
-    expect(MOTIVATION_COUNT).toBe(21);
+    expect(last).toBe('A small task finished beats a perfect plan that never starts.');
+    expect(MOTIVATION_COUNT).toBe(41);
   });
   it('habits reply', () => {
     const h = { id: 'h', title: 'Stretch', category: 'BODY', frequency: 'DAILY', streak: 3, bestStreak: 5, lastCompleted: 1, createdAt: 0, updatedAt: 0 } as const;
@@ -170,11 +170,11 @@ describe('Bóbr himself', () => {
     expect(open(at({ bobr: vitals({ treatUntil: NOW + 1 }) })).reply).toContain('A BERRY!');
   });
   it('offers a berry whenever there is one, hay only when he is hungry', () => {
-    expect(ids(at(), open(at()).flow)).toEqual(['berries_ask', 'fact_ask', 'go_back']);
+    expect(ids(at(), open(at()).flow)).toEqual(['berries_ask', 'fact_ask', 'joke_ask', 'go_back']);
     const fed = at({ inventory: { berry: 3, hay: 2 } });
-    expect(chatOptions(fed, open(fed).flow).map(o => o.text)).toEqual(['Give a berry (3)', 'Where do berries grow?', 'Tell me about beavers', 'Go Back']);
+    expect(chatOptions(fed, open(fed).flow).map(o => o.text)).toEqual(['Give a berry (3)', 'Where do berries grow?', 'Tell me about beavers', 'Tell me a joke', 'Go Back']);
     const starving = at({ bobr: hungry, inventory: { berry: 3, hay: 2 } });
-    expect(ids(starving, open(starving).flow)).toEqual(['feed_berry', 'feed_hay', 'berries_ask', 'fact_ask', 'go_back']);
+    expect(ids(starving, open(starving).flow)).toEqual(['feed_berry', 'feed_hay', 'berries_ask', 'fact_ask', 'joke_ask', 'go_back']);
   });
   it('feeding tells the screen what to give and stays in the conversation', () => {
     const c = at({ inventory: { berry: 1 } }), f = open(c).flow;
@@ -186,9 +186,19 @@ describe('Bóbr himself', () => {
   });
   it('knows where berries grow and every fact exists', () => {
     expect(chatReply('berries_ask', at({ inventory: { berry: 4 } }), initialFlow()).reply).toContain('Berries in the bag: 4');
-    const facts = new Set(Array.from({ length: 10 }, (_, i) => chatReply('fact_ask', at(), initialFlow(), () => i / 10).reply));
-    expect(facts.size).toBe(10);
+    const facts = new Set(Array.from({ length: FACT_COUNT }, (_, i) => chatReply('fact_ask', at(), initialFlow(), () => (i + 0.5) / FACT_COUNT).reply));
+    expect(facts.size).toBe(FACT_COUNT);
     for (const f of facts) expect(f).not.toContain('chatFact');
+  });
+  it('every joke, quote and tip exists, and asking again never repeats the last one', () => {
+    for (const [id, n] of [['joke_ask', JOKE_COUNT], ['quote_ask', QUOTE_COUNT], ['tip_ask', TIP_COUNT], ['motivation_ask', MOTIVATION_COUNT]] as const) {
+      const lines = new Set(Array.from({ length: n }, (_, i) => chatReply(id, at(), initialFlow(), () => (i + 0.5) / n).reply));
+      expect(lines.size, id).toBe(n);
+      for (const l of lines) expect(l).not.toMatch(/^chat|^motivational/);
+      const first = chatReply(id, at(), initialFlow(), () => 0);
+      expect(chatReply(id, at(), first.flow, () => 0).reply, id).not.toBe(first.reply);
+    }
+    expect(chatReply('quote_ask', at(), initialFlow(), () => 0).reply).toContain('— Seneca');
   });
   it('the greeting mentions being hungry', () => {
     expect(chatGreeting(at())).not.toContain('hungry');
