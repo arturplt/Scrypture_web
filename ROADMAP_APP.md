@@ -11,7 +11,7 @@ Update the status table when a phase moves.
 
 | # | Phase | Size | Status |
 |---|---|---|---|
-| 1 | Safety net and first release | M | Mostly: committed, CI tests and deploys to scrypture.app (GitHub Pages); error and update toasts built. Open: the end-to-end test in the repo, real migrations, pruning `public/assets/raw`, a Lighthouse check |
+| 1 | Safety net and first release | M | Built but for one check: committed; CI type-checks, tests, builds, runs the end-to-end test and deploys to scrypture.app; old saves are tested; error and update toasts. Open: a Lighthouse check and an install hint |
 | 2 | Real-device pass | M | Not started |
 | 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Open: calendar sprite, chat history, typing animation |
 | 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
@@ -42,13 +42,13 @@ Still open, each blocks or shapes a phase:
 
 Why: 450 unit tests are run by hand, nothing is committed, and nothing is published. Everything after this is safer once it is.
 
-- First commit, then an automatic build and test run on every push.
-- Put the end-to-end flow test (onboarding, add task and habit, chat, export and import) into the repo.
-- Start real storage migrations: the format is still version 1 and every new field is filled in by defaults.
-- Choose the publishing target; if it is a sub-path, make asset, service-worker and manifest URLs relative (Vite `base`).
+- ~~First commit, then an automatic build and test run on every push~~ (done: `.github/workflows/pages.yml`).
+- ~~Put the end-to-end flow test (onboarding, add task and habit, chat, export and import) into the repo.~~ (built 2026-11-24: `npm run e2e`, run in CI; it found and now guards against a crash at the end of onboarding).
+- ~~Start real storage migrations: the format is still version 1 and every new field is filled in by defaults.~~ (2026-11-24: old-save fixtures and tests, a backup before migrating, and newer saves left alone; the version stays 1 until a change cannot be defaulted).
+- ~~Choose the publishing target~~ (scrypture.app at the root, so no relative URLs are needed).
 - ~~"New version available, reload" toast for the service worker~~ (built 2026-11-17, untried on a production build).
 - ~~"Something went wrong" message when an action fails~~ (built 2026-11-17).
-- Remove the roughly 120 unused Android sprites from `public/assets/raw`.
+- ~~Remove the unused Android sprites from `public/assets/raw`~~ (2026-11-24: 8 were unused; moved to `art/unused-sprites/`).
 - Lighthouse PWA check and an "Add to home screen" hint on the published address.
 - Done when: a push runs the tests, the app is installable from its public address, and an old save still opens after a format change.
 

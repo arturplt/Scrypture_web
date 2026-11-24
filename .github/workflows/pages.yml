@@ -34,6 +34,8 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx vitest run
       - run: npm run build
+      # a new user's first minutes in headless Chrome, on the build that is about to go live (onboarding, a task, a habit, chat, export and import)
+      - run: npm run e2e
       # single-page app on Pages: unknown paths fall back to the app
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3

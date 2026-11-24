@@ -16,16 +16,22 @@ export function browserKV(): KV | null {
   try { const t = '__t'; localStorage.setItem(t, '1'); localStorage.removeItem(t); return localStorage; } catch { return null; }
 }
 
-/** migrations[n] upgrades a state of version n to n+1. */
+/**
+ * migrations[n] upgrades a state of version n to n+1. Most new fields need none: `normalize` fills them with defaults. Bump CURRENT_VERSION only for a change
+ * that cannot be defaulted (a field renamed or reshaped), and then add the step here and a frozen save of the old version to `fixtures/` (the tests insist on both).
+ * Before bumping, read the note on `readSaved`: an older copy of the app must already know to leave a newer save alone.
+ */
 export const migrations: Record<number, (s: any) => any> = {
-  // 1: s => ({ ...s, version: 2, newField: ... })
+  // 1: s => ({ ...s, newField: ... })
 };
 
-export function migrate(raw: any): any {
-  let s = raw;
-  let v = Number.isInteger(s?.version) ? s.version : 1;
-  while (v < CURRENT_VERSION) {
-    const step = migrations[v];
+/** The version a raw save says it is (saves from before versions were written count as 1). */
+export const versionOf = (raw: unknown): number => (isObj(raw) && Number.isInteger(raw.version) ? raw.version : 1);
+
+export function migrate(raw: any, to = CURRENT_VERSION, steps = migrations): any {
+  let s = raw, v = versionOf(raw);
+  while (v < to) {
+    const step = steps[v];
     if (!step) throw new Error(`No migration from version ${v}`);
     s = { ...step(s), version: v + 1 };
     v++;
@@ -81,17 +87,36 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
   };
 }
 
-export function loadState(kv: KV | null, now = Date.now()): AppState {
-  if (!kv) return defaultState(now);
+/** Why the saved state could not be used: written by a newer version of the app, or unreadable. */
+export type LoadProblem = 'newer' | 'corrupt';
+/** Where a save from an older version is kept, untouched, before it is migrated (once per version, so a bad migration can be undone by hand). */
+export const backupKey = (version: number) => `${STORAGE_KEY}:v${version}`;
+
+/**
+ * The saved state, and what was wrong with it if it could not be used (then the defaults are returned).
+ * - `newer`: another copy of the app (a newer one in another tab, or after an update) wrote a version this one does not know. The save is left exactly as it is, and the caller must
+ *   not save over it (the store stops saving until a reload brings the newer app). This guard has to ship before CURRENT_VERSION is ever raised: an older app without it would start
+ *   fresh and write its empty state over the newer save.
+ * - `corrupt`: not JSON, or not a state at all. A copy is kept under `:corrupt` and the app starts fresh, since it could not run on it anyway.
+ */
+export function readSaved(kv: KV | null, now = Date.now()): { state: AppState; problem: LoadProblem | null } {
+  const fresh = (problem: LoadProblem | null) => ({ state: defaultState(now), problem });
+  if (!kv) return fresh(null);
+  let txt: string | null;
+  try { txt = kv.getItem(STORAGE_KEY); } catch { return fresh(null); }
+  if (!txt) return fresh(null);
   try {
-    const txt = kv.getItem(STORAGE_KEY);
-    return txt ? normalize(JSON.parse(txt), now) : defaultState(now);
+    const raw = JSON.parse(txt), v = versionOf(raw);
+    if (v > CURRENT_VERSION) { console.warn(`Saved state is from a newer app version (${v}); leaving it alone`); return fresh('newer'); }
+    if (v < CURRENT_VERSION) { try { if (kv.getItem(backupKey(v)) === null) kv.setItem(backupKey(v), txt); } catch { /* no room for a backup: migrate anyway */ } }
+    return { state: normalize(raw, now), problem: null };
   } catch (e) {
     console.warn('Could not read saved state, starting fresh', e);
-    try { const bad = kv.getItem(STORAGE_KEY); if (bad) kv.setItem(`${STORAGE_KEY}:corrupt`, bad); } catch {}
-    return defaultState(now);
+    try { kv.setItem(`${STORAGE_KEY}:corrupt`, txt); } catch {}
+    return fresh('corrupt');
   }
 }
+export const loadState = (kv: KV | null, now = Date.now()): AppState => readSaved(kv, now).state;
 
 export function saveState(kv: KV | null, state: AppState): boolean {
   if (!kv) return false;

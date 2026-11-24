@@ -4,7 +4,7 @@ import {
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
-import { STORAGE_KEY, browserKV, exportJSON, importJSON, loadState, saveState, type KV } from './storage';
+import { STORAGE_KEY, browserKV, exportJSON, importJSON, readSaved, saveState, type KV } from './storage';
 
 export interface NewTask {
   title: string; category: Category; priority: Priority; difficulty: number;
@@ -21,7 +21,10 @@ export interface NewTask {
 export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** ids of its custom categories */ groups?: string[] }
 
 export function createStore(kv: KV | null = browserKV(), clock: () => number = Date.now, genId: () => string = newId) {
-  let state: AppState = loadState(kv, clock());
+  const first = readSaved(kv, clock());
+  let state: AppState = first.state;
+  /** The save on this device was written by a newer version of the app: keep working in memory, but never write over it (a reload brings the newer app). */
+  let saveBlocked = first.problem === 'newer';
   const openedAt = clock();
   /** The quick start bonus is for the first habit ticked in a session. */
   let quickStartUsed = false;
@@ -31,7 +34,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
   const listeners = new Set<() => void>();
 
   const emit = () => listeners.forEach(l => l());
-  function set(next: AppState) { state = next; saveState(kv, state); emit(); }
+  function set(next: AppState) { state = next; if (!saveBlocked) saveState(kv, state); emit(); }
   const pushEvents = (...e: AppEvent[]) => {
     events = [...events, ...e];
     // Bóbr reacts: cheers at a finished task or habit, plays about at a level-up or an achievement (state is saved by the set() that follows)
@@ -510,14 +513,18 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
   if (kv && typeof window !== 'undefined') window.addEventListener('storage', e => {
     if (e.storageArea !== localStorage || (e.key !== STORAGE_KEY && e.key !== null)) return;
     if (e.newValue == null) return;
-    const next = loadState(kv, clock());
-    if (JSON.stringify(next) !== JSON.stringify(state)) { state = next; emit(); }
+    const read = readSaved(kv, clock());
+    if (read.problem === 'newer') { if (!saveBlocked) { saveBlocked = true; emit(); } return; }   // a newer app saved: keep what is on screen, stop saving
+    if (read.problem) return;
+    if (JSON.stringify(read.state) !== JSON.stringify(state)) { state = read.state; emit(); }
   });
 
   return {
     getState: () => state,
     /** false when localStorage is blocked (private mode): nothing will be remembered. */
     persistent: kv !== null,
+    /** True when saving stopped because the save belongs to a newer version of the app. */
+    isSaveBlocked: () => saveBlocked,
     getEvents: () => events,
     getUndo: () => undo,
     subscribe(l: () => void) { listeners.add(l); return () => listeners.delete(l); },

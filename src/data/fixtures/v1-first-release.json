@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "user": { "name": "Ada", "onboarded": true, "tutorialSeen": true },
+  "tasks": [
+    { "id": "t1", "title": "Read 10 pages", "category": "MIND", "priority": "MEDIUM", "difficulty": 2, "completed": true, "experienceReward": 20, "statRewards": { "body": 0, "mind": 2, "soul": 0 }, "tags": ["books"], "completionCount": 1, "lastCompletedAt": 1763380000000, "createdAt": 1763370000000, "updatedAt": 1763380000000 },
+    { "id": "t2", "title": "Walk the dog", "category": "BODY", "priority": "HIGH", "difficulty": 1, "completed": false, "experienceReward": 15, "statRewards": { "body": 1, "mind": 0, "soul": 0 }, "dueDate": 1763420000000, "tags": [], "createdAt": 1763371000000, "updatedAt": 1763371000000 }
+  ],
+  "habits": [
+    { "id": "h1", "title": "Meditate", "category": "SOUL", "frequency": "DAILY", "streak": 4, "bestStreak": 6, "lastCompleted": 1763380000000, "createdAt": 1763000000000, "updatedAt": 1763380000000 }
+  ],
+  "stats": { "level": 3, "totalExperiencePoints": 260, "body": 5, "mind": 9, "soul": 4, "totalTasksCompleted": 12 },
+  "achievements": [ { "id": "first_task", "title": "First Steps", "description": "Complete your first task", "category": "TASK", "rarity": "COMMON", "condition": "first_task", "unlocked": true, "unlockedAt": 1763372000000 } ],
+  "inventory": { "bcoin": 7, "stone": 12, "hay": 2 },
+  "chat": [],
+  "rockGame": { "totalThrows": 40, "totalHits": 18, "gamesPlayed": 3, "best": [] },
+  "sanctuary": { "levels": [] },
+  "mindMaps": { "list": [ { "id": "m1", "name": "Ideas", "updatedAt": 1763375000000, "nodes": [ { "id": "a", "x": 0, "y": 0, "w": 96, "h": 32, "label": "Garden", "theme": "green" } ], "links": [] } ] },
+  "exercise": { "workouts": [ { "id": "w1", "startTime": 1763360000000, "endTime": 1763362000000, "duration": 2000000, "completed": true, "pausedMs": 0, "bodyPointsAwarded": 8, "exercises": [ { "id": "e1", "name": "Push-ups", "type": "BODYWEIGHT", "sets": [ { "id": "s1", "setNumber": 1, "reps": 15, "completed": true } ] } ] } ] },
+  "planner": { "events": [ { "id": "p1", "title": "Dentist", "day": 1763420000000, "time": 930, "done": false, "createdAt": 1763371000000 } ], "shortlist": ["t2"] },
+  "worlds": { "list": [] },
+  "bobr": { "happiness": 0.8, "happinessAt": 1763380000000, "lastInteraction": 1763380000000, "feedings": 5 },
+  "settings": { "frameTheme": "gold", "language": "PL", "fullscreen": false, "volume": 0.3, "reduceMotion": false }
+}

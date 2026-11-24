@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "user": { "name": "Bea", "onboarded": true, "tutorialSeen": true },
+  "categories": [ { "id": "c1", "name": "Garden", "frame": "green" }, { "id": "c2", "name": "Career", "frame": "blue" } ],
+  "tasks": [
+    { "id": "t1", "title": "Plant beans", "category": "BODY", "priority": "LOW", "difficulty": 1, "completed": false, "experienceReward": 10, "statRewards": { "body": 1, "mind": 0, "soul": 0 }, "tags": [], "group": "c1", "dueDate": 1763420000000, "scheduledTime": 540, "createdAt": 1763371000000, "updatedAt": 1763371000000 },
+    { "id": "t2", "title": "Update CV", "category": "MIND", "priority": "MEDIUM", "difficulty": 3, "completed": false, "experienceReward": 30, "statRewards": { "body": 0, "mind": 3, "soul": 0 }, "tags": [], "group": "c2", "scheduledTime": 600, "createdAt": 1763371000000, "updatedAt": 1763371000000 }
+  ],
+  "habits": [
+    { "id": "h1", "title": "Water the beds", "category": "BODY", "frequency": "DAILY", "streak": 2, "bestStreak": 2, "lastCompleted": null, "group": "c1", "createdAt": 1763000000000, "updatedAt": 1763000000000 }
+  ],
+  "stats": { "level": 1, "totalExperiencePoints": 40, "body": 1, "mind": 0, "soul": 0, "totalTasksCompleted": 2 },
+  "achievements": [],
+  "inventory": {},
+  "chat": [],
+  "bobr": { "happiness": 1, "happinessAt": 1763380000000, "lastInteraction": 1763380000000, "feedings": 0 },
+  "settings": { "frameTheme": "green_bev", "language": "EN", "fullscreen": true, "volume": 0.7 }
+}

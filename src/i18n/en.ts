@@ -501,6 +501,7 @@ export const en = {
   "rewardsLabel": "Rewards",
   "somethingWrong": "Something went wrong. Your data is safe.",
   "updateReady": "A new version is ready.",
+  "saveNewer": "Your save is from a newer version of Scrypture. Reload to update; nothing is saved until then.",
   "reload": "RELOAD",
   "closeNotice": "OK",
   "chatFavouriteAsk": "My Favourite Task",

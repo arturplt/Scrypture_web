@@ -502,6 +502,7 @@ export const pl: Record<Key, string> = {
   "rewardsLabel": "Nagrody",
   "somethingWrong": "Coś poszło nie tak. Twoje dane są bezpieczne.",
   "updateReady": "Nowa wersja jest gotowa.",
+  "saveNewer": "Zapis pochodzi z nowszej wersji Scrypture. Odśwież stronę; do tego czasu nic nie jest zapisywane.",
   "reload": "ODŚWIEŻ",
   "closeNotice": "OK",
   "chatFavouriteAsk": "Moje Ulubione Zadanie",

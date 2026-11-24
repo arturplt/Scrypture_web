@@ -12,3 +12,4 @@ export function useAppState<T>(select: (s: AppState) => T): T {
 }
 export const useEvents = () => useSyncExternalStore(store.subscribe, store.getEvents);
 export const useUndo = () => useSyncExternalStore(store.subscribe, store.getUndo);
+export const useSaveBlocked = () => useSyncExternalStore(store.subscribe, store.isSaveBlocked);

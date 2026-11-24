@@ -502,6 +502,7 @@ export const la: Record<Key, string> = {
   "rewardsLabel": "Praemia",
   "somethingWrong": "Aliquid erravit. Data tua tuta sunt.",
   "updateReady": "Nova versio parata est.",
+  "saveNewer": "Servata ex nova versione Scrypture sunt. Renova paginam; nihil interea servatur.",
   "reload": "ITERUM ONERA",
   "closeNotice": "BENE",
   "chatFavouriteAsk": "Opus Dilectum",
