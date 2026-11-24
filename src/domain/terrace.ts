@@ -319,6 +319,8 @@ export const RELIEF_REACH = 7;
 export type Relief = Map<number, number>;
 const RELIEF_UP = new Float64Array(RELIEF_MAX), RELIEF_DOWN = new Float64Array(RELIEF_MAX);
 
+/** A change to a field's water, as a value that can be replayed: tiles are flat [x, y, x, y, ...]. */
+export type FieldOp = { k: 'fill'; tiles: number[]; cls: number | null; top?: number; kind: number };
 export class TerraceField {
   readonly seed: number;
   private grids = new Map<number, Grid>();
@@ -326,6 +328,8 @@ export class TerraceField {
   private readonly max: number;
   /** The player's sculpting, laid over the generated ground in every grid (see `setRelief`). */
   readonly relief: Relief;
+  /** Told of every `setFill` (a plain value, replayable on another field of the same seed: the chunk worker keeps its own copy of the ground, see chunkclient.ts). */
+  sink: ((op: FieldOp) => void) | null = null;
   /**
    * `max`: how many chunk grids to keep (the game's field keeps GRID_MAX; the maps' own field keeps a few, so reading the explored chunks never pushes out the grids the screen is drawn from).
    * `relief`: the sculpting to share with another field of the same world.
@@ -490,6 +494,7 @@ export class TerraceField {
    * (`takeDirty`), so the renderer builds their meshes again; `heightAt` follows at once.
    */
   setFill(tiles: readonly (readonly [number, number])[], cls: number | null, top?: number, kind = 0) {
+    if (this.sink) { const flat: number[] = []; for (const [x, y] of tiles) flat.push(x, y); this.sink({ k: 'fill', tiles: flat, cls, top, kind }); }
     const touched = new Set<number>();
     for (const [x, y] of tiles) {
       const k = fillKey(x, y);
@@ -502,6 +507,16 @@ export class TerraceField {
       const g = this.grids.get(key); if (g) this.layFills(g, Math.floor(key / 65536) - 32768, (key % 65536) - 32768);
     }
     this.lastKey = NaN;
+  }
+  /** The water now standing, as `fill` operations (one per bed layer, surface and kind) that lay the same water on another field of the same seed. */
+  fillOps(): FieldOp[] {
+    const groups = new Map<string, number[]>();
+    for (const [k, bed] of this.fills) {
+      const top = this.tops.get(k), kind = this.kinds.get(k) ?? 0, id = `${bed}|${top ?? ''}|${kind}`;
+      let g = groups.get(id); if (!g) groups.set(id, g = []);
+      g.push(Math.floor(k / 2097152) - 1048576, (k % 2097152) - 1048576);
+    }
+    return [...groups].map(([id, tiles]) => { const [bed, top, kind] = id.split('|'); return { k: 'fill' as const, tiles, cls: Number(bed), top: top === '' ? undefined : Number(top), kind: Number(kind) }; });
   }
   /** The chunks whose ground changed under water since the last call, as [cx, cy]. */
   takeDirty(): [number, number][] {

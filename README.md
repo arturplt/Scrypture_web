@@ -35,6 +35,7 @@ The default flight mode is a real glider (`src/domain/glider.ts`, pure and unit 
 ## Layout
 - `src/domain` — pure game rules (XP, levels, streaks, achievements, chat state machine, Bóbr mood/trades)
 - `src/data` — versioned `localStorage` store, export/import
+- `src/workers`, `src/screens/chunkClient.ts`, `src/domain/chunkbuild.ts` — the Paperplane ground is built in a Web Worker (a copy of the world's ground kept current by replaying its changes; the page builds for itself if the worker is missing or fails; `?noworker` forces that, `?perf` shows its state)
 - `src/i18n` — English / Latin / Polish (Latin unlocks after 10 tasks); every key must exist in all three
 - `src/ui` — pixel kit: CSS `border-image` on the Android frames, no canvas
 - `src/screens` — dashboard, tasks, habits, achievements, chat, settings, onboarding, planner, apps (Pixelite, Sanctuary, mind map, notes, exercise, emoticons) and the Bóbr World / Paper plane

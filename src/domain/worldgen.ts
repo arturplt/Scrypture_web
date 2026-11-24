@@ -14,7 +14,7 @@
  */
 
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, type WorldKind } from './lakedistrict';
-import { TerraceField, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt } from './terrace';
+import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt } from './terrace';
 export { terraceBiome };
 
 export const CHUNK = 16;                       // tiles per chunk side
@@ -284,6 +284,16 @@ const rockOn = (st: TileState): Cell | null => (st.t !== SAND && st.v === 2 ? SH
 export interface Drawn { ground: Cell; deco: Cell | null; scale: number }
 
 /**
+ * A change to the world's mutable ground as a plain value that can be replayed on another `World` of the same seed and kind (the chunk worker keeps its own copy,
+ * see chunkclient.ts). Lists are flat: relief [x, y, layers, ...], tiles [x, y, ...]. Replayed in the order they happened (the generated-ground cache depends on it).
+ */
+export type WorldOp =
+  | { k: 'set'; x: number; y: number; s: TileState }
+  | { k: 'relief'; list: number[] }
+  | { k: 'sculpt'; tiles: number[]; by: number }
+  | FieldOp;
+
+/**
  * The world: a seed (everything not touched is generated) plus the tiles the ecosystem, the paint tool or the player changed.
  * `version` counts changes so renderers know when to redraw a chunk.
  */
@@ -292,6 +302,8 @@ export class World {
   readonly kind: WorldKind;
   readonly changes = new Map<number, TileState>();
   version = 0;
+  /** Told of every change to the ground (see `WorldOp`); set by `record`. */
+  private sink: ((op: WorldOp) => void) | null = null;
   private cache = new Map<number, { t: Uint8Array; b: Uint8Array }>();
   /** The terraced world's height field (null on the other kinds). */
   readonly field: TerraceField | null;
@@ -303,6 +315,26 @@ export class World {
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
     this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
+  }
+  /** Start telling `sink` of every change made from now on (the chunk worker's mirror). Changes made through the constructor are not told: they are the starting state. */
+  record(sink: ((op: WorldOp) => void) | null) { this.sink = sink; if (this.field) this.field.sink = sink; }
+  /** Everything that sets this world apart from a fresh one of the same seed: the tile changes, and the sculpting and the water as operations to `apply` (the chunk worker starts from this). */
+  snapshot(): { changes: [number, TileState][]; ops: WorldOp[] } {
+    const ops: WorldOp[] = [];
+    if (this.field) {
+      const relief = this.field.reliefList();
+      if (relief.length) ops.push({ k: 'relief', list: relief.flat() });
+      ops.push(...this.field.fillOps());
+    }
+    return { changes: [...this.changes], ops };
+  }
+  /** Make a change that was recorded on another world of the same seed. */
+  apply(op: WorldOp) {
+    const pairs = (flat: number[]) => { const out: [number, number][] = []; for (let i = 0; i + 1 < flat.length; i += 2) out.push([flat[i], flat[i + 1]]); return out; };
+    if (op.k === 'set') this.set(op.x, op.y, op.s);
+    else if (op.k === 'relief') { const out: [number, number, number][] = []; for (let i = 0; i + 2 < op.list.length; i += 3) out.push([op.list[i], op.list[i + 1], op.list[i + 2]]); this.loadRelief(out); }
+    else if (op.k === 'sculpt') this.sculpt(pairs(op.tiles), op.by);
+    else this.field?.setFill(pairs(op.tiles), op.cls, op.top, op.kind);
   }
   /** Does the ground have height (hills, a chunk mesh, ridge lift)? The Lake District and the terraced worlds. */
   get hilly(): boolean { return this.kind !== 'procedural'; }
@@ -403,6 +435,7 @@ export class World {
   }
   /** Replace a tile. Setting it back to what the generator would give removes the override. */
   set(x: number, y: number, s: TileState): void {
+    if (this.sink) this.sink({ k: 'set', x, y, s: { ...s } });
     const gen = generatedState(x, y, this.generatedTerrain(x, y), this.biomeOf(x, y), this.seed, this.ledgeOf(x, y));
     const k = tileKey(x, y);
     if (gen.t === s.t && gen.v === s.v && gen.d === s.d && gen.s === s.s) this.changes.delete(k); else this.changes.set(k, s);
@@ -414,9 +447,10 @@ export class World {
    * generated again from the new ground. Returns their keys (`tileKey(cx, cy)`), for the renderer and the maps; empty when nothing changed (not a terraced world, at the limit, the beach).
    */
   /** Lay a save's sculpting over the ground, as the world opens. */
-  loadRelief(list: readonly (readonly [number, number, number])[]) { if (!this.field || !list.length) return; this.field.loadRelief(list); this.mapField?.dropGrids([]); this.cache.clear(); }
+  loadRelief(list: readonly (readonly [number, number, number])[]) { if (!this.field || !list.length) return; if (this.sink) this.sink({ k: 'relief', list: list.flatMap(r => [r[0], r[1], r[2]]) }); this.field.loadRelief(list); this.mapField?.dropGrids([]); this.cache.clear(); }
   sculpt(tiles: readonly (readonly [number, number])[], by: number): number[] {
     if (!this.field) return [];
+    if (this.sink) this.sink({ k: 'sculpt', tiles: tiles.flatMap(t => [t[0], t[1]]), by });
     const chunks = this.field.setRelief(tiles, by, 0);
     if (!chunks.length) return [];
     this.mapField?.dropGrids(chunks);

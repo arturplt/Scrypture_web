@@ -28,6 +28,8 @@ import { loadPlaneModel } from './planemodel';
 import { Slot } from '../ui/Inventory';
 import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
 import type { Key, TFn } from '../i18n';
+import { ChunkClient, type WorkerLike } from './chunkClient';
+import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels } from '../domain/chunkbuild';
 import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
@@ -624,6 +626,17 @@ function WorldView({ id }: { id: string }) {
       }
       return b;
     };
+    // The chunk worker (see chunkclient.ts): the ground's pictures are built off the main thread, from a copy of the ground made now and kept current by the changes `World.record` reports.
+    // Not for the Lake District (its map data and roads live on this thread), not without Workers, and not with `?noworker` (to compare). If it fails, the code below builds on this thread as it always did.
+    let cw: ChunkClient | null = null;
+    if (s.world.kind !== 'lakedistrict' && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) {
+      const table = new Uint8ClampedArray(BLOCK_TABLE_BYTES);   // (every cell of the sheet, drawn here with the canvas as always, so the worker's pictures are the same pixels; the road variants are for the Lake District and stay empty)
+      for (let row = 0; row < SHEET_ROWS; row++) for (let col = 0; col < SHEET_COLS; col++) table.set(tileBlock(col, row, false), blockIndex(col, row, false) * BLOCK_BYTES);
+      const snap = s.world.snapshot();
+      cw = new ChunkClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike, { seed: s.world.seed, kind: s.world.kind, changes: snap.changes, table, ops: snap.ops });
+      const client = cw;
+      s.world.record(op => client.push(op));
+    }
     const pxPool: Uint8ClampedArray<ArrayBuffer>[] = [];   // pixel arrays of dropped chunks, used again (256 KB each)
     const freeChunk = (ch: ChunkImg | undefined) => { if (ch && pxPool.length < 24) pxPool.push(ch.src.px); };
     const dropChunk = (key: number) => { freeChunk(chunks.current.get(key)); chunks.current.delete(key); };
@@ -632,25 +645,16 @@ function WorldView({ id }: { id: string }) {
       if (!ch.cv) { const c = document.createElement('canvas'); c.width = c.height = CPX; c.getContext('2d')!.putImageData(new ImageData(s.world.field ? terraceTinted(ch.src.px, s.world.field, cx, cy) : ch.src.px, CPX, CPX), 0, 0); ch.cv = c; }
       return ch.cv;
     };
-    function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {
-      const px = pxPool.pop() ?? new Uint8ClampedArray(CPX * CPX * 4), row = TILE_PX * 4, stride = CPX * 4;
-      const decos: Deco[] = [];
-      const road = s.world.realMap, fld = s.world.field;
-      if (fld) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!fld.has(cx + dx, cy + dy)) { fld.grid(cx + dx, cy + dy); yield; }   // (the terraced world: the chunk's tiles read its own height grid and its neighbours', a few ms each on a phone; one a slice, so a fresh chunk is not nine of them in one go)
-      const tiles = s.world.chunkDrawn(cx, cy);
-      yield;
-      for (let j = 0; j < CHUNK; j++) { if (j > 0 && j % 4 === 0) yield; for (let i = 0; i < CHUNK; i++) {
-        const x = cx * CHUNK + i, y = cy * CHUNK + j, d = tiles[j * CHUNK + i];
-        const b = tileBlock(d.ground[0], d.ground[1], road && s.world.terrainAt(x, y) === SAND && !!lakeRoadAt(x, y));
-        for (let r = 0, o = (j * TILE_PX * CPX + i * TILE_PX) * 4; r < TILE_PX; r++, o += stride) px.set(b.subarray(r * row, r * row + row), o);
-        if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
-      } }
+    function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {   // (the same builder the worker runs: domain/chunkbuild.ts)
+      const px = pxPool.pop() ?? new Uint8ClampedArray(CPX * CPX * 4);
+      const decos = yield* chunkPixels(s.world, tileBlock, s.world.realMap ? (x, y) => !!lakeRoadAt(x, y) : null, cx, cy, px);
       return { src: { px, size: CPX }, decos };
     }
     const miniCache = new MiniCache();
     const building = new Map<number, Generator<void, ChunkImg>>();
     /** Work on a chunk until `endAt` (ms, performance.now) or until it is done (at least one slice); true when it is finished and stored. */
     const stepChunk = (cx: number, cy: number, endAt: number): boolean => {
+      if (cw && cw.state !== 'failed') { cw.request(cx, cy); return false; }   // (the worker builds it and `takeChunks` stores it; while it starts, the ground waits)
       const key = tileKey(cx, cy);
       let gen = building.get(key);
       if (!gen) { if (building.size > 80) building.clear(); gen = buildChunkGen(cx, cy); building.set(key, gen); }
@@ -658,6 +662,11 @@ function WorldView({ id }: { id: string }) {
       while (!r.done && performance.now() < endAt) r = gen.next();
       if (!r.done) return false;
       freeChunk(chunks.current.get(key)); chunks.current.set(key, r.value); building.delete(key); return true;
+    };
+    /** Store what the worker has finished (once a frame, before anything asks what is missing). */
+    const takeChunks = (x: number, y: number) => {
+      if (!cw) return;
+      for (const b of cw.tick(x, y)) { const old = chunks.current.get(b.key); freeChunk(old); chunks.current.set(b.key, { src: { px: b.px as Uint8ClampedArray<ArrayBuffer>, size: CPX }, decos: b.decos, stale: b.stale || undefined }); }
     };
 
     // thermals: warm bare ground makes the strongest rising air, water and forest the weakest; heat waves help, cold snaps hurt
@@ -745,6 +754,7 @@ function WorldView({ id }: { id: string }) {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       const L = loading ? { ...live.current, paused: true } : live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
+      takeChunks(f.x, f.y);   // (what the chunk worker has finished since the last frame, and the next requests sent to it)
       // the full-screen map (minimap zoom 3 to 5): time stops, nothing is drawn behind it, and the frame goes on filling the map and building the ground round the plane instead
       { const open = bigScaleRef.current > 0 && !!bigMap.current;
         if (open) { mapFrame(bigScaleRef.current); workMs += performance.now() - w0; workN++; mapWasOpen = true; return; }
@@ -1077,7 +1087,7 @@ function WorldView({ id }: { id: string }) {
       mark('before'); s.eco.step(simDt); s.eco.easeClouds(simDt); mark('eco');                                                              // the world keeps living while you fly
       for (const key of reliefDirty.current) miniCache.lay.delete(key);   // (sculpted chunks: their layers changed too, which nothing else ever changes)
       reliefDirty.current.clear();
-      for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
+      for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; cw?.noteDirty(key); miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
       s.eco.dirty.clear();
       if (s.world.field && glr) { const wet = s.world.field.takeDirty(); if (wet.length) glr.dropTerrainMeshes(wet.map(([cx, cy]) => tileKey(cx, cy))); }   // (water laid over, or taken off, the terraces: those chunks' meshes are cut again)
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
@@ -1961,6 +1971,7 @@ function WorldView({ id }: { id: string }) {
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
+            `worker ${cw ? `${cw.state}${cw.state === 'failed' ? ' (' + cw.failure + ')' : ` ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms, ${cw.busy} queued`}` : 'off'}`,
             `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)` + (glr ? `  far from ${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}` : ''),
             `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
@@ -1990,7 +2001,7 @@ function WorldView({ id }: { id: string }) {
     const unlock = () => eng?.unlock();
     const blip = (e: Event) => { if (e.target instanceof Element && e.target.closest('button')) eng?.play('blip'); };   // every button in the world screen clicks
     addEventListener('keydown', unlock); addEventListener('pointerdown', unlock); addEventListener('click', blip);
-    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
+    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); cw?.terminate(); s.world.record(null); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
   }, [ready, id]);
 
   // paint tool
