@@ -359,9 +359,16 @@ void main() {
 }`;
 const COMP_FS = `#version 300 es
 precision highp float;
-in vec2 vUv; uniform sampler2D uScene, uBloom; uniform vec2 uSunPos; uniform float uRays, uBloomK, uVig; out vec4 o;
+in vec2 vUv; uniform sampler2D uScene, uBloom; uniform vec2 uSunPos, uSceneSz; uniform float uRays, uBloomK, uVig, uCrt; out vec4 o;
 void main() {
-  vec3 c = texture(uScene, vUv).rgb + texture(uBloom, vUv).rgb * uBloomK;
+  vec3 c;
+  if (uCrt > 0.5) {   // the CRT look: the picture is drawn small and stretched to the screen, its colour channels pulled apart a little towards the corners (chromatic aberration), a dark line between its rows, a slightly stronger vignette
+    vec2 d = vUv - 0.5; float k = 0.0018 + 0.012 * dot(d, d);
+    c = vec3(texture(uScene, vUv - d * k).r, texture(uScene, vUv).g, texture(uScene, vUv + d * k).b);
+    float row = 0.5 + 0.5 * cos(6.2831853 * vUv.y * uSceneSz.y);   // 0 in the middle of a picture row, 1 between two
+    c *= (1.0 - 0.26 * pow(row, 1.7)) * 1.09;
+  } else c = texture(uScene, vUv).rgb;
+  c += texture(uBloom, vUv).rgb * uBloomK;
   if (uRays > 0.001) {                                         // rays: the glow smeared away from the sun, so what stands in front of it casts streaks
     vec2 d = (uSunPos - vUv) * (0.9 / 14.0), p = vUv; float w = 1.0; vec3 r = vec3(0.0);
     for (int i = 0; i < 14; i++) { p += d; r += texture(uBloom, p).rgb * w; w *= 0.9; }
@@ -445,7 +452,7 @@ export class WorldGL {
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
-  private post: { w: number; h: number; hdr: boolean; depth: WebGLRenderbuffer; scene: Target; a: Target; b: Target } | null = null;
+  private post: { w: number; h: number; sw: number; sh: number; hdr: boolean; depth: WebGLRenderbuffer; scene: Target; a: Target; b: Target } | null = null;
   private postBroken = false; private postOn = false;
   private layerTex: (WebGLTexture | null)[] = [null, null, null, null, null]; private starsTex: WebGLTexture | null = null; private moonTex: WebGLTexture | null = null; private spin = 0; private noonK = 0;
   private sunDir: Vec3 = [0, 0, -1]; private dayK = 1; private zenith: [number, number, number] = [0.3, 0.52, 0.85];                    // how much the camera stands on the ground (0 = the chase camera)
@@ -476,12 +483,16 @@ export class WorldGL {
   skyMode = false;
   private terrIbo: WebGLBuffer | null = null;
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
-  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean }[] | null = null;
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
   private farIbos = new Map<Uint32Array, WebGLBuffer>();   // the terraced far levels share their index arrays (see terrace.ts farIndices), so each size has one GPU buffer for good
   private farStage = new Float32Array(0);                   // where a far level's vertices are interleaved before the upload (kept for the next one)
   private farOn = false;
   /** The finest far level to draw (a hilly world with more than three: from high up the finer ones are pixels). Set by the screen. */
+  /** The CRT look (see COMP_FS): the scene is drawn at `renderScale` of the canvas (which then stays at the screen's own size) and stretched over it by the last pass. */
+  crt = false; renderScale = 1;
   farMin = 0;
+  /** How far (tiles) the real chunks may reach whatever the view asks (Infinity: no cap), and where each far level ends past the hole (null: the usual rings). The seeded hills cap the chunks and put a fine far level in front. */
+  nearCap = Infinity; farRing: number[] | null = null;
   /** 0..1: how high the eye is over a hilly world (from 150 tiles, about 830 m, to 600), for the haze at the edge of the ground. */
   highK() { if (!this.terrain) return 0; const t = Math.max(0, Math.min(1, (this.eyeHeight - 150) / 450)); return t * t * (3 - 2 * t); }
   /** The eye's height above the ground (tiles), as of the last camera. */
@@ -561,7 +572,7 @@ export class WorldGL {
     const sp = this.skyProg = link(SKY_VS, SKY_FS);
     try {   // the glow pass is an extra: without it the view is simply drawn straight to the screen
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
-      for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
+      for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
     for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
@@ -752,6 +763,7 @@ export class WorldGL {
       this.nearReach = Math.min(this.reach, 200 * this.drawK, 400); this.reach = Math.max(FAR_REACH, Math.max(0, -this.eye[2]) * 4); this.fogStart = Math.max(this.fogStart, 500); this.farOn = true;
       far = Math.max(far, this.reach * 1.05 + D);
     }
+    if (this.nearCap < Infinity && this.nearReach > 0) this.nearReach = Math.min(this.nearReach, this.nearCap);
     far = Math.max(far, this.skyRadius * 1.05 + D);
     const a = 1 / tanY, asp = c.W / c.H, e = this.eye;
     // view * projection, column-major: clip = P * V * p, with V's rows r, u, -f
@@ -847,8 +859,8 @@ export class WorldGL {
   /** The textures the glow pass draws through, made (again) when the canvas changes size. False when there is no glow pass. */
   private ensurePost(): boolean {
     if (!this.postProg || this.postBroken) return false;
-    const gl = this.gl, w = gl.canvas.width, h = gl.canvas.height;
-    if (this.post && this.post.w === w && this.post.h === h) return true;
+    const gl = this.gl, w = gl.canvas.width, h = gl.canvas.height, sw = Math.max(1, Math.round(w * this.renderScale)), sh = Math.max(1, Math.round(h * this.renderScale));
+    if (this.post && this.post.w === w && this.post.h === h && this.post.sw === sw && this.post.sh === sh) return true;
     this.freePost();
     const build = (hdr: boolean) => {
       const mk = (tw: number, th: number): Target => {
@@ -860,11 +872,11 @@ export class WorldGL {
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
         return { fb, tex, w: tw, h: th };
       };
-      const qw = Math.max(1, w >> 2), qh = Math.max(1, h >> 2);
-      const a = mk(qw, qh), b = mk(qw, qh), scene = mk(w, h), depth = gl.createRenderbuffer()!;
-      gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+      const qw = Math.max(1, sw >> 2), qh = Math.max(1, sh >> 2);
+      const a = mk(qw, qh), b = mk(qw, qh), scene = mk(sw, sh), depth = gl.createRenderbuffer()!;
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, sw, sh);
       gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
-      this.post = { w, h, hdr, depth, scene, a, b };
+      this.post = { w, h, sw, sh, hdr, depth, scene, a, b };
       return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     };
     const canHdr = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));   // brighter-than-white colours, so only the sun and the glitter glow
@@ -884,14 +896,16 @@ export class WorldGL {
     const gl = this.gl, p = this.post!, pp = this.postProg!, L = this.postLoc;
     for (let i = 0; i < 3; i++) gl.disableVertexAttribArray(i);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.activeTexture(gl.TEXTURE0);
+    if (this.fx) {   // (without the pretty extras only the last pass runs: the stretch, and the CRT look if it is on)
     gl.viewport(0, 0, p.a.w, p.a.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, p.a.fb); gl.useProgram(pp.bright); gl.bindTexture(gl.TEXTURE_2D, p.scene.tex);
-    gl.uniform1i(L['bright.uTex'], 0); gl.uniform2f(L['bright.uPx'], 1 / p.w, 1 / p.h); gl.uniform1f(L['bright.uThr'], p.hdr ? 1.0 : 0.82);
+    gl.uniform1i(L['bright.uTex'], 0); gl.uniform2f(L['bright.uPx'], 1 / p.sw, 1 / p.sh); gl.uniform1f(L['bright.uThr'], p.hdr ? 1.0 : 0.82);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.useProgram(pp.blur); gl.uniform1i(L['blur.uTex'], 0);
     for (const step of [1, 2]) {                                              // twice, the second time wider
       gl.bindFramebuffer(gl.FRAMEBUFFER, p.b.fb); gl.bindTexture(gl.TEXTURE_2D, p.a.tex); gl.uniform2f(L['blur.uDir'], step / p.a.w, 0); gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.bindFramebuffer(gl.FRAMEBUFFER, p.a.fb); gl.bindTexture(gl.TEXTURE_2D, p.b.tex); gl.uniform2f(L['blur.uDir'], 0, step / p.a.h); gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
     }
     // where the sun is on the screen: the rays fade out as it leaves the picture, and there are none when it is behind the camera or down
     const s = this.sunDir, e = this.eye, at = this.project(e[0] + s[0] * 1e4, e[1] + s[1] * 1e4, e[2] + s[2] * 1e4);
@@ -899,21 +913,21 @@ export class WorldGL {
     if (at && this.dayK > 0) {
       su = at[0] / this.W; sv = 1 - at[1] / this.H;
       const out = Math.max(0, -su, su - 1, -sv, sv - 1);
-      rays = this.dayK * (1 - this.night[3]) * 0.55 * Math.max(0, 1 - out / 0.5);
+      rays = this.fx ? this.dayK * (1 - this.night[3]) * 0.55 * Math.max(0, 1 - out / 0.5) : 0;
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, p.w, p.h); gl.useProgram(pp.comp);
     gl.bindTexture(gl.TEXTURE_2D, p.scene.tex); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, p.a.tex); gl.activeTexture(gl.TEXTURE0);
     gl.uniform1i(L['comp.uScene'], 0); gl.uniform1i(L['comp.uBloom'], 1); gl.uniform2f(L['comp.uSunPos'], su, sv);
-    gl.uniform1f(L['comp.uRays'], rays); gl.uniform1f(L['comp.uBloomK'], 0.7); gl.uniform1f(L['comp.uVig'], 0.22);
+    gl.uniform1f(L['comp.uRays'], rays); gl.uniform1f(L['comp.uBloomK'], this.fx ? 0.7 : 0); gl.uniform1f(L['comp.uVig'], this.crt ? 0.32 : 0.22); gl.uniform1f(L['comp.uCrt'], this.crt ? 1 : 0); gl.uniform2f(L['comp.uSceneSz'], p.sw, p.sh);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex); gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.useProgram(this.prog);
   }
 
   begin() {
     const gl = this.gl;
-    this.postOn = this.fx && this.ensurePost();
+    this.postOn = (this.fx || this.crt) && this.ensurePost();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.postOn ? this.post!.scene.fb : null);
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    if (this.postOn) gl.viewport(0, 0, this.post!.sw, this.post!.sh); else gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     const nt = this.night, nk = nt[3];
     gl.clearColor(this.sky[0] * (1 - nk) + nt[0] * nk, this.sky[1] * (1 - nk) + nt[1] * nk, this.sky[2] * (1 - nk) + nt[2] * nk, 1); gl.clearDepth(1);
     gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1142,7 +1156,8 @@ export class WorldGL {
     let ibo = this.farIbos.get(m.idx);
     if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
     if (old) gl.deleteBuffer(old.vbo);
-    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true };
+    const cols = Math.round(Math.sqrt(n));
+    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
     this.endTerrain();
   }
   private uploadFar(m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }) {
@@ -1163,7 +1178,7 @@ export class WorldGL {
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
     gl.uniform1f(this.loc.uFar, 1); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
-    const kk = Math.max(1, this.drawK), E = [260 * kk, 820 * kk, 2600, 8000];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)
+    const kk = Math.max(1, this.drawK), E = this.farRing ? this.farRing.map((v, i) => (i === 1 || i === 2 ? v * kk : v)) : [260 * kk, 820 * kk, 2600, 8000];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)
     // the levels in use: from the finest one wanted (and built) to the coarsest. The first starts at the hole; each next one a little inside where the one before ends (no crack)
     const n = this.farMesh!.length;
     let lo = n > 3 ? Math.min(this.farMin, n - 1) : 0; while (lo > 0 && !this.farMesh![lo]) lo--;   // (the one wanted is not built yet: the next finer one stands in)
@@ -1178,7 +1193,12 @@ export class WorldGL {
       gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, i === n - 1 ? 0 : 20 * kk);
       gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
-      gl.drawElements(gl.TRIANGLES, f.n, gl.UNSIGNED_INT, 0);
+      let first = 0, count = f.n;
+      if (f.grid && e0 < 1e8 && f.grid.step > 0) {   // (a level is a whole square, but only the ring of it between s0 and e0 round the eye is ever seen: the rows of cells within e0 of the eye's row are drawn, not the whole square's vertices and triangles)
+        const { cols, y0, step } = f.grid, r0 = Math.max(0, Math.min(cols - 2, Math.floor((this.eye[1] - e0 - 40 - y0) / step))), r1 = Math.max(r0 + 1, Math.min(cols - 1, Math.ceil((this.eye[1] + e0 + 40 - y0) / step)));
+        first = r0 * (cols - 1) * 6 * 4; count = (r1 - r0) * (cols - 1) * 6;
+      }
+      gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
     });
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.uniform1f(this.loc.uFar, 0);

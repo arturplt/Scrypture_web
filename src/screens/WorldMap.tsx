@@ -3,7 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
-import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, farIndices, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh, type TerraceMesh } from '../domain';
+import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_LAYER_M, TERRACE_FAR_LODS, TERRACE_FAR_LODS_HILLS, FAR_LEVEL_FROM_HILLS, HILLS_NEAR, farLevelFor, terraceFarMesh, farIndices, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh, type TerraceMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, tiltAltitudeFactor, Ecosystem, billboardLean, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
@@ -96,31 +96,33 @@ const LOD_ONLY_ALT = 200;
 const DECO_ALTITUDE = [8.5, 6.5, 4.5, 2.5];
 
 export function WorldMap({ id }: { id: string }) {
-  const w0 = useAppState(s => { const w = s.worlds.list.find(x => x.id === id); return w ? (w.kind ?? 'procedural') : ''; });   // (a primitive: saves and cloud sync must not re-render the whole world screen)
+  const w0 = useAppState(s => { const w = s.worlds.list.find(x => x.id === id); return w ? (w.kind === 'terraced' && w.map ? 'terraced-real' : (w.kind ?? 'procedural')) : ''; });   // (a primitive: saves and cloud sync must not re-render the whole world screen)
   const { t } = useI18n();
   if (!w0) return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{t('worldMissing')}</p></div>;
-  return w0 === 'lakedistrict' ? <LakeGate id={id} /> : <WorldView key={id} id={id} />;
+  return w0 === 'lakedistrict' || w0 === 'terraced-real' ? <LakeGate id={id} terraced={w0 === 'terraced-real'} /> : <WorldView key={id} id={id} />;
 }
 
 /** The Lake District's map is an image: wait for it before the world is built. */
-function LakeGate({ id }: { id: string }) {
+function LakeGate({ id, terraced }: { id: string; terraced: boolean }) {
   const { t } = useI18n();
   const map = useAppState(s => s.worlds.list.find(w => w.id === id)?.map) ?? 'lakes';
-  const [state, setState] = useState<'wait' | 'ok' | 'fail'>(lakeReady(map) ? 'ok' : 'wait');
-  useEffect(() => { if (state === 'wait') loadLakeDistrict(map).then(() => setState('ok'), () => setState('fail')); }, []);
+  const [state, setState] = useState<'wait' | 'ok' | 'fail'>(lakeReady(map, terraced) ? 'ok' : 'wait');
+  useEffect(() => { if (state === 'wait') loadLakeDistrict(map, terraced).then(() => setState('ok'), () => setState('fail')); }, []);
   if (state === 'ok') return <WorldView key={id} id={id} />;
   return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{state === 'wait' ? t('worldLakeLoading') : t('worldMissing')}</p></div>;
 }
 
 /** Graphics settings: presets and the saved custom values (kept on this device). */
-interface Gfx { res: number; auto: boolean; cap: number; density: number; shaders: boolean; clouds: boolean; draw: number }
+interface Gfx { res: number; auto: boolean; cap: number; density: number; shaders: boolean; clouds: boolean; draw: number; crt: boolean }
 const GFX_PRESETS: Record<'low' | 'med' | 'high', Gfx> = {
-  low: { res: 60, auto: false, cap: 30, density: 40, shaders: false, clouds: false, draw: 50 },
-  med: { res: 80, auto: true, cap: 30, density: 70, shaders: false, clouds: true, draw: 75 },
-  high: { res: 100, auto: true, cap: 60, density: 100, shaders: true, clouds: true, draw: 100 },
+  low: { res: 60, auto: false, cap: 30, density: 40, shaders: false, clouds: false, draw: 50, crt: false },
+  med: { res: 80, auto: true, cap: 30, density: 70, shaders: false, clouds: true, draw: 75, crt: false },
+  high: { res: 100, auto: true, cap: 60, density: 100, shaders: true, clouds: true, draw: 100, crt: false },
 };
 const GFX_KEY = 'scrypture:gfx';
-const loadGfx = (): Gfx => { try { const r = JSON.parse(localStorage.getItem(GFX_KEY) ?? 'null'); if (r && typeof r.res === 'number') return { ...GFX_PRESETS.high, ...r }; } catch { /* none saved */ } return GFX_PRESETS.high; };
+/** What a new player starts with: the high preset drawn at half resolution (a full-size picture costs about two and a half times the GPU time for little to see in pixel art; see the CRT filter, which stretches the small picture). */
+const GFX_DEFAULT: Gfx = { ...GFX_PRESETS.high, res: 50 };
+const loadGfx = (): Gfx => { try { const r = JSON.parse(localStorage.getItem(GFX_KEY) ?? 'null'); if (r && typeof r.res === 'number') return { ...GFX_DEFAULT, ...r }; } catch { /* none saved */ } return GFX_DEFAULT; };
 
 /** Every setting in the menu that is a choice of the pilot's (not the world's and not a debug aid), kept in this browser and brought back on the next visit. */
 const PREFS_KEY = 'scrypture:worldPrefs';
@@ -204,7 +206,8 @@ function WorldView({ id }: { id: string }) {
   const [runResult, setRunResult] = useState<{ hoops: number; metres: number; height: number; bonus: number; soft: boolean; water: boolean; saved: 'insurance' | 'float' | null; dbl: number; coins: number; key: number; trick: number; tag?: { pts: number; you: number; ai: number }; tricks: { name: string; n: number; pts: number }[] } | null>(null);   // the popup after a run: how it ended and what it scored
   const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
-    const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural');
+    const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural', initial.kind === 'terraced' ? initial.map : null);
+    setHudUnits(world);
     if (initial.relief) world.loadRelief(initial.relief);   // (before anything builds a chunk from the ground)
     const flight = newFlight(initial.plane.x, initial.plane.y);
     flight.heading = initial.plane.heading; flight.pitch = initial.plane.pitch;
@@ -272,7 +275,7 @@ function WorldView({ id }: { id: string }) {
   planeLenRef.current = PLANE_SIZES[planeSizeI];
   const [walkDist, setWalkDist] = useState(prefs0.walkDist);   // on foot (hilly worlds): how far the real chunks reach, % of the usual 200 tiles
   const gfx0 = useRef(loadGfx()).current;
-  const [resScale, setResScale] = useState(gfx0.res), [resAuto, setResAuto] = useState(gfx0.auto), [fpsCap, setFpsCap] = useState(gfx0.cap), [decoDensity, setDecoDensity] = useState(gfx0.density);   // graphics: render resolution (%), whether it also drops by itself when slow, frame cap, how many trees, bushes and rocks (%)
+  const [resScale, setResScale] = useState(gfx0.res), [resAuto, setResAuto] = useState(gfx0.auto), [crt, setCrt] = useState(gfx0.crt), [fpsCap, setFpsCap] = useState(gfx0.cap), [decoDensity, setDecoDensity] = useState(gfx0.density);   // graphics: render resolution (%), whether it also drops by itself when slow, frame cap, how many trees, bushes and rocks (%)
   const [drawDist, setDrawDist] = useState(gfx0.draw);   // draw distance, % of the usual cap (320 tiles) on how far the ground is drawn
   const [mapUiSize, setMapUiSize] = useState(prefs0.mapUiSize);   // the minimap and the boxes beside it (biome, clock, wind, temperature, zoom), %
   const [instSize, setInstSize] = useState(prefs0.instSize);   // the flight instrument's size, % (the menu's slider)
@@ -326,7 +329,27 @@ function WorldView({ id }: { id: string }) {
   const miniDirty = useRef(false);
   const [bigScale, setBigScale] = useState(0);   // the full-screen map's zoom (world tiles per map pixel, 0.5 to 16); 0: closed. It has its own zoom so + can go closer without closing it
   const bigScaleRef = useRef(0); bigScaleRef.current = bigScale;
-  useEffect(() => { if (!bigScale) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setBigScale(0); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [bigScale > 0]);   // (Escape closes it, like the back button)
+  const bigPan = useRef({ x: 0, y: 0 });   // how far (world tiles) the full-screen map's middle is moved from the plane: dragging, the arrow keys or WASD pan it; C, Home or a double click bring it back
+  const [panned, setPanned] = useState(false);
+  useEffect(() => { if (!bigScale) return; const k = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { setBigScale(0); return; }
+    const c = bigMap.current, view = c ? Math.max(c.clientWidth, c.clientHeight) / 2 * bigScaleRef.current : 100, step = view * (e.shiftKey ? 0.5 : 0.12), P = bigPan.current, key = e.key.toLowerCase();
+    if (key === 'arrowleft' || key === 'a') P.x -= step; else if (key === 'arrowright' || key === 'd') P.x += step; else if (key === 'arrowup' || key === 'w') P.y -= step; else if (key === 'arrowdown' || key === 's') P.y += step;
+    else if (key === 'c' || key === 'home') { P.x = 0; P.y = 0; }
+    else return;
+    e.preventDefault(); setPanned(P.x !== 0 || P.y !== 0);
+  }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [bigScale > 0]);
+  useEffect(() => { if (bigScale === 0) { bigPan.current.x = 0; bigPan.current.y = 0; setPanned(false); } }, [bigScale === 0]);
+  /** Dragging the full-screen map: the picture slides with the pointer (a CSS shift, so it is smooth while the map refills), and the move is kept when the pointer lifts. A wheel notch zooms a step. */
+  const mapDrag = useRef<{ id: number; x: number; y: number } | null>(null), mapWheelAt = useRef(0);
+  const onMapDown = (e: React.PointerEvent<HTMLCanvasElement>) => { mapDrag.current = { id: e.pointerId, x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture(e.pointerId); };
+  const onMapMove = (e: React.PointerEvent<HTMLCanvasElement>) => { const d = mapDrag.current; if (d && d.id === e.pointerId) e.currentTarget.style.transform = `translate(${e.clientX - d.x}px, ${e.clientY - d.y}px)`; };
+  const onMapUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = mapDrag.current; if (!d || d.id !== e.pointerId) return; mapDrag.current = null;
+    const P = bigPan.current, k = bigScaleRef.current / 2;   // (a map pixel is two screen pixels: a screen pixel is half a map pixel of tiles)
+    P.x -= (e.clientX - d.x) * k; P.y -= (e.clientY - d.y) * k; e.currentTarget.style.transform = ''; setPanned(P.x !== 0 || P.y !== 0);
+  };
+  const onMapWheel = (e: React.WheelEvent<HTMLCanvasElement>) => { const now = performance.now(); if (now - mapWheelAt.current < 180 || !e.deltaY) return; mapWheelAt.current = now; setBigScale(v => e.deltaY < 0 ? Math.max(0.5, v / 2) : Math.min(16, v * 2)); };   // (Escape closes it, like the back button)
   const [miniSize, setMiniSize] = useState(prefs0.miniSize);   // minimap size multiplier: 2 (standard) or 3; double tap toggles
   const lastTap = useRef(0);
   const [decoClouds, setDecoClouds] = useState(gfx0.clouds);
@@ -335,10 +358,10 @@ function WorldView({ id }: { id: string }) {
   const [camDist] = useState(DEFAULT_CAMERA_DISTANCE);
   const [gl3d, setGl3d] = useState(prefs0.gl3d);   // the 3D view (a real camera: tilt, behind the plane, free, flyby, FPV); off = the flat north-up canvas, which has no tilt and no turn
   const [shaders, setShaders] = useState(gfx0.shaders);   // the 3D view's extras: living water, sunlight, glow and sun rays
-  const gfxNow: Gfx = { res: resScale, auto: resAuto, cap: fpsCap, density: decoDensity, shaders, clouds: decoClouds, draw: drawDist };
+  const gfxNow: Gfx = { res: resScale, auto: resAuto, cap: fpsCap, density: decoDensity, shaders, clouds: decoClouds, draw: drawDist, crt };
   const gfxPreset = gfxPresetOf(gfxNow);
-  const applyGfx = (g: Gfx) => { setResScale(g.res); setResAuto(g.auto); setFpsCap(g.cap); setDecoDensity(g.density); setShaders(g.shaders); setDecoClouds(g.clouds); setDrawDist(g.draw); };
-  useEffect(() => { try { localStorage.setItem(GFX_KEY, JSON.stringify(gfxNow)); } catch { /* not saved */ } }, [resScale, resAuto, fpsCap, decoDensity, shaders, decoClouds, drawDist]);
+  const applyGfx = (g: Gfx) => { setResScale(g.res); setResAuto(g.auto); setFpsCap(g.cap); setDecoDensity(g.density); setShaders(g.shaders); setDecoClouds(g.clouds); setDrawDist(g.draw); setCrt(g.crt); };
+  useEffect(() => { try { localStorage.setItem(GFX_KEY, JSON.stringify(gfxNow)); } catch { /* not saved */ } }, [resScale, resAuto, fpsCap, decoDensity, shaders, decoClouds, drawDist, crt]);
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const camAng = useRef(0);
   const planeAbs = useRef(0);   // the plane's height above sea level (tiles) as it was drawn last frame: the camera looks at this, less the ground under the plane NOW, so a ledge never moves the view for a frame
@@ -354,6 +377,7 @@ function WorldView({ id }: { id: string }) {
   const camZRef = useRef<number | null>(null);   // the height above the ground the camera works from: eased on hills, or the view would breathe with every bump
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
   const [paused, setPaused] = useState(false);
+  const [ecoPaused, setEcoPaused] = useState(false);   // the living world (weather, water, beavers, bushes) stands still while the plane goes on flying: its own button, apart from pausing time (not kept between visits)
   const [tool, setTool] = useState<Tool>('fly');
   const [brush, setBrush] = useState<Brush>(WATER);
   const [radius, setRadius] = useState(1);
@@ -361,8 +385,8 @@ function WorldView({ id }: { id: string }) {
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
-  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -574,7 +598,7 @@ function WorldView({ id }: { id: string }) {
     let glr: WorldGL | null = null, glFailed = false, glFrames = 0;
     const hoopsDone = new Set<string>();   // the hoops passed this visit
     // the 3D canvas drops its resolution when frames are slow (and creeps back up when they are quick): fill rate is what runs out first on a phone
-    let autoK = 1, glScale = 1, frameEma = 1 / 60, scaleClock = 0, lastScaleChange = 0;
+    let autoK = 1, autoDraw = 1, glScale = 1, frameEma = 1 / 60, scaleClock = 0, lastScaleChange = 0;
     const pickedSticks = sim.current!.beavers.picked.sticks, pickedStones = sim.current!.beavers.picked.stones;   // shared with the beavers: what they take is gone for the player
     const pickFx: { x: number; y: number; a: number; age: number; stone: boolean; berry?: boolean }[] = [];   // a stick that has just been picked up: it hops up, spins and fades
     // things drifting in the air: autumn and maple leaves that fall from the trees and tumble, pollen that floats up off bushes; all are carried by the wind, pollen
@@ -585,7 +609,8 @@ function WorldView({ id }: { id: string }) {
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
-    const farAt: ({ x: number; y: number } | null)[] = TERRACE_FAR_LODS.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
+    const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
+    const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
     let farJob: { i: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
@@ -629,7 +654,7 @@ function WorldView({ id }: { id: string }) {
     // The chunk worker (see chunkclient.ts): the ground's pictures are built off the main thread, from a copy of the ground made now and kept current by the changes `World.record` reports.
     // Not for the Lake District (its map data and roads live on this thread), not without Workers, and not with `?noworker` (to compare). If it fails, the code below builds on this thread as it always did.
     let cw: ChunkClient | null = null;
-    if (s.world.kind !== 'lakedistrict' && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) {
+    if (s.world.kind !== 'lakedistrict' && !s.world.realTerrain && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) {
       const table = new Uint8ClampedArray(BLOCK_TABLE_BYTES);   // (every cell of the sheet, drawn here with the canvas as always, so the worker's pictures are the same pixels; the road variants are for the Lake District and stay empty)
       for (let row = 0; row < SHEET_ROWS; row++) for (let col = 0; col < SHEET_COLS; col++) table.set(tileBlock(col, row, false), blockIndex(col, row, false) * BLOCK_BYTES);
       const snap = s.world.snapshot();
@@ -639,7 +664,7 @@ function WorldView({ id }: { id: string }) {
     }
     // The far levels of the terraced ground come from a second worker (they need no world state and take longer than a chunk: they must not hold chunks up).
     let far: FarClient | null = null;
-    if (s.world.field && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) far = new FarClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike);
+    if (s.world.field && !s.world.realTerrain && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) far = new FarClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike);
     const pxPool: Uint8ClampedArray<ArrayBuffer>[] = [];   // pixel arrays of dropped chunks, used again (256 KB each)
     const freeChunk = (ch: ChunkImg | undefined) => { if (ch && pxPool.length < 24) pxPool.push(ch.src.px); };
     const dropChunk = (key: number) => { freeChunk(chunks.current.get(key)); chunks.current.delete(key); };
@@ -650,7 +675,7 @@ function WorldView({ id }: { id: string }) {
     };
     function* buildChunkGen(cx: number, cy: number): Generator<void, ChunkImg> {   // (the same builder the worker runs: domain/chunkbuild.ts)
       const px = pxPool.pop() ?? new Uint8ClampedArray(CPX * CPX * 4);
-      const decos = yield* chunkPixels(s.world, tileBlock, s.world.realMap ? (x, y) => !!lakeRoadAt(x, y) : null, cx, cy, px);
+      const decos = yield* chunkPixels(s.world, tileBlock, s.world.realMap || s.world.realTerrain ? (x, y) => !!lakeRoadAt(x, y) : null, cx, cy, px);
       return { src: { px, size: CPX }, decos };
     }
     const miniCache = new MiniCache();
@@ -706,7 +731,7 @@ function WorldView({ id }: { id: string }) {
     /** One frame of the full-screen map: fill more of it (a few ms), then build and upload the ground round the plane and read chunks for the small minimap, so closing the map finds them ready. */
     const mapFrame = (scale: number) => {
       const bc = bigMap.current!, t0 = performance.now(), f = s.flight;
-      const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2)), fx = Math.round(f.x), fy = Math.round(f.y);   // (a map pixel is 2 x 2 screen pixels)
+      const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2)), fx = Math.round(f.x + bigPan.current.x), fy = Math.round(f.y + bigPan.current.y);   // (the middle of the map: the plane, moved by the pan; a map pixel is 2 x 2 screen pixels)
       const g = bc.getContext('2d')!;
       if (!bigFill || bigFill.w !== mw || bigFill.h !== mh || bigFill.scale !== scale || bigFill.x !== fx || bigFill.y !== fy) {
         bc.width = mw; bc.height = mh; bigFill = { w: mw, h: mh, scale, x: fx, y: fy, row: 0, img: g.createImageData(mw, mh), prev: new Int16Array(mw).fill(NO_LAYER) };
@@ -731,7 +756,7 @@ function WorldView({ id }: { id: string }) {
       }
       if (B.row > row0 || row0 === 0) {
         g.putImageData(B.img, 0, 0);
-        const px = mw / 2, py = mh / 2, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;   // the plane
+        const px = mw / 2 + (f.x - fx) / scale, py = mh / 2 + (f.y - fy) / scale, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;   // the plane
         g.beginPath(); g.moveTo(px + dx * 7, py + dy * 7); g.lineTo(px - dx * 4 + qx * 4.5, py - dy * 4 + qy * 4.5); g.lineTo(px - dx * 1.5, py - dy * 1.5); g.lineTo(px - dx * 4 - qx * 4.5, py - dy * 4 - qy * 4.5); g.closePath();
         g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
         if (B.row < mh) { g.fillStyle = '#ffd54f'; g.fillRect(0, mh - 2, Math.round(mw * B.row / mh), 2); }   // (how far the filling has got)
@@ -783,7 +808,7 @@ function WorldView({ id }: { id: string }) {
       if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
       if (import.meta.env.DEV && glr) (window as unknown as Record<string, unknown>).__wgl = glr;   // (dev builds only: for headless tests that starve the chunk uploads)
-      if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
+      if (glr) { glr.drawK = L.drawDist / 100 * (L.resAuto && s.world.field ? autoDraw : 1); glr.walkK = L.walkDist / 100; if (s.world.field && !s.world.realTerrain) { glr.nearCap = HILLS_NEAR * Math.max(0.5, glr.drawK); glr.farRing = [90, 260, 820, 2600, 8000]; } else { glr.nearCap = Infinity; glr.farRing = null; } }
       glCv.style.display = useGL ? 'block' : 'none';
       // a throw is a landing played backwards: the eye starts at the plane's nose (it is held at the eye), and as the plane climbs the eye slides back behind it, then the chase view takes over. No special launch camera.
       const poseOn = camEff !== 'chase' && camEff !== 'fpv' && useGL && f.mode === 'glide' && !footRef.current;   // the free view or the flyby: the camera stands where the cameraman puts it
@@ -809,6 +834,8 @@ function WorldView({ id }: { id: string }) {
       if (useGL && scaleClock >= 1) {
         scaleClock = 0;
         if (L.resAuto) { if (frameEma > 0.036 && autoK > 0.4) autoK = Math.max(0.4, autoK * 0.85); else if (frameEma < 0.024 && autoK < 1) autoK = Math.min(1, autoK / 0.85); }   // (a slow phone: fewer trees, bushes and rocks to draw, too; the same ones are dropped each time)
+        // When the resolution is already as low as it goes and frames are still slow, the cost is geometry (a steep range is a million triangles of ledges and walls in the real chunks): the ring of real chunks shrinks, and the coarser far level fills in. It grows back when frames are fast again.
+        if (L.resAuto && s.world.field) { if (frameEma > 0.045 && glScale <= 0.55 && autoDraw > 0.3) autoDraw = Math.max(0.3, autoDraw * 0.85); else if (frameEma < 0.026 && autoDraw < 1) autoDraw = Math.min(1, autoDraw / 0.9); }
         if (frameEma > 0.03 && glScale > 0.5) { glScale = Math.max(0.5, glScale * 0.85); lastScaleChange = anim; }
         else if (frameEma < 0.0185 && glScale < 1 && anim - lastScaleChange > 4) { glScale = Math.min(1, glScale / 0.85); lastScaleChange = anim; }
       }
@@ -937,7 +964,7 @@ function WorldView({ id }: { id: string }) {
         }
         if (respawnReq.current) {   // Respawn pressed
           respawnReq.current = false; deadRef.current = false;
-          const o = s.world.kind === 'lakedistrict' ? lakeSpawnFor(initial.map ?? 'lakes') : s.world.field ? terracePlaneSpawn(s.world.seed) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 };
+          const o = s.world.kind === 'lakedistrict' || s.world.realTerrain ? lakeSpawnFor(initial.map ?? 'lakes') : s.world.field ? terracePlaneSpawn(s.world.seed) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 };
           f.x = o.x; f.y = o.y; f.heading = o.heading; f.course = o.heading; gl.wet = 0; gl.boost = 0; gl.impact = null;
           if (s.world.kind === 'lakedistrict' || s.world.field) { throwPlane(gl, f.x, -f.y, f.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); refuel(gl, rocketFuel(upRef.current.rocket)); f.glideAlt = LAKE_START_ALT; f.glideLanded = false; }
           else { gl.x = f.x; gl.y = -f.y; gl.psi = f.heading; gl.landed = true; gl.z = 0; gl.vx = gl.vy = gl.vz = 0; f.glideAlt = 0; f.glideLanded = true; }
@@ -1089,22 +1116,27 @@ function WorldView({ id }: { id: string }) {
       s.eco.hour = s.hour;
       if (useGL) { const w0 = chunkOf(camX - 26) - 1, w1 = chunkOf(camX + 26) + 1, v0 = chunkOf(camY - 26) - 1, v1 = chunkOf(camY + 26) + 1; s.eco.setWatchedArea(Math.max(cx0 - 1, w0) * CHUNK, Math.max(cy0 - 1, v0) * CHUNK, (Math.min(cx1 + 2, w1 + 2)) * CHUNK - 1, (Math.min(cy1 + 2, v1 + 2)) * CHUNK - 1); }   // (far ground is only looked at)
       else s.eco.setWatchedArea((cx0 - 1) * CHUNK, (cy0 - 1) * CHUNK, (cx1 + 2) * CHUNK - 1, (cy1 + 2) * CHUNK - 1);
-      s.beavers.step(simDt);                                                                                // the beavers fetch and build
+      if (!L.ecoPaused) s.beavers.step(simDt);                                                                                // the beavers fetch and build
       if (s.beavers.dirty) { s.beavers.dirty = false; actions.saveWorld(id, { sticks: [...pickedSticks], stones: [...pickedStones], beavers: s.beavers.toSaved() }); }
       s.beavers.player = walking ? { x: f.x, y: f.y, berries: berryRef.current } : null;   // (trusting colonies come to a player who holds berries)
-      s.berries.step(simDt);                                                                                // picked bushes ripen again
+      if (!L.ecoPaused) s.berries.step(simDt);                                                                                // picked bushes ripen again
       if (s.berries.dirty) { s.berries.dirty = false; actions.saveWorld(id, { berries: s.berries.toSaved() }); }
       {   // what the player on foot stands by (told to the panel only when it changes)
         const n = walking ? s.beavers.needsAt(f.x, f.y) : NO_NEED, bush = walking ? s.berries.near(f.x, f.y) : null, bv = walking ? s.beavers.beaverNear(f.x, f.y) : null, trust = bv ? s.beavers.colonies.get(bv.colony)?.trust ?? 0 : 0;
         const key = `${n.stick ? 1 : 0}${n.stone ? 1 : 0}${n.brk ? 1 : 0}|${bush ? `${bush.x},${bush.y}` : ''}|${bv ? `${bv.id}:${bv.full > 0 ? 1 : 0}:${trust}` : ''}`;
         if (key !== actKey.current) { actKey.current = key; const a: Act = { dam: n, bush, beaver: bv ? { id: bv.id, sex: bv.sex, full: bv.full > 0, trust } : null }; actRef.current = a; setAct(a); }
       }
-      mark('before'); s.eco.step(simDt); s.eco.easeClouds(simDt); mark('eco');                                                              // the world keeps living while you fly
+      mark('before'); if (!L.ecoPaused) { s.eco.step(simDt); s.eco.easeClouds(simDt); } mark('eco');                                                              // the world keeps living while you fly
       for (const key of reliefDirty.current) miniCache.lay.delete(key);   // (sculpted chunks: their layers changed too, which nothing else ever changes)
       reliefDirty.current.clear();
-      for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; cw?.noteDirty(key); miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
-      s.eco.dirty.clear();
-      if (s.world.field && glr) { const wet = s.world.field.takeDirty(); if (wet.length) glr.dropTerrainMeshes(wet.map(([cx, cy]) => tileKey(cx, cy))); }   // (water laid over, or taken off, the terraces: those chunks' meshes are cut again)
+      // What the weather changes (rain wets and floods tiles, ponds and becks fill and dry, fire scorches) is redrawn only on the ground: a flight keeps the pictures it has, and every chunk changed meanwhile is redrawn
+      // once the plane has landed (the sets keep filling), instead of a chunk or a mesh being rebuilt every few seconds of rain, which was the stutter.
+      const airborne = f.mode === 'manual' || (f.mode === 'glide' && !s.glider.landed);
+      if (!airborne) {
+        for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; cw?.noteDirty(key); miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
+        s.eco.dirty.clear();
+        if (s.world.field && glr) { const wet = s.world.field.takeDirty(); if (wet.length) glr.dropTerrainMeshes(wet.map(([cx, cy]) => tileKey(cx, cy))); }   // (water laid over, or taken off, the terraces: those chunks' meshes are cut again)
+      }
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
         lastStrike = b.id;
         const near = Math.max(0, 1 - Math.hypot(b.x - f.x, b.y - f.y) / 45);
@@ -1187,18 +1219,18 @@ function WorldView({ id }: { id: string }) {
         for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
       }
       if (glr && s.world.field) {   // the terraced world has no edge: its far levels are built round the eye, a few rows a frame, and again when it has travelled a good way from where they were built (the finest first)
-        const farLo = farLevelFor(Math.max(glr.eyeHeight, (() => { const v = Math.hypot(s.glider.vx, s.glider.vy, s.glider.vz); return v > 60 ? v * 25 : 0; })())); glr.farMin = farLo;   // (the higher the eye, the coarser and wider the ground: the finer levels are neither built nor drawn)
+        const farLo = farLevelFor(Math.max(glr.eyeHeight, (() => { const v = Math.hypot(s.glider.vx, s.glider.vy, s.glider.vz); return v > 60 ? v * 25 : 0; })()), farFrom); glr.farMin = farLo;   // (the higher the eye, the coarser and wider the ground: the finer levels are neither built nor drawn)
         // (low and slow: the finest first. High or fast: the coarsest first, since the plane is soon off the edge of the finer ones and the wide ones are the ground it flies over)
-        if (!farJob) for (let k = 0; k < TERRACE_FAR_LODS.length - farLo; k++) {
-          const i = farLo >= 2 ? TERRACE_FAR_LODS.length - 1 - k : farLo + k;
-          const L = TERRACE_FAR_LODS[i], at = farAt[i];
+        if (!farJob) for (let k = 0; k < farLods.length - farLo; k++) {
+          const i = farLo >= farCoarse ? farLods.length - 1 - k : farLo + k;
+          const L = farLods[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
-          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped); farJob = { i, wait: true }; }
-          else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) };
+          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open); farJob = { i, wait: true }; }
+          else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open) };
           break;
         }
-        const tf = performance.now(), farMs = loading ? 14 : farLo >= 2 ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
+        const tf = performance.now(), farMs = loading ? 14 : farLo >= farCoarse ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
           if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
           if (farJob.wait) {   // the worker is building this level: nothing to do here until it arrives (a worker that fails is dropped, and the level is built here next time)
@@ -1358,7 +1390,7 @@ function WorldView({ id }: { id: string }) {
         const cloudH = (ly: number) => 4 + (10 - ly) * 2;   // (the clouds hang where they hang, however close the camera comes: zoomed in under them they are simply out of the view)
         const eyeH = -G.eye[2], nearFade = (x: number, y: number, h: number) => Math.max(0, Math.min(1, (Math.hypot(x - ex, y - ey, h - eyeH) - 3) / 8));   // (a cloud the camera is passing through thins out instead of filling the screen)
         { const rc = L.resScale / 100; glScale = L.resAuto ? Math.min(glScale, rc) : rc; }   // (the resolution setting is the ceiling; with auto on it still drops by itself when frames are slow)
-        G.resize(W, H, dpr * glScale, glCv);
+        if (L.crt) { G.crt = true; G.renderScale = glScale; G.resize(W, H, dpr, glCv); } else { G.crt = false; G.renderScale = 1; G.resize(W, H, dpr * glScale, glCv); }   // (the CRT look draws the scene small into a texture and stretches it over a canvas of the screen's own size)
         { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, k = Math.max(0, Math.min(1, (hA - 2000) / 6000)); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders;
         G.begin();
@@ -1590,12 +1622,12 @@ function WorldView({ id }: { id: string }) {
           if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${realAlt(hp.h / 0.18 + s.world.groundZAt(hp.x, hp.y))} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
         }
         // the names of the lakes and fells, floating over them, as far off as they can be read
-        if (s.world.kind === 'lakedistrict' && (!L.hideUi || L.lookUi)) {
-          const tileM = lakeData()?.tileM ?? 50;
+        if ((s.world.kind === 'lakedistrict' || s.world.realTerrain) && (!L.hideUi || L.lookUi)) {
+          const tileM = lakeData()?.tileM ?? 50, lift = s.world.realTerrain ? 0.4 : 1;   // (the terraced ground is far squatter than the real one: its names float closer to it)
           for (const pl of lakePlaceLabels()) {
             const d = Math.hypot(pl.x - f.x, pl.y - f.y) * tileM, max = pl.kind === 'lake' ? 14000 : 9000;
             if (d > max || d < 60) continue;
-            const c = G.projectAgl(pl.x, pl.y, pl.kind === 'lake' ? 5 : 7);
+            const c = G.projectAgl(pl.x, pl.y, (pl.kind === 'lake' ? 5 : 7) * lift);
             if (c && c[0] > 40 && c[0] < W - 40 && c[1] > 20 && c[1] < H - 20) placeLabels.push({ x: c[0], y: c[1], text: pl.kind === 'summit' ? `${pl.name} ${pl.m} m` : pl.name, d: d / max, summit: pl.kind === 'summit' });
           }
         }
@@ -2317,6 +2349,7 @@ function WorldView({ id }: { id: string }) {
             <PixelButton size="compact" scale={1} variant={full ? 'green' : 'red'} aria-pressed={full} onClick={toggleFull}>{full ? t('worldExitFull') : t('worldFullscreen')}</PixelButton>
             <PixelButton size="compact" scale={1} variant={autoFull ? 'green' : 'red'} aria-pressed={autoFull} title={t('fullscreenOnHint')} onClick={() => actions.setSettings({ fullscreen: !autoFull })}>{t('worldAutoFull')}</PixelButton>
             <PixelButton size="compact" scale={1} variant={paused ? 'green' : 'red'} aria-pressed={paused} onClick={() => setPaused(p => !p)}>{paused ? t('worldResume') : t('worldPause')}</PixelButton>
+            <PixelButton size="compact" scale={1} variant={ecoPaused ? 'green' : 'red'} aria-pressed={ecoPaused} title={t('worldEcoPauseHint')} onClick={() => setEcoPaused(p => !p)}>{ecoPaused ? t('worldEcoResume') : t('worldEcoPause')}</PixelButton>
             <PixelButton size="compact" scale={1} variant={muted || volume === 0 ? 'red' : 'green'} aria-pressed={!muted && volume > 0} onClick={() => setMuted(v => !v)}>{t(muted || volume === 0 ? 'worldSoundOff' : 'worldSound')}</PixelButton>
             </div>
           <div className="world-panels">
@@ -2348,8 +2381,8 @@ function WorldView({ id }: { id: string }) {
                 {(['low', 'med', 'high'] as const).map(k => <PixelButton key={k} size="compact" scale={1} variant={gfxPreset === k ? 'green' : 'red'} aria-pressed={gfxPreset === k} onClick={() => applyGfx(GFX_PRESETS[k])}>{t(k === 'low' ? 'worldGfxLow' : k === 'med' ? 'worldGfxMed' : 'worldGfxHigh')}</PixelButton>)}
                 <PixelButton size="compact" scale={1} variant={gfxPreset === 'custom' ? 'green' : 'red'} aria-pressed={gfxPreset === 'custom'} disabled>{t('worldGfxCustom')}</PixelButton>
               </div>
-              <div className="world-slider"><span>{t('worldRes')}</span><PixelSlider min={40} max={100} step={5} value={resScale} onChange={setResScale} label={t('worldRes')} valueText={`${resScale}%`} /><b>{resScale}%</b></div>
-              <div className="row world-tools"><PixelButton size="compact" scale={1} variant={resAuto ? 'green' : 'red'} aria-pressed={resAuto} onClick={() => setResAuto(v => !v)}>{t('worldResAuto')}</PixelButton></div>
+              <div className="world-slider"><span>{t('worldRes')}</span><PixelSlider min={25} max={100} step={5} value={resScale} onChange={setResScale} label={t('worldRes')} valueText={`${resScale}%`} /><b>{resScale}%</b></div>
+              <div className="row world-tools"><PixelButton size="compact" scale={1} variant={resAuto ? 'green' : 'red'} aria-pressed={resAuto} onClick={() => setResAuto(v => !v)}>{t('worldResAuto')}</PixelButton><PixelButton size="compact" scale={1} variant={crt ? 'green' : 'red'} aria-pressed={crt} title={t('worldCrtHint')} onClick={() => setCrt(v => !v)}>{t('worldCrt')}</PixelButton></div>
               <div className="world-slider"><span>{t('worldFpsCap')}</span><PixelSlider min={0} max={3} step={1} value={[0, 30, 45, 60].indexOf(fpsCap) < 0 ? 0 : [0, 30, 45, 60].indexOf(fpsCap)} onChange={v => setFpsCap([0, 30, 45, 60][v])} label={t('worldFpsCap')} valueText={fpsCap ? String(fpsCap) : t('worldFpsOff')} /><b>{fpsCap ? fpsCap : t('worldFpsOff')}</b></div>
               <div className="world-slider"><span>{t('worldDrawDist')}</span><PixelSlider min={10} max={initial.kind === 'lakedistrict' ? 500 : 150} step={10} value={drawDist} onChange={setDrawDist} label={t('worldDrawDist')} valueText={`${drawDist}%`} /><b>{drawDist}</b></div>
               <div className="world-slider"><span>{t('worldDecoDensity')}</span><PixelSlider min={20} max={100} step={10} value={decoDensity} onChange={setDecoDensity} label={t('worldDecoDensity')} valueText={`${decoDensity}%`} /><b>{decoDensity}%</b></div>
@@ -2415,9 +2448,10 @@ function WorldView({ id }: { id: string }) {
       )}
       {bigScale > 0 && (
         <div className="world-bigmap" role="dialog" aria-label={t('worldMap')}>
-          <canvas ref={bigMap} className="world-bigmap-cv" aria-label={t('worldMap')} role="img" />
+          <canvas ref={bigMap} className="world-bigmap-cv" aria-label={t('worldMap')} role="img" onPointerDown={onMapDown} onPointerMove={onMapMove} onPointerUp={onMapUp} onPointerCancel={onMapUp} onWheel={onMapWheel} onDoubleClick={() => { bigPan.current.x = 0; bigPan.current.y = 0; setPanned(false); }} />
           <div className="world-bigmap-bar">
             <PixelFrame theme="green_ornate" scale={1} className="wui-banner">{t('paused')}</PixelFrame>
+            {panned && <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-banner" onClick={() => { bigPan.current.x = 0; bigPan.current.y = 0; setPanned(false); }}>{t('worldMapRecentre')}</PixelFrame>}
             <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomIn')} onClick={() => setBigScale(v => Math.max(0.5, v / 2))}><Icon name="symbol_plus" size={16} alt="" /></PixelFrame>
             <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('worldMapZoomOut')} onClick={() => setBigScale(v => Math.min(16, v * 2))}><Icon name="symbol_minus" size={16} alt="" /></PixelFrame>
             <PixelFrame as="button" theme="green_ornate" scale={1} className="wui-mini" aria-label={t('close')} onClick={() => setBigScale(0)}><Icon name="symbol_cross" size={16} alt="" /></PixelFrame>
@@ -2967,8 +3001,16 @@ const aimPower = (t: number) => { const p = (t / 1.2) % 2; return 0.25 + 0.75 * 
 /** The pixel font for every bit of text drawn on the canvas. */
 const NO_SCORES: RunScore[] = [];
 /** Real metres for the labels: on the Lake District maps a tile is `tileM` metres on the ground, and the glider's own height metre is drawn 0.18 tiles tall, i.e. 0.18 * tileM / stretch real metres; elsewhere a tile is a metre, so a height is its drawn tiles (sim metres x 0.18). */
-const realDist = (tiles: number) => Math.round(tiles * (lakeData()?.tileM ?? 1));
-const realAlt = (simM: number) => { const d = lakeData(); return Math.round(d ? simM * 0.18 * d.tileM / d.stretch : simM * 0.18); };   // (flat world: a tile is a metre, and a sim metre of height is drawn 0.18 tiles tall)
+/** Real metres a tile covers across the ground and up (a tile of height) in the world that is open: the readouts' units. Flat: a tile is a metre. The Lake District: the map's. Terraced real map: the map's across, and a layer (30 m) stands TERRACE_STEP tiles tall. */
+const hudUnits = { across: 1, up: 1 };
+function setHudUnits(w: World) {
+  const d = lakeData();
+  if (w.kind === 'lakedistrict' && d) { hudUnits.across = d.tileM; hudUnits.up = d.tileM / d.stretch; }
+  else if (w.realTerrain && d) { hudUnits.across = d.tileM; hudUnits.up = TERRACE_LAYER_M / TERRACE_STEP; }
+  else { hudUnits.across = 1; hudUnits.up = 1; }
+}
+const realDist = (tiles: number) => Math.round(tiles * hudUnits.across);
+const realAlt = (simM: number) => Math.round(simM * 0.18 * hudUnits.up);   // (a sim metre of height is drawn 0.18 tiles tall)
 /** Trees, bushes and rocks on the Lake District maps are drawn at about real size against the 50 m tiles (about 10 to 40 m tall) instead of 1 to 4 tiles; other worlds keep the old size. */
 /** The plane lengths you can choose between (m): a real paper plane first. */
 const PLANE_SIZES = [0.3, 0.5, 0.8, 1.2, 2, 3, 4, 6, 8];

@@ -8,6 +8,9 @@
  * Coordinates as the rest of the world: x east, y south, in tiles; heights in tiles (the renderer's unit).
  */
 
+import { makeRealTerrain, realElevation, realLand, realLake, realLakeSheet, realLakeTile, realLakeShore, type RealTerrain } from './terrainreal';
+import type { LakeData } from './lakedistrict';
+
 /** Tiles per chunk side (worldgen's CHUNK; repeated here so this file needs nothing from worldgen). */
 const CHUNK = 16;
 /** Height of one layer, in tiles. */
@@ -33,6 +36,21 @@ export const TERRACE_LAYER_M = 30;
 /** Layers from which the tops are bare (sand and rocks, no trees). */
 export const TERRACE_BARE = 27;
 
+// ---- a real map as the ground ------------------------------------------------------------------------------------------------------------
+
+/** The map the ground is read from (see terrainreal.ts), or null for the seeded hills. One at a time: set when a world opens (`World`), and cleared by any world that is not on a real map. */
+let REAL: RealTerrain | null = null, realFor: LakeData | null = null;
+/** Read the ground from this loaded map (null: the seeded hills again). The same map twice is not worked out again. */
+export function setRealTerrain(d: LakeData | null) {
+  if (!d) { REAL = null; return; }
+  if (REAL && realFor === d) return;
+  REAL = makeRealTerrain(d, TERRACE_LAYER_M); realFor = d;
+}
+/** Is the ground a real map? */
+export const realTerrainOn = (): boolean => REAL !== null;
+/** From which layer the tops are bare: 700 m on a real map (the fells), else TERRACE_BARE. */
+const bareFrom = (): number => (REAL ? Math.ceil(700 / TERRACE_LAYER_M) : TERRACE_BARE);
+
 // ---- noise (own copy of worldgen's hash and value noise, so the two files do not import each other) ---------------------------------
 
 /** A lattice hash, 0..1: one multiply-xor chain over the cell and the seed, then a single avalanche (noise() calls it four times a sample, thousands of samples a chunk, so it is kept short). */
@@ -57,18 +75,22 @@ const smooth = (a: number, b: number, t: number) => { const k = Math.max(0, Math
  * detail keeps the terrace edges from tracing the noise's lattice.
  */
 export function elevation(x: number, y: number, seed: number, lakes = LAKE_ALL): number {
+  if (REAL) return realElevation(REAL, x, y);
   const s = (seed ^ 0x7e77ace) | 0;
   lowAt(x, y, s, LOW_TMP, 0);
   return detailAt(x, y, s, LOW_TMP, 0, lakes);
 }
 /** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2), the continent, the big hills, the big rolls. */
-const LOW_N = 5, LOW_TMP = new Float64Array(LOW_N);
+const LOW_N = 8, LOW_TMP = new Float64Array(LOW_N);
 function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array, o: number) {
   const dx = 26 * noise(x * 0.006, y * 0.006, s + 11), dy = 26 * noise(x * 0.006 + 31.7, y * 0.006 - 17.3, s + 12), wx = x + dx, wy = y + dy;
   out[o] = dx; out[o + 1] = dy;
   out[o + 2] = (noise(wx * 0.0032, wy * 0.0032, s + 21) + 0.5 * noise(wx * 0.0081, wy * 0.0081, s + 22)) / 1.5;   // the continent, about -0.7..0.7
   out[o + 3] = noise(wx * 0.011, wy * 0.011, s + 31);
   out[o + 4] = noise(wx * 0.022, wy * 0.022, s + 51);
+  out[o + 5] = noise(wx * 0.0011, wy * 0.0011, s + 61);   // the mountain ranges (see rangeAt): where the axes run (a range stands along the line where this is 0), ...
+  out[o + 6] = noise(wx * 0.00045, wy * 0.00045, s + 62);   // ... where along them it stands (so a range ends, and another picks up further on), ...
+  out[o + 7] = (noise(wx * 0.0006, wy * 0.0006, s + 63) + 1) / 2;   // ... and which kind of range it is, 0..1
 }
 /** The elevation from the slow parts and the quick ones, with the inland lakes laid in: a lake is a level shelf (half a layer above its whole number) with a shore of level ground round it, and its water inset one step below that shore, which then blends into the land over a stretch, so it stands in a basin and the ground falls away in steps, not in a sheer drop. */
 function detailAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes = LAKE_ALL): number {
@@ -168,16 +190,17 @@ function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
   }
 }
 /** The layer of the surface of the inland lake at a point (its shore's own layer: the water is flush with it), or -1 if the point is not in a lake's water. */
-export const terraceLakeTopAt = (x: number, y: number, seed: number): number => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkWater ? lkLevel : -1; };
+export const terraceLakeTopAt = (x: number, y: number, seed: number): number => { if (REAL) return realLakeTile(REAL, x, y); lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkWater ? lkLevel : -1; };
 /** The layer of the surface of the inland lake over a point if the point is over the lake's water or the first half tile of its rim (so a sheet piece cut along the rim is counted), or -1. */
-export const terraceLakeSheetAt = (x: number, y: number, seed: number): number => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkW >= 1 && lkDepth > -0.5 ? lkLevel : -1; };
+export const terraceLakeSheetAt = (x: number, y: number, seed: number): number => { if (REAL) return realLakeSheet(REAL, x, y); lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkW >= 1 && lkDepth > -0.5 ? lkLevel : -1; };
 /** Is the point (a tile's centre, say) in an inland lake's water? */
-export const terraceLakeAt = (x: number, y: number, seed: number, lakes = LAKE_ALL): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0, lakes); return lkWater; };
+export const terraceLakeAt = (x: number, y: number, seed: number, lakes = LAKE_ALL): boolean => { if (REAL) return realLakeTile(REAL, x, y) >= 0; lakeProbe(x, y, (seed ^ 0x7e77ace) | 0, lakes); return lkWater; };
 /**
  * Where the inland lakes whose middles lie in a box spill over: along each lake's lowest side (where it fills to), the first tile out past its water and shore that lies a layer or more below the
  * lake's own shelf, the drop the overflow runs off. A lake whose low side never falls away there (a closed basin) has none. The ecosystem sends runoff from these, which cuts a beck downhill.
  */
 export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: number, seed: number): { x: number; y: number; level: number }[] {
+  if (REAL) return [];   // (the real lakes spill nowhere yet: their outlets are not worked out)
   const s = (seed ^ 0x7e77ace) | 0, out: { x: number; y: number; level: number }[] = [];
   for (let si = 0; si < LAKE_SCALES.length; si++) {
     const c = LAKE_SCALES[si].cell;
@@ -201,10 +224,15 @@ export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: numbe
 }
 const OUTLETS = new WeakMap<Lake, { x: number; y: number; level: number } | null>();
 /** Is the point on the sand shore of an inland lake (the first tile or two beside its water)? */
-export const terraceLakeShoreAt = (x: number, y: number, seed: number): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkShore; };
+export const terraceLakeShoreAt = (x: number, y: number, seed: number): boolean => { if (REAL) return realLakeShore(REAL, x, y); lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkShore; };
 
-/** The elevation without the lakes: the slow parts and the quick ones (smaller hills, crests, small rolls, the wiggle along the edges). */
+/** The elevation without the lakes: the slow parts and the quick ones (smaller hills, crests, small rolls, the wiggle along the edges), and the world's one giant. */
 function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
+  return baseRaw(x, y, s, lo, o) + peakAt(x, y, s);
+}
+/** Layers the hills add at their tallest, before the 1.5 on the whole (26 gave tops near 56 layers; 55 gives about 100). */
+const HILL_LAYERS = 55;
+function baseRaw(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
   const wx = x + lo[o], wy = y + lo[o + 1], cont = lo[o + 2], h1 = lo[o + 3];
   const land = smooth(-0.1, 0.3, cont);
   const h2 = noise(wx * 0.027, wy * 0.027, s + 32);
@@ -212,7 +240,63 @@ function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array
   const hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));   // 0..~1
   const roll = lo[o + 4] * 2.2 + noise(wx * 0.06, wy * 0.06, s + 52) * 0.8;   // rolling ground everywhere on land, so a shelf is tens of tiles, not hundreds
   const wig = 0.22 * noise(x * 0.12, y * 0.12, s + 41);
-  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * 26 * land + (roll + wig) * land) * 1.5;
+  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAt(x, y, s, lo, o, wx, wy);
+}
+
+// ---- mountain ranges -----------------------------------------------------------------------------------------------------------------
+
+/**
+ * Long ranges: each stands along a winding axis (the contour where a slow noise is 0) hundreds to thousands of tiles long, and breaks off where a second slow noise dips, so one range ends and another
+ * begins further on. How high and how rough it is depends on the kind of range, a slow field of its own, blended between the stops of RANGE_KINDS:
+ * Bieszczady (long, rounded, wooded-looking ridges, ~50 layers), the Lake District (fells with deep valleys, ~80), the Tatras (sharp crags, ~130) and the Himalayas (wide, enormous, ~240, the rarest).
+ * Near the middle of the world there are none, so a world begins in gentle country.
+ */
+const RANGE_KINDS: readonly (readonly [number, number, number, number])[] = [[0, 50, 0.1, 0.25], [0.3, 80, 0.3, 0.5], [0.6, 130, 0.7, 0.35], [0.85, 200, 0.95, 0.3], [1, 240, 1, 0.3]];   // [kind, height in layers, crag strength, how much of the height is crest lines]
+const rangeKind = (u: number): [number, number, number] => {
+  const K = RANGE_KINDS; let i = 0; while (i < K.length - 2 && u > K[i + 1][0]) i++;
+  const t = Math.max(0, Math.min(1, (u - K[i][0]) / (K[i + 1][0] - K[i][0])));
+  return [K[i][1] + (K[i + 1][1] - K[i][1]) * t, K[i][2] + (K[i + 1][2] - K[i][2]) * t, K[i][3] + (K[i + 1][3] - K[i][3]) * t];
+};
+/** The layers the ranges add at a point (0 away from any range). */
+function rangeAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, wx: number, wy: number): number {
+  const u = lo[o + 7], hw = 0.17 + 0.13 * u, belt = 1 - Math.abs(lo[o + 5]) / hw;
+  if (belt <= 0) return 0;
+  const along = smooth(-0.55, -0.05, lo[o + 6]);
+  if (along <= 0) return 0;
+  const away = smooth(150, 600, Math.sqrt(x * x + y * y)), land = smooth(-0.7, -0.15, lo[o + 2]);
+  const core = smooth(0, 1, belt) * along * away * land;
+  if (core <= 0) return 0;
+  const [amp, crag, crest] = rangeKind(u);
+  const ridge = 1 - Math.abs(noise(wx * 0.008, wy * 0.008, s + 64)), c = 1 - Math.abs(noise(wx * 0.035, wy * 0.035, s + 65));
+  return amp * core * (1 - crest + crest * ridge * ridge * 1.4) + amp * 0.2 * crag * core * (c * c - 0.35);
+}
+
+// ---- the giant ---------------------------------------------------------------------------------------------------------------------------
+
+/** One giant mountain a world: its summit stands PEAK_M real metres up (TERRACE_LAYER_M a layer), over a skirt PEAK_R tiles wide that falls as (1 - d/R)^PEAK_P, so the foot is broad and gentle and the top steep. */
+export const PEAK_M = 8000, PEAK_R = 600, PEAK_P = 1.8;
+/** How far from the middle of the world the giant's summit stands (tiles): the skirt starts well clear of where a world begins. */
+const PEAK_AT = [1100, 1500];
+interface Peak { x: number; y: number; add: number }
+let peakSeed = NaN, peakNow: Peak = { x: 0, y: 0, add: 0 };
+/** Where the giant of a seed stands: of 32 places on two rings round the middle, the highest ground (the most inland), and how many layers are added there for the summit to reach PEAK_M. */
+export function peakOf(s: number): Peak {
+  if (s === peakSeed) return peakNow;
+  const tmp = new Float64Array(LOW_N); let best = -Infinity, bx = 0, by = 0;
+  for (const d of PEAK_AT) for (let k = 0; k < 16; k++) {
+    const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d), y = Math.round(Math.sin(a) * d);
+    lowAt(x, y, s, tmp, 0); const e = baseRaw(x, y, s, tmp, 0);
+    if (e > best) { best = e; bx = x; by = y; }
+  }
+  peakSeed = s; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
+  return peakNow;
+}
+/** The layers the giant adds at a point (0 beyond its skirt). */
+function peakAt(x: number, y: number, s: number): number {
+  const p = peakOf(s), dx = x - p.x, dy = y - p.y;
+  if (dx > PEAK_R || dx < -PEAK_R || dy > PEAK_R || dy < -PEAK_R) return 0;
+  const t = Math.sqrt(dx * dx + dy * dy) / PEAK_R;
+  return t >= 1 ? 0 : p.add * Math.pow(1 - t, PEAK_P);
 }
 
 /** A hash of two whole numbers, 0..1 (the tile dither of the biome edges). */
@@ -222,7 +306,10 @@ const dither = (x: number, y: number): number => { const h = Math.sin(x * 127.1 
  * How moist a terraced world's region is, 0..1 (below 0.2 it is dry country: sand). A few hundredths of dither is mixed in tile by tile, so where one biome gives way to the next the edge is
  * stippled (a mixed band some tiles wide, in pixel art's own way of blending) instead of a smooth line cut through the hills.
  */
-export const terraceMoist = (x: number, y: number, seed: number): number => (noise(x * 0.004, y * 0.004, (seed ^ 0xd00d) | 0) + 1) / 2 + (dither(x, y) - 0.5) * 0.05;
+export const terraceMoist = (x: number, y: number, seed: number): number => {
+  const m = (noise(x * 0.004, y * 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
+  return (REAL ? 0.15 + 0.75 * m : m) + (dither(x, y) - 0.5) * 0.05;   // (a real map is the Lake District: wet, never dry country)
+};
 
 /** Each shelf is a little wetter or drier than its region says (up to 0.04), by its own layer: where the biome changes it likes to change at a ledge, so the edge follows the lie of the land, in steps, instead of cutting across it. */
 const layerMoist = (layer: number): number => (dither(layer, 17.3) - 0.5) * 0.08;
@@ -230,7 +317,7 @@ const layerMoist = (layer: number): number => (dither(layer, 17.3) - 0.5) * 0.08
 /** A terraced world's biome (index into BIOME_LIST) from a tile's layer and how moist its region is (0..1). */
 export function terraceBiome(layer: number, moistRaw: number): number {
   if (layer < 0) return 5;
-  if (layer >= TERRACE_BARE) return 3;               // bare tops
+  if (layer >= bareFrom()) return 3;                 // bare tops
   const moist = moistRaw + layerMoist(layer);
   if (moist < 0.2) return 3;                         // dry country: sand
   if (layer <= 4) return moist > 0.62 ? 2 : 0;       // the low shelves: wet ground or meadows
@@ -352,8 +439,9 @@ export class TerraceField {
     if (!g) {
       const W = GRID_W, M = GRID_M, raw = RAW, x0 = cx * CHUNK - M / TERRACE_SUB, y0 = cy * CHUNK - M / TERRACE_SUB, s = (this.seed ^ 0x7e77ace) | 0;
       const C = COARSE, cn = (W - 1) / C + 1, lo = LOW_GRID, pt = LOW_PT;   // the slow parts on a coarse lattice (every C points), blended to each point
-      for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) lowAt(x0 + (i * C) / TERRACE_SUB, y0 + (j * C) / TERRACE_SUB, s, lo, (j * cn + i) * LOW_N);
-      for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+      if (REAL) { for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) raw[j * W + i] = realLand(REAL, x0 + i / TERRACE_SUB, y0 + j / TERRACE_SUB); }   // (a real map: the land read straight off it; its lakes are cut in after the smoothing, below)
+      else for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) lowAt(x0 + (i * C) / TERRACE_SUB, y0 + (j * C) / TERRACE_SUB, s, lo, (j * cn + i) * LOW_N);
+      if (!REAL) for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
         const ci = Math.min(cn - 2, Math.floor(i / C)), cj = Math.min(cn - 2, Math.floor(j / C)), tx = i / C - ci, ty = j / C - cj;
         const a = (cj * cn + ci) * LOW_N, b = a + LOW_N, c = a + cn * LOW_N, d = c + LOW_N;
         for (let q = 0; q < LOW_N; q++) pt[q] = (lo[a + q] + (lo[b + q] - lo[a + q]) * tx) * (1 - ty) + (lo[c + q] + (lo[d + q] - lo[c + q]) * tx) * ty;
@@ -363,6 +451,7 @@ export class TerraceField {
       sweep(raw, PASS2, PASS, false); sweep(PASS2, raw, PASS, true);   // erode, then dilate: an opening (takes off the little bumps); last, so it is the one that is guaranteed: no block narrower than the window is left
       const n = TERRACE_G, e = new Float32Array(n * n);
       for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) e[j * n + i] = raw[(j + M) * W + i + M];
+      if (REAL) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) e[j * n + i] = realLake(REAL, cx * CHUNK + i / TERRACE_SUB, cy * CHUNK + j / TERRACE_SUB, e[j * n + i]);   // (after the opening and closing, which would fill a narrow lake in: the lake's own shape stands)
       if (this.relief.size) this.layRelief(e, cx, cy);   // after the opening, which would shave a lone raised tile off again; before the water, which measures the ground as sculpted
       g = { e };
       if (this.fills.size) this.layFills(g, cx, cy);
@@ -765,7 +854,7 @@ export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: 
  * terraces' own (`terraceH`), so near hills keep their shelves and ledges and meet the real chunks without a change of shape; without it they are the smooth elevation
  * (past a few hundred tiles the terraces are finer than a vertex). Built a few rows at a time (a generator), so building one never stalls a frame; the last value it yields is the mesh.
  */
-export function* terraceFarMesh(seed: number, cx: number, cy: number, step: number, half: number, stepped = false): Generator<null, TerraceFarMesh, void> {
+export function* terraceFarMesh(seed: number, cx: number, cy: number, step: number, half: number, stepped = false, open = 0): Generator<null, TerraceFarMesh, void> {
   const cols = Math.floor((half * 2) / step) + 1, rows = cols, n = cols * rows, x0 = cx - half, y0 = cy - half;
   const ev = new Float32Array(n), lakes = lakeScalesFor(step);
   for (let j = 0; j < rows; j++) {
@@ -773,14 +862,15 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
     if ((j & 1) === 1) yield null;
   }
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
-  const H = (i: number, j: number) => { const e = ev[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))]; return e <= 0 ? 0 : stepped ? terraceH(e) : e * TERRACE_STEP; };
+  const eh = open > 0 ? openGrid(ev, cols, rows, open) : ev;   // (the heights: the elevations with the peaks narrower than a few vertices shaved off, so the far tops are flat shelves, not spikes)
+  const H = (i: number, j: number) => { const e = eh[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))]; return e <= 0 ? 0 : stepped ? terraceH(e) : e * TERRACE_STEP; };
   const L = [-0.55, -0.55, 0.63];
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const k = j * cols + i, e = ev[k], h = H(i, j);
       pos[k * 3] = x0 + i * step; pos[k * 3 + 1] = y0 + j * step; pos[k * 3 + 2] = -h;
       let r: number, g: number, b: number;
-      if (e < 0 || lakes > 0 && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
+      if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
       else {
         const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
         if (lay === 0 || bio === 3) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }
@@ -795,6 +885,16 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
   }
   return { cols, rows, step, cx, cy, pos, col, idx: farIndices(cols) };
 }
+/** A grid opened: eroded then dilated by a square window `r` vertices each way (min, then max), which cuts off every bump narrower than 2r + 1 vertices at the height of what it stands on (and so leaves wider tops as they are). */
+function openGrid(g: Float32Array, cols: number, rows: number, r: number): Float32Array {
+  const pass = (src: Float32Array, min: boolean): Float32Array => {
+    const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { let v = src[j * cols + i]; for (let d = Math.max(0, i - r); d <= Math.min(cols - 1, i + r); d++) { const q = src[j * cols + d]; if (min ? q < v : q > v) v = q; } tmp[j * cols + i] = v; }
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { let v = tmp[j * cols + i]; for (let d = Math.max(0, j - r); d <= Math.min(rows - 1, j + r); d++) { const q = tmp[d * cols + i]; if (min ? q < v : q > v) v = q; } out[j * cols + i] = v; }
+    return out;
+  };
+  return pass(pass(g, true), false);
+}
 /** The triangle indices of a cols x cols far mesh: the same for every mesh of that size, so they are made once and shared (the renderer keeps one GPU buffer for them too). */
 const IDX_CACHE = new Map<number, Uint32Array>();
 /** The triangles of a far level of `cols` x `cols` vertices (one array per size, shared: it depends only on the size). */
@@ -808,7 +908,16 @@ export function farIndices(cols: number): Uint32Array {
   return idx;
 }
 /** The far levels for a terraced world: fine, medium, coarse, then two for height (step, half-size in tiles, and how far the eye may move before it is rebuilt). Each is about the same number of vertices: the higher the eye, the coarser and wider the ground, so it costs no more to build. */
-export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true }, { step: 12, half: 2400, moveBy: 480, stepped: false }, { step: 32, half: 4000, moveBy: 800, stepped: false }, { step: 128, half: 12000, moveBy: 2400, stepped: false }, { step: 400, half: 40000, moveBy: 8000, stepped: false }] as const;
+export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true, open: 2 }, { step: 12, half: 2400, moveBy: 480, stepped: true, open: 2 }, { step: 32, half: 4000, moveBy: 800, stepped: true, open: 1 }, { step: 128, half: 12000, moveBy: 2400, stepped: false, open: 0 }, { step: 400, half: 40000, moveBy: 8000, stepped: false, open: 0 }] as const;
 /** The finest far level worth having when the eye is this high (tiles above the ground) or this far from where it will be when a level is rebuilt (the flying speed, tiles a second, times about 25 s): from up there the finer ones are pixels, or the plane is off their edge before they are ready, so they are neither built nor drawn. */
 export const FAR_LEVEL_FROM = [0, 500, 1600, 5000, 16000] as const;
-export const farLevelFor = (eyeH: number) => { let lo = 0; for (let i = 0; i < FAR_LEVEL_FROM.length; i++) if (eyeH >= FAR_LEVEL_FROM[i]) lo = i; return lo; };
+export const farLevelFor = (eyeH: number, from: readonly number[] = FAR_LEVEL_FROM) => { let lo = 0; for (let i = 0; i < from.length; i++) if (eyeH >= from[i]) lo = i; return lo; };
+/**
+ * The seeded hills' far levels: one finer level in front of the others (2 tiles a vertex, 220 each way), which stands in for the real chunks beyond `HILLS_NEAR` tiles of the eye. The real chunks are
+ * cut exactly along every contour, and on steep range country that is up to ten thousand triangles a chunk; this level shows the same terraces from two-tile vertices for a few tens of thousands in all.
+ * (A real map keeps TERRACE_FAR_LODS and the real chunks out to their old reach.)
+ */
+export const TERRACE_FAR_LODS_HILLS = [{ step: 2, half: 220, moveBy: 60, stepped: true, open: 1 }, ...TERRACE_FAR_LODS] as const;
+export const FAR_LEVEL_FROM_HILLS = [0, 60, 500, 1600, 5000, 16000] as const;
+/** How far (tiles, times the draw distance setting) the real chunks reach in the seeded hills; beyond it the fine far level draws. */
+export const HILLS_NEAR = 64;

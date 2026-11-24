@@ -78,7 +78,7 @@ export default function spritesPlugin() {
     },
     async generateBundle(_opts, bundle) {
       // Service worker: precache the app shell + every sprite the app can draw (not dev-only folders / raw 9-slice sources)
-      const skip = /\/(atlas|sprites)\/|\.9\.png$/;
+      const skip = /\/(atlas|sprites)\/|\.9\.png$|lakedistrict25\.png$/;   // (the 25 m Lake District map is 8 MB: fetched when a terraced Lake District world opens, not with every install)
       const files = walk(ROOT).map(p => '/' + p.slice('public/'.length).replaceAll('\\', '/')).filter(u => !skip.test(u));
       const precache = ['/', '/manifest.webmanifest', ...walk('public/icons').map(p => '/' + p.slice('public/'.length)), ...Object.keys(bundle).map(n => '/' + n), ...files]
         .filter((u, i, a) => u !== '/index.html' && a.indexOf(u) === i);

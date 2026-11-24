@@ -450,7 +450,8 @@
 
 /* the full-screen map (minimap zoom 3 to 5): time stops while it is open */
 .world-bigmap { position: absolute; inset: 0; z-index: 25; background: #0a0a0a; }
-.world-bigmap-cv { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.world-bigmap-cv { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; cursor: grab; }
+.world-bigmap-cv:active { cursor: grabbing; }
 .world-bigmap-bar { position: absolute; top: calc(10 * var(--u, 1px)); right: calc(10 * var(--u, 1px)); display: flex; align-items: center; gap: calc(6 * var(--u, 1px)); line-height: 1; }
 .world-bigmap-bar .wui-banner { padding: calc(6 * var(--u, 1px)) calc(10 * var(--u, 1px)); font-size: var(--fs-sm); }
 

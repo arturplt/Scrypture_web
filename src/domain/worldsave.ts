@@ -1,7 +1,7 @@
 /** Saved Bóbr worlds: a seed plus only what changed (the generator rebuilds everything else), the plane, the sky and the wind. */
 import { tileKey, keyX, keyY, type TileState, type Terrain, type DecoKind, type Variant } from './worldgen';
 import { lakeSpawnFor, type LakeMapId } from './lakedistrict';
-import { terraceSpawn, MAX_RELIEF, RELIEF_MAX } from './terrace';
+import { terraceSpawn, setRealTerrain, MAX_RELIEF, RELIEF_MAX } from './terrace';
 import { defaultWind, type Wind } from './ecosystem';
 import { sanitizeBerries, type SavedBerry } from './berries';
 
@@ -63,7 +63,7 @@ export function sanitizeOrbit(raw: unknown): SavedOrbit | undefined {
 }
 export interface SavedWorld {
   id: string; name: string; seed: number; createdAt: number; playedAt: number;
-  map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m)
+  map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m); on a terraced world, the real map its layers are cut from (none = the seeded hills)
   kind?: 'procedural' | 'lakedistrict' | 'terraced';   // the Lake District is a real map (see lakedistrict.ts), 'terraced' the stepped hills (terrace.ts); a world without this is procedural (flat)
   changes: SavedTile[];
   relief?: SavedRelief[];         // a terraced world's sculpting: tiles raised or lowered by whole layers
@@ -132,11 +132,11 @@ export function sanitizeBeavers(raw: unknown): SavedBeavers {
 export interface WorldsSave { list: SavedWorld[] }
 export const emptyWorlds = (): WorldsSave => ({ list: [] });
 
-/** Where a terraced world starts (see terraceSpawn): on a low shelf, in the middle of its tile. */
-export const terracePlaneSpawn = (seed: number) => { const p = terraceSpawn(seed); return { x: p.x, y: p.y, heading: Math.PI / 2, pitch: 0 }; };
+/** Where a seeded terraced world starts (see terraceSpawn): on a low shelf, in the middle of its tile. The ground is the seeded hills while it is looked for, whatever world was open before. */
+export const terracePlaneSpawn = (seed: number) => { setRealTerrain(null); const p = terraceSpawn(seed); return { x: p.x, y: p.y, heading: Math.PI / 2, pitch: 0 }; };
 export const newSavedWorld = (id: string, name: string, seed: number, now: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes'): SavedWorld => ({
-  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : kind === 'terraced' ? { kind } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
-  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' ? lakeSpawnFor(map) : kind === 'terraced' ? terracePlaneSpawn(seed >>> 0) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
+  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : kind === 'terraced' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
+  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' || (kind === 'terraced' && map !== 'lakes') ? lakeSpawnFor(map) : kind === 'terraced' ? terracePlaneSpawn(seed >>> 0) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
 });
 
 export const encodeChanges = (m: Map<number, TileState>): SavedTile[] =>
@@ -181,7 +181,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
     const wind = typeof w.wind === 'object' && w.wind !== null ? w.wind : {}, plane = typeof w.plane === 'object' && w.plane !== null ? w.plane : {};
     const dw = defaultWind();
     out.list.push({
-      ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : w.kind === 'terraced' ? { kind: 'terraced' as const } : {}),
+      ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : w.kind === 'terraced' ? { kind: 'terraced' as const, ...(w.map === 'lakes25' || w.map === 'coniston' ? { map: w.map } : {}) } : {}),
       id: w.id, name: (typeof w.name === 'string' ? w.name.trim().slice(0, 40) : '') || 'World', seed: fin(w.seed, 0) >>> 0,
       createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes, ...(w.kind === 'terraced' && sanitizeRelief(w.relief).length ? { relief: sanitizeRelief(w.relief) } : {}),
       hour: clamp(fin(w.hour, 12), 0, 23.999),

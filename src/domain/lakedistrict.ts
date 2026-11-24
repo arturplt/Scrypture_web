@@ -7,7 +7,7 @@
 export type WorldKind = 'procedural' | 'lakedistrict' | 'terraced';
 
 /** Which map a Lake District world plays on: the whole region at 50 m a tile, or a patch of it at 10 m (see LAKE_MAPS). */
-export type LakeMapId = 'lakes' | 'coniston';
+export type LakeMapId = 'lakes' | 'coniston' | 'lakes25';
 export interface LakeMapDef {
   id: LakeMapId; name: string; png: string; json: string;
   tileM: number;                        // metres a tile covers
@@ -70,6 +70,10 @@ export const LAKE_MAPS: Record<LakeMapId, LakeMapDef> = {
     id: 'lakes', name: 'Lake District', png: 'lakedistrict.png', json: 'meta.json', tileM: 50, stretch: 1, grid: { w: 1426, h: 1769 },
     affine: boxAffine(-3.70, -2.60, 54.00, 54.80, 1426, 1769), spawn: { lon: -3.1096, lat: 54.3708, heading: 0 }, waters: LAKES_WATERS, roads: LAKES_ROADS,
   },
+  lakes25: {   // the whole region again at 25 m a tile: the map of the terraced Lake District (the same box, so the waters, roads and fells are the big map's own)
+    id: 'lakes25', name: 'Lake District (25 m)', png: 'lakedistrict25.png', json: 'meta25.json', tileM: 25, stretch: 1, grid: { w: 2851, h: 3538 },
+    affine: boxAffine(-3.70, -2.60, 54.00, 54.80, 2851, 3538), spawn: { lon: -3.1096, lat: 54.3708, heading: 0 }, waters: LAKES_WATERS, roads: LAKES_ROADS,
+  },
   coniston: {   // (the affine is the one the build script fitted: see public/assets/lakedistrict/coniston.json)
     id: 'coniston', name: 'Coniston', png: 'coniston.png', json: 'coniston.json', tileM: 10, stretch: 1, grid: { w: 1400, h: 1500 },
     affine: [6502.453579147299, 170.1256342602632, 10771.100286070534, 99.42546292999616, -11126.378197635024, 604826.7394639135], spawn: { lon: -3.0649, lat: 54.3620, heading: -Math.PI / 2 }, waters: CONISTON_WATERS, roads: [],
@@ -87,7 +91,7 @@ export const LAKE_LAND = 0, LAKE_WATER = 1, LAKE_RIVER = 2;
 /** Tiles to kilometres on the map that is loaded. */
 export const tilesToKm = (tiles: number) => tiles * (data?.tileM ?? LAKE_MAPS.lakes.tileM) / 1000;
 
-export interface LakeData { w: number; h: number; heightM: Float32Array; water: Uint8Array; corners: Float32Array; credits: string; map: LakeMapId; tileM: number; stretch: number }
+export interface LakeData { w: number; h: number; heightM: Float32Array; water: Uint8Array; corners: Float32Array; credits: string; map: LakeMapId; tileM: number; stretch: number; terraced: boolean }
 let data: LakeData | null = null;
 
 /** Every tile corner's height in real metres, worked out once (see cornerMetres): (w + 1) x (h + 1), corner (ix, iy) at index (iy + h/2) * (w + 1) + ix + w/2. The ground height lookup runs thousands of times a frame, so it only reads four of these. */
@@ -108,11 +112,11 @@ function cornerGrid(d: LakeData): Float32Array {
 }
 
 /** Decode the RGB image (R,G = decimetres, B = water class) into the lookup grids. */
-export function setLakeData(w: number, h: number, rgba: ArrayLike<number>, credits = '', map: LakeMapId = 'lakes'): LakeData {
+export function setLakeData(w: number, h: number, rgba: ArrayLike<number>, credits = '', map: LakeMapId = 'lakes', terraced = false): LakeData {
   const heightM = new Float32Array(w * h), water = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) { heightM[i] = (rgba[i * 4] * 256 + rgba[i * 4 + 1]) / 10; water[i] = rgba[i * 4 + 2]; }
-  data = { w, h, heightM, water, corners: new Float32Array(0), credits, map, tileM: LAKE_MAPS[map].tileM, stretch: LAKE_MAPS[map].stretch };
-  data.corners = cornerGrid(data);
+  data = { w, h, heightM, water, corners: new Float32Array(0), credits, map, tileM: LAKE_MAPS[map].tileM, stretch: LAKE_MAPS[map].stretch, terraced };
+  if (!terraced) data.corners = cornerGrid(data);   // (the terraced ground reads the tiles themselves: no corner grid, a fifth of the memory again on a big map)
   pondOrig.clear();
   return data;
 }
@@ -133,7 +137,7 @@ export function setPondSurface(tiles: readonly (readonly [number, number])[], le
     else { if (!pondOrig.has(k)) pondOrig.set(k, d.corners[k]); d.corners[k] = level; }
   }
 }
-export const lakeReady = (map?: LakeMapId): boolean => data !== null && (!map || data.map === map);
+export const lakeReady = (map?: LakeMapId, terraced = false): boolean => data !== null && (!map || (data.map === map && data.terraced === terraced));
 /** The map that is loaded (the big one before any has been). */
 export const lakeMapId = (): LakeMapId => data?.map ?? 'lakes';
 

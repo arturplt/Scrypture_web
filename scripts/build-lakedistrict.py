@@ -6,7 +6,8 @@ Data (run once, commit the output, not the inputs):
   - water: OpenStreetMap, an Overpass `out geom` dump saved as water.json (see WATER_QUERY below)  (c) OpenStreetMap contributors, ODbL
   - Contains Copernicus DEM data (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA.
 
-Usage:  python3 scripts/build-lakedistrict.py <water.json> <out_dir>      (needs: numpy, pillow, rasterio)
+Usage:  python3 scripts/build-lakedistrict.py <water.json> <out_dir> [tile_m]      (needs: numpy, pillow, rasterio)
+        tile_m (default 50) is the tile size in metres; any other size is written beside the 50 m map as lakedistrict<tile_m>.png and meta<tile_m>.json (25 m is the terraced Lake District's map).
 
 The PNG is 8-bit RGB (so a canvas reads it back exactly): R,G = height in decimetres (R high byte); B = water class (0 land, 1 lake or sea, 2 river).
 """
@@ -20,7 +21,8 @@ from rasterio.enums import Resampling as R
 
 WATER_QUERY = '''[out:json][timeout:180];(way["natural"="water"](54.00,-3.70,54.80,-2.60);relation["natural"="water"](54.00,-3.70,54.80,-2.60);way["waterway"="river"](54.00,-3.70,54.80,-2.60);way["natural"="coastline"](53.95,-3.75,54.85,-2.55););out geom;'''
 W0, E0, S0, N0 = -3.70, -2.60, 54.00, 54.80   # west of Whitehaven, south to Lancaster and Morecambe Bay, east to the M6, north past Caldbeck
-TILE_M = 50.0
+TILE_M = float(sys.argv[3]) if len(sys.argv) > 3 else 50.0
+SUFFIX = '' if TILE_M == 50 else f'{TILE_M:g}'
 mid = (S0 + N0) / 2
 KM_LON, KM_LAT = 111.32 * math.cos(math.radians(mid)), 110.57
 GW, GH = round((E0 - W0) * KM_LON * 1000 / TILE_M), round((N0 - S0) * KM_LAT * 1000 / TILE_M)
@@ -116,8 +118,8 @@ height[rv] = np.maximum(0, height[rv] - 3)
 dm = np.clip(np.round(height * 10), 0, 65535).astype(np.uint16)
 rgb = np.stack([(dm >> 8).astype(np.uint8), (dm & 255).astype(np.uint8), water], axis=-1)
 out = sys.argv[2].rstrip('/')
-Image.fromarray(rgb, 'RGB').save(f'{out}/lakedistrict.png', optimize=True)
+Image.fromarray(rgb, 'RGB').save(f'{out}/lakedistrict{SUFFIX}.png', optimize=True)
 json.dump({'bbox': [W0, S0, E0, N0], 'w': GW, 'h': GH, 'tileM': TILE_M, 'maxH': float(height.max()), 'unit': 'decimetres in R*256+G', 'water': 'B: 0 land, 1 lake or sea, 2 river',
            'credits': 'Contains Copernicus DEM data (c) DLR e.V. and Airbus Defence and Space GmbH, provided under COPERNICUS by the EU and ESA. Water (c) OpenStreetMap contributors (ODbL).'},
-          open(f'{out}/meta.json', 'w'), indent=1)
+          open(f'{out}/meta{SUFFIX}.json', 'w'), indent=1)
 print('grid', GW, GH, 'max height m', float(height.max()), 'lakes', nlakes, 'rivers', len(rivers), 'water px', int((water > 0).sum()))

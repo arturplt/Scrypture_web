@@ -13,8 +13,8 @@
  *    ecosystem changed a tile keeps every other decoration where it was.
  */
 
-import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, type WorldKind } from './lakedistrict';
-import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt } from './terrace';
+import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, lakeData, type WorldKind, type LakeMapId } from './lakedistrict';
+import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
 export { terraceBiome };
 
 export const CHUNK = 16;                       // tiles per chunk side
@@ -172,11 +172,12 @@ export const LEDGE_BIT = 0x80;
 export function generateTerraceChunk(cx: number, cy: number, field: TerraceField): { t: Uint8Array; b: Uint8Array } {
   const R = 2, side = SIDE + R * 2, ox = cx * CHUNK - MARGIN - R, oy = cy * CHUNK - MARGIN - R, lay = new Int16Array(side * side);
   for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) lay[j * side + i] = field.layerAt(ox + i, oy + j);
-  const out = new Uint8Array(SIDE * SIDE), bio = new Uint8Array(SIDE * SIDE);
+  const out = new Uint8Array(SIDE * SIDE), bio = new Uint8Array(SIDE * SIDE), road = realTerrainOn();
   for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) {
     const k = (j + R) * side + i + R, l = lay[k], x = ox + i + R, y = oy + j + R, o = j * SIDE + i;
     if (terraceLakeAt(x + 0.5, y + 0.5, field.seed)) { bio[o] = 4; out[o] = WATER; continue; }   // an inland lake: level water on its shelf
     if (terraceLakeShoreAt(x + 0.5, y + 0.5, field.seed)) { bio[o] = 3; out[o] = SAND; continue; }   // and a strip of sand along its shore, level ground before the land falls away
+    if (road && l >= 0 && lakeRoadAt(x, y)) { bio[o] = 3 | (lay[k + 1] !== l || lay[k - 1] !== l || lay[k + side] !== l || lay[k - side] !== l ? LEDGE_BIT : 0); out[o] = SAND; continue; }   // (a real map's road: a strip of bare ground)
     const b = terraceBiome(l, terraceMoist(x, y, field.seed));
     const ledge = lay[k + 1] !== l || lay[k - 1] !== l || lay[k + side] !== l || lay[k - side] !== l;
     bio[o] = b | (ledge && l >= 0 ? LEDGE_BIT : 0);
@@ -310,8 +311,13 @@ export class World {
   /** A second, small field of the same seed for the maps: they read hundreds of chunks, and through the game's own field they would push the grids of the chunks on screen out of its cache. */
   private readonly mapField: TerraceField | null;
 
-  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural') {
+  /** The real map a terraced world stands on (null: the seeded hills, or not terraced). */
+  readonly map: LakeMapId | null;
+
+  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null) {
     this.seed = seed; this.kind = kind;
+    this.map = kind === 'terraced' && map && lakeData()?.map === map ? map : null;   // (the map must be loaded: see lakeLoader.ts)
+    if (kind === 'terraced') setRealTerrain(this.map ? lakeData() : null);
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
     this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
@@ -340,6 +346,8 @@ export class World {
   get hilly(): boolean { return this.kind !== 'procedural'; }
   /** Is this a real map (the Lake District: its tile size, roads, names, a fixed extent)? */
   get realMap(): boolean { return this.kind === 'lakedistrict'; }
+  /** Is this a terraced world standing on a real map (the Lake District cut into layers)? */
+  get realTerrain(): boolean { return this.map !== null; }
   private gen(cx: number, cy: number) {
     return this.kind === 'lakedistrict' ? generateLakeChunk(cx, cy) : this.field ? generateTerraceChunk(cx, cy, this.field) : generateChunk(cx, cy, this.seed);
   }

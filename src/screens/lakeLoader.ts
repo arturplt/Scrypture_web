@@ -1,10 +1,11 @@
 import { lakeReady, lakeData, setLakeData, setLakeRoads, LAKE_MAPS, type LakeMapId, type RoadLine } from '../domain';
 
-const loading = new Map<LakeMapId, Promise<void>>();
-/** Load a Lake District map (public/assets/lakedistrict): an RGB image read back through a canvas (no alpha, so the values come out exactly). Only one map is held at a time: loading another replaces it. */
-export function loadLakeDistrict(map: LakeMapId = 'lakes'): Promise<void> {
-  if (lakeReady(map)) return Promise.resolve();
-  let p = loading.get(map);
+const loading = new Map<string, Promise<void>>();
+/** Load a Lake District map (public/assets/lakedistrict): an RGB image read back through a canvas (no alpha, so the values come out exactly). Only one map is held at a time: loading another replaces it. `terraced`: for the terraced ground, which has no use for the smooth ground's corner grid. */
+export function loadLakeDistrict(map: LakeMapId = 'lakes', terraced = false): Promise<void> {
+  if (lakeReady(map, terraced)) return Promise.resolve();
+  const key = `${map}${terraced ? '-t' : ''}`;
+  let p = loading.get(key);
   if (!p) {
     const def = LAKE_MAPS[map];
     p = (async () => {
@@ -13,13 +14,14 @@ export function loadLakeDistrict(map: LakeMapId = 'lakes'): Promise<void> {
         new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('lake map')); i.src = `/assets/lakedistrict/${def.png}`; }),
         fetch('/assets/lakedistrict/roads.json').then(r => (r.ok ? (r.json() as Promise<Partial<Record<LakeMapId, RoadLine[]>>>) : ({} as Partial<Record<LakeMapId, RoadLine[]>>))).catch(() => ({} as Partial<Record<LakeMapId, RoadLine[]>>)),   // (the real roads: without them the map keeps its stand-in ones)
       ]);
-      if (roads[map]) setLakeRoads(map, roads[map]!);
+      const own = roads[map] ?? (map === 'lakes25' ? roads.lakes : undefined);   // (the roads are lines of lon and lat, so the 25 m map takes the big map's)
+      if (own) setLakeRoads(map, own);
       const cv = document.createElement('canvas'); cv.width = meta.w; cv.height = meta.h;
       const c = cv.getContext('2d', { willReadFrequently: true })!; c.drawImage(img, 0, 0);
-      setLakeData(meta.w, meta.h, c.getImageData(0, 0, meta.w, meta.h).data, meta.credits, map);
+      setLakeData(meta.w, meta.h, c.getImageData(0, 0, meta.w, meta.h).data, meta.credits, map, terraced);
       overview = null;
-    })().catch(e => { loading.delete(map); throw e; });
-    loading.set(map, p);
+    })().finally(() => loading.delete(key));   // (only the load under way is remembered: loading another map replaces this one, so a finished load must not stand in for a later one)
+    loading.set(key, p);
   }
   return p;
 }

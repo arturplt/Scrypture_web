@@ -14,7 +14,7 @@ export type ToWorker =
   /** `mesh`: also cut the chunk's hill mesh (a terraced world: the work `WorldGL` would otherwise do on the page). */
   | { t: 'build'; id: number; cx: number; cy: number; mesh?: boolean }
   /** A far level of the terraced world's ground (a pure function of these numbers: no `init` needed, so a worker can be used for nothing else). */
-  | { t: 'far'; id: number; seed: number; cx: number; cy: number; step: number; half: number; stepped: boolean };
+  | { t: 'far'; id: number; seed: number; cx: number; cy: number; step: number; half: number; stepped: boolean; open: number };
 export type FromWorker =
   | { t: 'ready' }
   | { t: 'built'; id: number; cx: number; cy: number; px: Uint8ClampedArray; decos: Float64Array; mesh?: TerraceMesh; /** the chunk's height grid (a terraced world), for the page to adopt */ grid?: { e: Float32Array; base?: Float32Array }; ms: number }
@@ -24,7 +24,7 @@ export type FromWorker =
 export class ChunkHost {
   private world: World | null = null;
   private blocks: BlockOf | null = null;
-  private queue: (({ kind: 'build'; mesh: boolean } | { kind: 'far'; seed: number; step: number; half: number; stepped: boolean }) & { id: number; cx: number; cy: number })[] = [];
+  private queue: (({ kind: 'build'; mesh: boolean } | { kind: 'far'; seed: number; step: number; half: number; stepped: boolean; open: number }) & { id: number; cx: number; cy: number })[] = [];
   private pumping = false;
 
   /** `post` sends a message to the page (with what to transfer); `schedule` runs a function in a later turn (so messages that arrive meanwhile are handled first). */
@@ -41,7 +41,7 @@ export class ChunkHost {
         if (!this.world) throw new Error('changes before init');
         for (const op of m.ops) this.world.apply(op);
       } else if (m.t === 'far') {
-        this.queue.push({ kind: 'far', id: m.id, seed: m.seed, cx: m.cx, cy: m.cy, step: m.step, half: m.half, stepped: m.stepped });
+        this.queue.push({ kind: 'far', id: m.id, seed: m.seed, cx: m.cx, cy: m.cy, step: m.step, half: m.half, stepped: m.stepped, open: m.open });
         this.pump();
       } else {
         this.queue.push({ kind: 'build', mesh: !!m.mesh, id: m.id, cx: m.cx, cy: m.cy });
@@ -60,7 +60,7 @@ export class ChunkHost {
       try {
         const t0 = performance.now();
         if (job.kind === 'far') {
-          const g = terraceFarMesh(job.seed, job.cx, job.cy, job.step, job.half, job.stepped);
+          const g = terraceFarMesh(job.seed, job.cx, job.cy, job.step, job.half, job.stepped, job.open);
           let r = g.next();
           while (!r.done) r = g.next();
           const m = r.value;

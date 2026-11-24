@@ -4,6 +4,7 @@ Three kinds of world (`World.kind`, chosen in the world list as Flat / Hills / L
 
 - **procedural** (flat): `worldgen.ts` `generateChunk`: biomes and water from noise, no height.
 - **lakedistrict**: a real map (`lakedistrict.ts`, `lakeLoader.ts`), heights from a corner grid.
+- **terraced on a real map** (the "Terraced" option under Lake District; `World.map`, `World.realTerrain`): the terraced world below with the Lake District's real elevation and lakes instead of noise, see "The terraced Lake District".
 - **terraced** ("Hills"): an infinite Godus-style stepped height field, described below. The to-do list for it is [ROADMAP_TERRACE.md](ROADMAP_TERRACE.md).
 
 ## The terraced world
@@ -34,3 +35,14 @@ A terraced chunk's mesh comes from `terraceChunkMesh` (terrace.ts): the grid's t
 ### Checking it
 
 `npx vitest run src/domain/terrace.test.ts`; micro-benchmarks `npx vite-node scripts/bench-terrace.mts` (grid build) and `scripts/bench-far.mts` (far mesh slices). Visual checks need WebGL: the built-in browser pane has none, use headless Chromium with SwiftShader (see ROADMAP_TERRACE.md).
+
+
+## The terraced Lake District
+
+A terraced world whose `SavedWorld.map` is `lakes25` (the whole region at 25 m a tile, 2851 x 3538, `public/assets/lakedistrict/lakedistrict25.png`, built by `scripts/build-lakedistrict.py <water.json> <out> 25`) or `coniston` (10 m) reads its ground from that map (`terrainreal.ts`) in place of the noise; everything else (grids, the chunk mesh, walls, water sheets, far levels, weather, sculpting) is the Hills world's. `setRealTerrain` (called by `World`) switches `terrace.ts` over; any world not on a map switches it back.
+
+- **Layers**: height in metres over `TERRACE_LAYER_M` (30), linear between tile centres (`realLand`), so contours flow between pixels. Sea and beyond the map is -1. The grid's opening and closing smooth the land only.
+- **Lakes**: a lake tile is class 1 water above 0.5 m whose surface is at least layer 1 (lower ones are sea). `realLake` cuts the basin into the smoothed land after the opening and closing (so a narrow arm is never filled in): the shore is lifted to the lake's layer + 0.2, the water is one layer below, and the bed steps down a layer every 150 m from the shore, at most 3 and never under the beach. Sheets of water, sand shore (`realLakeShore`, 40 m) and the tile classes use the same hooks as the procedural lakes (`terraceLakeAt`, `terraceLakeSheetAt`, `terraceLakeShoreAt`). Rivers (class 2) are ignored; becks come from the weather.
+- **Biomes**: moisture is the noise raised (never dry country), bare tops from 700 m; roads (`lakeRoadAt`) are bare ground.
+- **Loading**: `loadLakeDistrict(map, true)` skips the corner grid of the smooth Lake District. The 25 m map is about 70 MB in memory and 8 MB to fetch (not precached). Chunks and far levels run on the page (the worker has no copy of the map): about 1 ms a chunk, 100 ms for the finest far level (node).
+- **Not done**: lake outlets (no lake-spill becks), the waters list and lake achievements, the minimap overview of the whole map, the chunk worker, and the real-metre units of the Lake District's plane scale (the HUD reads 30 m a layer).

@@ -18,11 +18,12 @@ export function Worlds() {
   const [name, setName] = useState('');
   const [seedText, setSeedText] = useState('');
   const [note, setNote] = useState('');
-  const [kind, setKind] = useState<'procedural' | 'terraced' | 'lakedistrict'>('procedural'), [coniston, setConiston] = useState(false);   // (flat, hills or the Lake District: one of the three)
+  const [kind, setKind] = useState<'procedural' | 'terraced' | 'lakedistrict'>('procedural'), [coniston, setConiston] = useState(false), [stepped, setStepped] = useState(false);   // (flat, hills or the Lake District: one of the three)
   const lake = kind === 'lakedistrict';
   const create = () => {
     const seed = seedText.trim() ? (/^\d+$/.test(seedText.trim()) ? Number(seedText.trim()) >>> 0 : seedFrom(seedText.trim())) : Math.floor(Math.random() * 4294967296);
-    const id = actions.createWorld(name.trim() || t('worldDefaultName', { n: worlds.length + 1 }), seed, kind, coniston ? 'coniston' : 'lakes');
+    const real = lake && stepped;   // (the real map cut into terraces: a terraced world on the 25 m map, or on Coniston's 10 m one)
+    const id = actions.createWorld(name.trim() || t('worldDefaultName', { n: worlds.length + 1 }), seed, real ? 'terraced' : kind, coniston ? 'coniston' : real ? 'lakes25' : 'lakes');
     if (!id) { setNote(t('worldFull')); return; }
     navigate(`/games/paperplane/play/${id}`);
   };
@@ -41,6 +42,8 @@ export function Worlds() {
         </div>
         <div className="muted small">{t(kind === 'terraced' ? 'worldTerraced' : lake ? 'worldLake' : 'worldKindFlatHint')}</div>
         {lake && <PixelCheckbox big checked={coniston} onChange={setConiston} label={t('worldLakeConiston')} />}
+        {lake && <PixelCheckbox big checked={stepped} onChange={setStepped} label={t('worldLakeTerraced')} />}
+        {lake && stepped && <div className="muted small">{t('worldLakeTerracedHint')}</div>}
         {lake && <div className="muted small">{t(coniston ? 'worldLakeCreditLidar' : 'worldLakeCredit')}</div>}
         <PixelButton scale={1} onClick={create}>{t('worldCreate')}</PixelButton>
         {note && <div role="status" className="muted small">{note}</div>}
@@ -50,7 +53,7 @@ export function Worlds() {
         {worlds.length === 0 && <div className="muted small">{t('worldNone')}</div>}
         {[...worlds].sort((a, b) => b.playedAt - a.playedAt).map(w => (
           <div key={w.id} className="row between world-item">
-            <div className="row"><Icon name="home" size={32} alt="" /><div><strong>{w.name}</strong>{w.kind === 'terraced' && <span className="muted small"> [{t('worldKindHills')}]</span>}{w.kind === 'lakedistrict' && <span className="muted small"> [{t('worldKindLake')}]</span>}
+            <div className="row"><Icon name="home" size={32} alt="" /><div><strong>{w.name}</strong>{w.kind === 'terraced' && <span className="muted small"> [{t(w.map ? 'worldKindLakeTerraced' : 'worldKindHills')}]</span>}{w.kind === 'lakedistrict' && <span className="muted small"> [{t('worldKindLake')}]</span>}
               <div className="muted small">{t('worldSeedIs', { seed: w.seed })} - {t('worldChanges', { n: w.changes.length })} - {new Date(w.playedAt).toLocaleDateString(lang === 'PL' ? 'pl-PL' : 'en-GB')}</div></div></div>
             <div className="row">
               <PixelButton scale={1} onClick={() => navigate(`/games/paperplane/play/${w.id}`)}>{t('worldOpen')}</PixelButton>

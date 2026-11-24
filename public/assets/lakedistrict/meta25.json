@@ -1,0 +1,15 @@
+{
+ "bbox": [
+  -3.7,
+  54.0,
+  -2.6,
+  54.8
+ ],
+ "w": 2851,
+ "h": 3538,
+ "tileM": 25.0,
+ "maxH": 973.43994140625,
+ "unit": "decimetres in R*256+G",
+ "water": "B: 0 land, 1 lake or sea, 2 river",
+ "credits": "Contains Copernicus DEM data (c) DLR e.V. and Airbus Defence and Space GmbH, provided under COPERNICUS by the EU and ESA. Water (c) OpenStreetMap contributors (ODbL)."
+}
