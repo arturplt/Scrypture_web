@@ -220,7 +220,7 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
-uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
+uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
 uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas, uDrop; uniform float uHasT, uSea;   // uDrop: how far (degrees) the mountains, then the far, middle and near tree lines have sunk, the higher the eye   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
@@ -315,6 +315,11 @@ void main() {
         S *= 1.0 - t.a;
       }
     }
+  }
+  if (-ray.z < 0.0) {   // below the horizon, high up: the haze of the ground out to the edge of the world (the far ground fades into the same colour), never the sky's stars and layers, which all sample one row down here and streak
+    float k = max(uHigh, uSpace);
+    vec3 hz = mix(uHor * (1.0 - 0.45 * uSpace), uNight.rgb, uNight.a);
+    c = mix(c, hz, k); S *= 1.0 - k;
   }
   c += S;
   o = vec4(c, 1.0);
@@ -450,6 +455,8 @@ export class WorldGL {
   private farOn = false;
   /** The finest far level to draw (a hilly world with more than three: from high up the finer ones are pixels). Set by the screen. */
   farMin = 0;
+  /** 0..1: how high the eye is over a hilly world (from 150 tiles, about 830 m, to 600), for the haze at the edge of the ground. */
+  highK() { if (!this.terrain) return 0; const t = Math.max(0, Math.min(1, (this.eyeHeight - 150) / 450)); return t * t * (3 - 2 * t); }
   /** The eye's height above the ground (tiles), as of the last camera. */
   get eyeHeight() { return Math.max(0, -this.eye[2] - (this.terrain ? this.terrain(this.eye[0], this.eye[1]) : 0)); }
   /** How far from the eye every visible chunk is built (set by the map each frame; Infinity = all of them). The far mesh's hole is never wider than this, so ground whose chunk is still being built is covered by the far mesh instead of left empty. */
@@ -521,7 +528,7 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
     for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
@@ -873,7 +880,7 @@ export class WorldGL {
       gl.uniform3f(L.uHor, this.sky[0], this.sky[1], this.sky[2]); gl.uniform3f(L.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
       gl.uniform3f(L.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform2f(L.uTan, this.tanX, this.tanY);
       gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.dayK); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
-      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
+      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
       gl.uniform2f(L.uPos, Math.tanh(this.eye[0] / 400) * 400, Math.tanh(this.eye[1] / 400) * 400);   // (the position is squashed to +-400 tiles: the shift changes with the azimuth, so a big shift would squeeze and stretch the clouds; this keeps every layer within about 9% of its width)
       gl.uniform1f(L.uHasMoon, this.moonTex ? 1 : 0);
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
@@ -891,8 +898,9 @@ export class WorldGL {
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(this.loc.uVP, false, this.vp);
     gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]);
-    gl.uniform3f(this.loc.uFog, this.sky[0], this.sky[1], this.sky[2]);
-    gl.uniform2f(this.loc.uFogRange, 1e7, 2e7);   // no distance haze anywhere
+    { const sp = 1 - 0.45 * this.space; gl.uniform3f(this.loc.uFog, this.sky[0] * sp, this.sky[1] * sp, this.sky[2] * sp); }   // (the same haze as the sky's below the horizon)
+    // no distance haze, except high up over a hilly world: the far ground fades into the haze before the edge of what is drawn, so it meets the sky with no gap
+    { const hk = this.farOn && this.farMesh ? this.highK() : 0, st = this.reach * (0.55 + 3 * (1 - hk)); if (hk > 0) gl.uniform2f(this.loc.uFogRange, st, st + this.reach * 0.42); else gl.uniform2f(this.loc.uFogRange, 1e7, 2e7); }
     gl.uniform1i(this.loc.uTex, 0);
     gl.uniform4f(this.loc.uNight, nt[0], nt[1], nt[2], nt[3]);
     gl.uniform1f(this.loc.uFx, this.fx ? 1 : 0); gl.uniform1f(this.loc.uTime, (performance.now() / 1000) % 3600); gl.uniform1f(this.loc.uDay, this.dayK);

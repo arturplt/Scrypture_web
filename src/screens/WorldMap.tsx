@@ -1156,14 +1156,16 @@ function WorldView({ id }: { id: string }) {
         for (const [cx, cy] of near) { if (performance.now() - t0 > 4) break; if (stepChunk(cx, cy, t0 + 4)) built++; }
       }
       if (glr && s.world.field) {   // the terraced world has no edge: its far levels are built round the eye, a few rows a frame, and again when it has travelled a good way from where they were built (the finest first)
-        const farLo = farLevelFor(Math.max(glr.eyeHeight, (() => { const v = Math.hypot(s.glider.vx, s.glider.vy); return v > 60 ? v * 25 : 0; })())); glr.farMin = farLo;   // (the higher the eye, the coarser and wider the ground: the finer levels are neither built nor drawn)
-        if (!farJob) for (let i = farLo; i < TERRACE_FAR_LODS.length; i++) {
+        const farLo = farLevelFor(Math.max(glr.eyeHeight, (() => { const v = Math.hypot(s.glider.vx, s.glider.vy, s.glider.vz); return v > 60 ? v * 25 : 0; })())); glr.farMin = farLo;   // (the higher the eye, the coarser and wider the ground: the finer levels are neither built nor drawn)
+        // (low and slow: the finest first. High or fast: the coarsest first, since the plane is soon off the edge of the finer ones and the wide ones are the ground it flies over)
+        if (!farJob) for (let k = 0; k < TERRACE_FAR_LODS.length - farLo; k++) {
+          const i = farLo >= 2 ? TERRACE_FAR_LODS.length - 1 - k : farLo + k;
           const L = TERRACE_FAR_LODS[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
           farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) }; break;
         }
-        const tf = performance.now(), farMs = frames < 150 || farLo >= 2 ? 6 : 2;   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
+        const tf = performance.now(), farMs = farLo >= 2 ? 10 : frames < 150 ? 6 : 2;   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
           if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
           const r = farJob.gen.next();
