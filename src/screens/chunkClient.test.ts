@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ChunkClient, type WorkerLike } from './chunkClient';
+import { ChunkClient, FarClient, type WorkerLike } from './chunkClient';
 import { ChunkHost, type FromWorker, type ToWorker } from '../workers/chunkHost';
 import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, blocksFromTable, buildChunk, type Deco } from '../domain/chunkbuild';
 import { World, WATER, tileKey, type WorldOp } from '../domain/worldgen';
+import { TerraceField, terraceChunkMesh, terraceFarMesh } from '../domain/terrace';
 
 const table = () => {
   const t = new Uint8ClampedArray(BLOCK_TABLE_BYTES);
@@ -33,7 +34,7 @@ async function until<T>(f: () => T | undefined | false, ms = 2000): Promise<T> {
 const init = (kind: 'procedural' | 'terraced' = 'terraced', ops: WorldOp[] = []) => ({ seed: 9, kind, changes: [], table: table(), ops });
 
 describe('the chunk client and host', () => {
-  it('builds what the page would build itself, nearest chunk first, two at a time', async () => {
+  it('builds what the page would build itself, nearest chunk first, a few at a time', async () => {
     const w = loopback(), c = new ChunkClient(() => w, init());
     await until(() => (c.tick(0, 0), c.active));
     for (const [cx, cy] of [[6, 0], [1, 0], [-2, 3], [0, 0]]) c.request(cx, cy);
@@ -87,6 +88,65 @@ describe('the chunk client and host', () => {
     c.terminate();
   });
 
+  it('cuts the chunk\'s hill mesh too, when asked, the same as the page would from its own grids, relief and water', async () => {
+    const main = new World(9, undefined, 'terraced');
+    main.sculpt([[3, 3], [4, 3], [3, 4], [4, 4]], 2);
+    main.field!.setFill([[6, 6], [7, 6], [6, 7], [7, 7]], 1, 2, 0);
+    const snap = main.snapshot(), w = loopback();
+    const c = new ChunkClient(() => w, { seed: 9, kind: 'terraced', changes: snap.changes, table: table(), ops: snap.ops });
+    c.wantMesh = true;
+    await until(() => (c.tick(0, 0), c.active));
+    const got: ReturnType<ChunkClient['tick']> = [];
+    await until(() => { for (const [cx, cy] of [[0, 0], [1, 0]]) if (!got.some(b => b.cx === cx)) c.request(cx, cy); got.push(...c.tick(0, 0)); return got.length >= 2; });
+    const fld = main.field!;
+    for (const b of got) {
+      const want = terraceChunkMesh(fld.grid(b.cx, b.cy).e, b.cx, b.cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y));
+      expect(b.mesh, `${b.cx} has a mesh`).toBeDefined();
+      for (const k of ['pos', 'nrm', 'idx', 'sub', 'wpos', 'widx', 'wkind'] as const) expect(b.mesh![k], `${b.cx} ${k}`).toEqual(want[k]);
+    }
+    expect(got.find(b => b.cx === 0)!.mesh!.widx.length).toBeGreaterThan(0);   // (the water over the filled tiles is in it)
+    c.terminate();
+  });
+  it('sends no mesh unless asked, and none for a world without hills', async () => {
+    const w = loopback(), c = new ChunkClient(() => w, init('terraced'));
+    await until(() => (c.tick(0, 0), c.active));
+    c.request(0, 0);
+    const a = await until(() => c.tick(0, 0)[0]);
+    expect(a.mesh).toBeUndefined();
+    c.wantMesh = true; c.terminate();
+    const flat = new ChunkClient(() => loopback(), init('procedural')); flat.wantMesh = true;
+    await until(() => (flat.tick(0, 0), flat.active));
+    flat.request(0, 0);
+    expect((await until(() => flat.tick(0, 0)[0])).mesh).toBeUndefined();
+    flat.terminate();
+  });
+  it('sends its height grid with each chunk, which the page can adopt unless sculpting or water changed the chunk since it asked', async () => {
+    const main = new World(9, undefined, 'terraced'), fld = main.field!;
+    fld.setFill([[6, 6], [7, 6]], 1, 2, 0);
+    const snap = main.snapshot(), w = loopback();
+    const c = new ChunkClient(() => w, { seed: 9, kind: 'terraced', changes: snap.changes, table: table(), ops: snap.ops }, { epoch: () => fld.epoch });
+    await until(() => (c.tick(0, 0), c.active));
+    const got: ReturnType<ChunkClient['tick']> = [];
+    await until(() => { for (const [cx, cy] of [[0, 0], [3, 3]]) if (!got.some(b => b.cx === cx)) c.request(cx, cy); got.push(...c.tick(0, 0)); return got.length >= 2; });
+    c.terminate();
+    const fresh = new TerraceField(9); fresh.setFill([[6, 6], [7, 6]], 1, 2, 0);   // (a page that has not worked these grids out yet)
+    for (const b of got) {
+      expect(b.grid, `${b.cx} grid`).toBeDefined();
+      const want = fld.grid(b.cx, b.cy);
+      expect(b.grid!.e).toEqual(want.e);
+      expect(b.grid!.base ?? null).toEqual(want.base ?? null);
+      expect(fresh.adoptGrid(b.cx, b.cy, b.grid!.e, b.grid!.base, b.epoch)).toBe(true);
+      expect(fresh.grid(b.cx, b.cy).e).toEqual(want.e);                              // (the same numbers, not worked out here)
+      expect(fresh.adoptGrid(b.cx, b.cy, b.grid!.e, b.grid!.base, b.epoch)).toBe(false);   // (already has it)
+    }
+    // water laid on chunk 0,0 after the request: that grid is out of date and is not taken
+    const late = new TerraceField(9), at = late.epoch, g0 = got.find(b => b.cx === 0)!.grid!;
+    late.setFill([[5, 5]], 1, 2, 0);
+    expect(late.adoptGrid(0, 0, g0.e, g0.base, at)).toBe(false);
+    expect(late.adoptGrid(3, 3, got.find(b => b.cx === 3)!.grid!.e, undefined, at)).toBe(true);   // (a chunk the water did not reach is still fine)
+    late.loadRelief([[1, 1, 1]]);
+    expect(late.adoptGrid(7, 7, g0.e, g0.base, at)).toBe(false);                             // (sculpting laid over everything since)
+  });
   it('marks a chunk built while the ground under it changed as stale, and not one that was not', async () => {
     const w = loopback(), c = new ChunkClient(() => w, init('procedural'));
     await until(() => (c.tick(0, 0), c.active));
@@ -100,6 +160,16 @@ describe('the chunk client and host', () => {
     c.terminate();
   });
 
+  it('keeps the worker busy between frames: the next queued chunk goes as one finishes, without waiting for a tick', async () => {
+    const w = loopback(), c = new ChunkClient(() => w, init('procedural'), { maxInFlight: 1 });
+    await until(() => (c.tick(0, 0), c.active));
+    for (let i = 0; i < 5; i++) c.request(i, 0);
+    c.tick(0, 0);                                                // one frame, then the page goes quiet (a slow frame rate)
+    await until(() => w.log.filter(m => m.t === 'build').length === 5);
+    const got = await until(() => { const b = c.tick(0, 0); return b.length ? b : undefined; });
+    expect(got.length).toBeGreaterThan(0);
+    c.terminate();
+  });
   it('forgets chunks nobody asks for any more', async () => {
     const w = loopback(), c = new ChunkClient(() => w, init('procedural'), { maxInFlight: 1 });
     await until(() => (c.tick(0, 0), c.active));
@@ -125,5 +195,30 @@ describe('the chunk client and host', () => {
     const none = new ChunkClient(() => { throw new Error('no workers here'); }, init('procedural'));
     expect(none.state).toBe('failed');
     expect(none.failure).toContain('no workers');
+  });
+});
+
+describe('the far level worker', () => {
+  it('builds a level exactly as the generator does, with no world sent to it, one at a time', async () => {
+    const w = loopback(), far = new FarClient(() => w);
+    far.request(9, 64, -32, 32, 320, false);
+    far.request(9, 0, 0, 12, 240, true);                       // (ignored: one at a time)
+    const got = await until(() => far.take() ?? undefined);
+    const g = terraceFarMesh(9, 64, -32, 32, 320, false);
+    let r = g.next(); while (!r.done) r = g.next();
+    const want = r.value;
+    expect([got.cols, got.rows, got.step, got.cx, got.cy]).toEqual([want.cols, want.rows, want.step, want.cx, want.cy]);
+    expect(got.pos).toEqual(want.pos); expect(got.col).toEqual(want.col);
+    expect(w.log.filter(m => m.t === 'far').length).toBe(1);
+    far.request(9, 0, 0, 12, 240, true);                       // (the next one goes once the first was taken)
+    expect((await until(() => far.take() ?? undefined)).step).toBe(12);
+    far.terminate();
+    expect(far.active).toBe(false);
+  });
+  it('fails when the worker cannot start, so the map builds the level itself', () => {
+    const far = new FarClient(() => { throw new Error('no workers'); });
+    expect(far.active).toBe(false);
+    far.request(1, 0, 0, 32, 320, false);
+    expect(far.take()).toBeNull();
   });
 });

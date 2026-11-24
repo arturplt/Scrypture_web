@@ -14,6 +14,7 @@
  * with distance, so ground that is not drawn beyond the far limit is never missed.
  * All sprites come from one atlas: the sheet plus a few extra cells (shadow, a white dot, a haze gradient, the cloud pictures).
  */
+import type { TerraceMesh } from '../domain/terrace';
 import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl, BAND_ALT } from '../domain/terrace';
 import { CLOUD_W, CLOUD_H, loadSkyBands, silhouette } from './cloudsprites';
@@ -410,7 +411,9 @@ interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number
 
 /** A chunk's ground picture as raw RGBA pixels, `size` x `size`. A new object whenever the chunk is drawn again (that is how the texture knows to update). */
 export interface ChunkPx { px: Uint8ClampedArray<ArrayBuffer>; size: number }
-export interface GroundChunk { key: number; cx: number; cy: number; src: ChunkPx }
+/** Where a chunk's hill mesh waits when the chunk worker made it: `WorldGL` takes it from here when it builds the chunk's buffers (and empties the box, so the arrays are not held for nothing). */
+export interface MeshBox { mesh?: TerraceMesh }
+export interface GroundChunk { key: number; cx: number; cy: number; src: ChunkPx; meshBox?: MeshBox }
 const TEX_POOL = 48;   // spare chunk textures kept to be written over
 const TEX_KEEP = 200;   // chunk textures kept at most (the longest unseen go first; ~350 KB each with mipmaps)
 
@@ -1001,18 +1004,19 @@ export class WorldGL {
   private ensureChunk(c: GroundChunk, chunkTiles: number) {
     let ent = this.chunkTex.get(c.key);
     if (!ent) { ent = { src: c.src, tex: this.chunkTexture(c.src, null) }; this.chunkTex.set(c.key, ent); }
-    else if (ent.src !== c.src) { this.chunkTexture(c.src, ent.tex); ent.src = c.src; }   // (a changed chunk is written into its own texture)
+    else if (ent.src !== c.src) { this.chunkTexture(c.src, ent.tex); ent.src = c.src; if (c.meshBox?.mesh && ent.vao) this.dropTerrainMeshes([c.key]); }   // (a changed chunk is written into its own texture; when the worker sent its mesh too, that one is cut in)
 
     if (this.terrain && !ent.vao) this.prepTerrain(c, ent, chunkTiles);
   }
 
   /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. A terraced world brings its own mesh (`terraceMesh`) instead: level pieces and vertical walls. */
-  private prepTerrain(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
+  private prepTerrain(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, T = this.terrain!, sub = this.terrainSub, n = tiles * sub, side = n + 1, st = 1 / sub;   // (n: quads a side; st: tiles between vertices)
     gl.bindVertexArray(null);   // (a chunk drawn just before still has its vertex array bound, and binding an index buffer now would swap that chunk's indices for this one's)
     if (this.terraceMesh) {
       if (!ent.mesh) {
-        const m = this.terraceMesh(c.cx, c.cy), nv = m.pos.length / 3, v = new Float32Array(nv * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles;
+        const m = c.meshBox?.mesh ?? this.terraceMesh(c.cx, c.cy), nv = m.pos.length / 3, v = new Float32Array(nv * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles;
+        if (c.meshBox) c.meshBox.mesh = undefined;   // (taken: the arrays are copied into the buffer below, and nothing else needs them)
         for (let i = 0; i < nv; i++) {
           const o = i * FLOATS, x = m.pos[i * 3], y = m.pos[i * 3 + 1];
           v[o] = x; v[o + 1] = y; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = (x - x0) / tiles; v[o + 4] = (y - y0) / tiles;
@@ -1069,7 +1073,7 @@ export class WorldGL {
       e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined;
     }
   }
-  private drawTerrainChunk(c: { cx: number; cy: number }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
+  private drawTerrainChunk(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, n = tiles * this.terrainSub;
     if (!ent.vao) this.prepTerrain(c, ent, tiles);
     gl.bindVertexArray(ent.vao!);

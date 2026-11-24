@@ -3,7 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
-import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh } from '../domain';
+import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, farIndices, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh, type TerraceMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, tiltAltitudeFactor, Ecosystem, billboardLean, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
@@ -28,7 +28,7 @@ import { loadPlaneModel } from './planemodel';
 import { Slot } from '../ui/Inventory';
 import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
 import type { Key, TFn } from '../i18n';
-import { ChunkClient, type WorkerLike } from './chunkClient';
+import { ChunkClient, FarClient, type WorkerLike } from './chunkClient';
 import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels } from '../domain/chunkbuild';
 import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
@@ -56,7 +56,7 @@ import './world.css';
 
 interface Deco { x: number; y: number; cell: Cell; scale: number }
 /** A built chunk: its ground as raw pixels (the 3D view uploads them as they are; the flat view makes a canvas from them the first time it draws the chunk), and its trees, bushes and rocks. */
-interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean }
+interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean; mesh?: TerraceMesh }   // (mesh: the hill mesh the chunk worker cut, until WorldGL has taken it)
 interface Hud { landed: boolean; hour: number; temp: number; weather: 'heat' | 'cold' | null; x: number; y: number; layer: number; clouds: number; water: number; fps: number; ms: number; biome: string }
 type Tool = 'fly' | 'paint';
 /** What the paint tool lays: a tile, or (terraced worlds) a layer raised or dug away. */
@@ -566,7 +566,7 @@ function WorldView({ id }: { id: string }) {
     const s = sim.current!;
     const startedAt = performance.now();
     // The loading screen: the world's clock stands still, and the ground round the plane is built and uploaded at full speed, until it is all there (or 20 s have passed). Opening or refreshing a world used to drop the player into a few chunks and a stuttering flight.
-    let loading = true, loadT0 = 0;
+    let loading = true, loadT0 = 0, loadBest = -1, loadMoved = performance.now();
     let hop: { t: number; up: boolean } | null = null;   // on foot: the hop over the last ledge (see hopOffset)
     let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
     let W = 1, H = 1, dpr = 1;
@@ -586,7 +586,7 @@ function WorldView({ id }: { id: string }) {
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
     const farAt: ({ x: number; y: number } | null)[] = TERRACE_FAR_LODS.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    let farJob: { i: number; gen: Generator<null, TerraceFarMesh, void>; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
+    let farJob: { i: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
     let landJob: Generator<void, LandingProjection, void> | null = null;   // the landing prediction under way (see projectLandingSteps)
@@ -633,10 +633,13 @@ function WorldView({ id }: { id: string }) {
       const table = new Uint8ClampedArray(BLOCK_TABLE_BYTES);   // (every cell of the sheet, drawn here with the canvas as always, so the worker's pictures are the same pixels; the road variants are for the Lake District and stay empty)
       for (let row = 0; row < SHEET_ROWS; row++) for (let col = 0; col < SHEET_COLS; col++) table.set(tileBlock(col, row, false), blockIndex(col, row, false) * BLOCK_BYTES);
       const snap = s.world.snapshot();
-      cw = new ChunkClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike, { seed: s.world.seed, kind: s.world.kind, changes: snap.changes, table, ops: snap.ops });
+      cw = new ChunkClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike, { seed: s.world.seed, kind: s.world.kind, changes: snap.changes, table, ops: snap.ops }, { epoch: () => s.world.field?.epoch ?? 0 });
       const client = cw;
       s.world.record(op => client.push(op));
     }
+    // The far levels of the terraced ground come from a second worker (they need no world state and take longer than a chunk: they must not hold chunks up).
+    let far: FarClient | null = null;
+    if (s.world.field && typeof Worker !== 'undefined' && !/[?&]noworker\b/.test(location.search)) far = new FarClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike);
     const pxPool: Uint8ClampedArray<ArrayBuffer>[] = [];   // pixel arrays of dropped chunks, used again (256 KB each)
     const freeChunk = (ch: ChunkImg | undefined) => { if (ch && pxPool.length < 24) pxPool.push(ch.src.px); };
     const dropChunk = (key: number) => { freeChunk(chunks.current.get(key)); chunks.current.delete(key); };
@@ -666,7 +669,8 @@ function WorldView({ id }: { id: string }) {
     /** Store what the worker has finished (once a frame, before anything asks what is missing). */
     const takeChunks = (x: number, y: number) => {
       if (!cw) return;
-      for (const b of cw.tick(x, y)) { const old = chunks.current.get(b.key); freeChunk(old); chunks.current.set(b.key, { src: { px: b.px as Uint8ClampedArray<ArrayBuffer>, size: CPX }, decos: b.decos, stale: b.stale || undefined }); }
+      cw.wantMesh = !!glr && !!s.world.field;   // (the 3D view cuts hills from meshes; the worker can make them too)
+      for (const b of cw.tick(x, y)) { if (b.grid && s.world.field) s.world.field.adoptGrid(b.cx, b.cy, b.grid.e, b.grid.base, b.epoch); const old = chunks.current.get(b.key); freeChunk(old); chunks.current.set(b.key, { src: { px: b.px as Uint8ClampedArray<ArrayBuffer>, size: CPX }, decos: b.decos, stale: b.stale || undefined, mesh: b.mesh }); }
     };
 
     // thermals: warm bare ground makes the strongest rising air, water and forest the weakest; heat waves help, cold snaps hurt
@@ -729,7 +733,7 @@ function WorldView({ id }: { id: string }) {
       near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
       const t1 = performance.now();
       for (const [cx, cy] of near) { if (performance.now() - t1 > 6) break; const ch = chunks.current.get(tileKey(cx, cy)); if (!ch || ch.stale) stepChunk(cx, cy, t1 + 6); }
-      if (glr) { for (const [cx, cy] of near) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) ring.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); } glr.preload(ring, CHUNK, 4); }
+      if (glr) { for (const [cx, cy] of near) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) ring.push({ key: tileKey(cx, cy), cx, cy, src: ch.src, meshBox: ch }); } glr.preload(ring, CHUNK, 4); }
       // the small minimap's chunks round the plane (out to what its widest zoom shows), so it is whole when the map closes
       const t2 = performance.now(), MR = Math.ceil(52 * (BIG_MAP_SCALE / 2) / CHUNK) + 1;
       for (let r = 0; r <= MR && performance.now() - t2 < 3; r++) for (let cy = pcy - r; cy <= pcy + r; cy++) for (let cx = pcx - r; cx <= pcx + r; cx++) {
@@ -755,6 +759,7 @@ function WorldView({ id }: { id: string }) {
       const L = loading ? { ...live.current, paused: true } : live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
       takeChunks(f.x, f.y);   // (what the chunk worker has finished since the last frame, and the next requests sent to it)
+      mark('take');
       // the full-screen map (minimap zoom 3 to 5): time stops, nothing is drawn behind it, and the frame goes on filling the map and building the ground round the plane instead
       { const open = bigScaleRef.current > 0 && !!bigMap.current;
         if (open) { mapFrame(bigScaleRef.current); workMs += performance.now() - w0; workN++; mapWasOpen = true; return; }
@@ -1125,13 +1130,14 @@ function WorldView({ id }: { id: string }) {
         need.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
         for (const [cx, cy] of need) { if (performance.now() - t0 >= 30) break; if (!chunks.current.has(tileKey(cx, cy)) && stepChunk(cx, cy, t0 + 30)) built++; }
         const have: GroundChunk[] = [];
-        for (const [cx, cy] of need) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) have.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); }
+        for (const [cx, cy] of need) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) have.push({ key: tileKey(cx, cy), cx, cy, src: ch.src, meshBox: ch }); }
         if (glr) glr.preload(have, CHUNK, 25);
         const up = glr ? have.filter(c => glr!.has(c.key)).length : have.length;
         const farOk = !glr || !s.world.field || farAt[0] !== null || lodOnly;
         const glOk = !wantGL || !!glr;
         const pct = need.length ? (have.length * 0.5 + up * 0.4) / need.length + (farOk ? 0.1 : 0) : (farOk ? 1 : 0);
-        const timedOut = performance.now() - loadT0 > 20000;
+        const prog = have.length + up; if (prog > loadBest) { loadBest = prog; loadMoved = performance.now(); }
+        const timedOut = performance.now() - loadT0 > 60000 || performance.now() - loadMoved > 10000;   // (gives up when nothing has arrived for 10 s, or after a minute: slow machines load for a long time, but a stuck one must not hold the player)
         if (loadBar.current) loadBar.current.style.width = `${Math.round(Math.min(1, pct) * 100)}%`;
         if (loadPct.current) loadPct.current.textContent = `${Math.round(Math.min(1, pct) * 100)}%`;
         if (timedOut || (glOk && have.length === need.length && up === need.length && farOk)) {
@@ -1178,12 +1184,20 @@ function WorldView({ id }: { id: string }) {
           const L = TERRACE_FAR_LODS[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
-          farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) }; break;
+          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped); farJob = { i, wait: true }; }
+          else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) };
+          break;
         }
         const tf = performance.now(), farMs = loading ? 14 : farLo >= 2 ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
           if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
-          const r = farJob.gen.next();
+          if (farJob.wait) {   // the worker is building this level: nothing to do here until it arrives (a worker that fails is dropped, and the level is built here next time)
+            const m = far?.take();
+            if (m) { farAt[farJob.i] = { x: m.cx, y: m.cy }; farJob.up = glr.farLodUpload(farJob.i, { pos: m.pos, col: m.col, idx: farIndices(m.cols) }); farJob.wait = false; continue; }
+            if (!far?.active) farJob = null;
+            break;
+          }
+          const r = farJob.gen!.next();
           if (r.done) { farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob.up = glr.farLodUpload(farJob.i, r.value); }
         }
       }
@@ -1191,7 +1205,7 @@ function WorldView({ id }: { id: string }) {
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (lodOnly || !chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
-        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); else g.drawImage(chunkCanvas(ch, cx, cy), ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
+        if (ch) { if (useGL) glChunks.push({ key: tileKey(cx, cy), cx, cy, src: ch.src, meshBox: ch }); else g.drawImage(chunkCanvas(ch, cx, cy), ox + cx * CHUNK * T, oy + cy * CHUNK * T, CHUNK * T, CHUNK * T); for (const d of ch.decos) decos.push(d); }
       }
       if (chunks.current.size > (cx1 - cx0 + 1) * (cy1 - cy0 + 1) * 3) {                // drop the far chunks; they rebuild exactly from the seed
         for (const key of chunks.current.keys()) { const x = keyX(key), y = keyY(key); if (x < Math.min(cx0, chunkOf(f.x) - 6) - 3 || x > Math.max(cx1, chunkOf(f.x) + 6) + 3 || y < Math.min(cy0, chunkOf(f.y) - 6) - 3 || y > Math.max(cy1, chunkOf(f.y) + 6) + 3) dropChunk(key); }
@@ -1971,7 +1985,7 @@ function WorldView({ id }: { id: string }) {
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
-            `worker ${cw ? `${cw.state}${cw.state === 'failed' ? ' (' + cw.failure + ')' : ` ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms, ${cw.busy} queued`}` : 'off'}`,
+            `far ${far ? (far.active ? `${far.builtN} built, last ${far.lastMs.toFixed(0)}ms` : 'failed (' + far.failure + ')') : 'off'}  worker ${cw ? `${cw.state}${cw.state === 'failed' ? ' (' + cw.failure + ')' : ` ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms, ${cw.busy} queued`}` : 'off'}`,
             `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)` + (glr ? `  far from ${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}` : ''),
             `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
@@ -2001,7 +2015,7 @@ function WorldView({ id }: { id: string }) {
     const unlock = () => eng?.unlock();
     const blip = (e: Event) => { if (e.target instanceof Element && e.target.closest('button')) eng?.play('blip'); };   // every button in the world screen clicks
     addEventListener('keydown', unlock); addEventListener('pointerdown', unlock); addEventListener('click', blip);
-    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); cw?.terminate(); s.world.record(null); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
+    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); cw?.terminate(); far?.terminate(); s.world.record(null); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
   }, [ready, id]);
 
   // paint tool

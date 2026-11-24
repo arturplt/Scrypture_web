@@ -328,6 +328,10 @@ export class TerraceField {
   private readonly max: number;
   /** The player's sculpting, laid over the generated ground in every grid (see `setRelief`). */
   readonly relief: Relief;
+  /** Counts every change to the ground the grids are made from (sculpting and water); `adoptGrid` uses it to know a grid made elsewhere is not out of date. */
+  epoch = 0;
+  private touchedAt = new Map<number, number>();
+  private allAt = 0;
   /** Told of every `setFill` (a plain value, replayable on another field of the same seed: the chunk worker keeps its own copy of the ground, see chunkclient.ts). */
   sink: ((op: FieldOp) => void) | null = null;
   /**
@@ -417,7 +421,8 @@ export class TerraceField {
     this.recountRelief();
     const touched = new Set<number>();
     for (const [x, y] of changed) for (let dy = -RELIEF_REACH; dy <= RELIEF_REACH; dy += RELIEF_REACH) for (let dx = -RELIEF_REACH; dx <= RELIEF_REACH; dx += RELIEF_REACH) touched.add((Math.floor((x + dx) / CHUNK) + 32768) * 65536 + (Math.floor((y + dy) / CHUNK) + 32768));
-    for (const key of touched) { this.grids.delete(key); this.dirty.add(key); }
+    this.epoch++;
+    for (const key of touched) { this.grids.delete(key); this.touchedAt.set(key, this.epoch); this.dirty.add(key); }
     this.lastKey = NaN;
     return [...touched].map(k => [Math.floor(k / 65536) - 32768, (k % 65536) - 32768] as [number, number]);
   }
@@ -436,6 +441,19 @@ export class TerraceField {
     for (const [x, y, d] of list) if (d) this.relief.set(fillKey(x, y), Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, d)));
     this.recountRelief();
     this.grids.clear(); this.lastKey = NaN;
+    this.epoch++; this.allAt = this.epoch;
+  }
+  /**
+   * Take a grid that was worked out on another field of the same seed (the chunk worker's), so this thread does not work it out again. Only if it has none for the chunk yet, and nothing
+   * that goes into a grid (sculpting, water) has changed there since `at`, the `epoch` this field had when the other one was asked: otherwise the grid may be out of date, and is dropped.
+   */
+  adoptGrid(cx: number, cy: number, e: Float32Array, base: Float32Array | undefined, at: number): boolean {
+    const key = (cx + 32768) * 65536 + (cy + 32768);
+    if (this.grids.has(key) || e.length !== TERRACE_G * TERRACE_G || this.allAt > at || (this.touchedAt.get(key) ?? 0) > at) return false;
+    this.grids.set(key, base ? { e, base } : { e });
+    if (this.grids.size > this.max) this.grids.delete(this.grids.keys().next().value!);
+    if (this.touchedAt.size > 8192) { this.touchedAt.clear(); this.allAt = this.epoch; }   // (a long game: forget the old touches, and refuse anything asked before now)
+    return true;
   }
 
   // ---- water laid over the ground (ponds, tarns) --------------------------------------------------------------------------------------
@@ -502,7 +520,9 @@ export class TerraceField {
       if (cls === null) { if (!this.fills.delete(k)) continue; this.tops.delete(k); this.kinds.delete(k); this.fillChunks.set(ck, (this.fillChunks.get(ck) ?? 1) - 1); } else { if (!this.fills.has(k)) this.fillChunks.set(ck, (this.fillChunks.get(ck) ?? 0) + 1); const t = top ?? cls + 1; if (this.fills.get(k) === cls && this.tops.get(k) === t && (this.kinds.get(k) ?? 0) === kind) continue; this.fills.set(k, cls); this.tops.set(k, t); if (kind) this.kinds.set(k, kind); else this.kinds.delete(k); }
       for (let dy = -3; dy <= 3; dy += 3) for (let dx = -3; dx <= 3; dx += 3) touched.add(((Math.floor((x + dx) / CHUNK) + 32768) * 65536) + (Math.floor((y + dy) / CHUNK) + 32768));   // (the blur reaches two tiles: every chunk within three)
     }
+    this.epoch++;
     for (const key of touched) {
+      this.touchedAt.set(key, this.epoch);
       this.dirty.add(key);
       const g = this.grids.get(key); if (g) this.layFills(g, Math.floor(key / 65536) - 32768, (key % 65536) - 32768);
     }
@@ -777,7 +797,8 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
 }
 /** The triangle indices of a cols x cols far mesh: the same for every mesh of that size, so they are made once and shared (the renderer keeps one GPU buffer for them too). */
 const IDX_CACHE = new Map<number, Uint32Array>();
-function farIndices(cols: number): Uint32Array {
+/** The triangles of a far level of `cols` x `cols` vertices (one array per size, shared: it depends only on the size). */
+export function farIndices(cols: number): Uint32Array {
   let idx = IDX_CACHE.get(cols);
   if (!idx) {
     idx = new Uint32Array((cols - 1) * (cols - 1) * 6);

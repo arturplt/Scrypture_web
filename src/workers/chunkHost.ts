@@ -6,20 +6,25 @@
 import { World, type TileState, type WorldOp } from '../domain/worldgen';
 import type { WorldKind } from '../domain/lakedistrict';
 import { blocksFromTable, buildChunk, encodeDecos, type BlockOf } from '../domain/chunkbuild';
+import { terraceChunkMesh, terraceFarMesh, type TerraceMesh } from '../domain/terrace';
 
 export type ToWorker =
   | { t: 'init'; seed: number; kind: WorldKind; changes: [number, TileState][]; table: Uint8ClampedArray; ops: WorldOp[] }
   | { t: 'ops'; ops: WorldOp[] }
-  | { t: 'build'; id: number; cx: number; cy: number };
+  /** `mesh`: also cut the chunk's hill mesh (a terraced world: the work `WorldGL` would otherwise do on the page). */
+  | { t: 'build'; id: number; cx: number; cy: number; mesh?: boolean }
+  /** A far level of the terraced world's ground (a pure function of these numbers: no `init` needed, so a worker can be used for nothing else). */
+  | { t: 'far'; id: number; seed: number; cx: number; cy: number; step: number; half: number; stepped: boolean };
 export type FromWorker =
   | { t: 'ready' }
-  | { t: 'built'; id: number; cx: number; cy: number; px: Uint8ClampedArray; decos: Float64Array; ms: number }
+  | { t: 'built'; id: number; cx: number; cy: number; px: Uint8ClampedArray; decos: Float64Array; mesh?: TerraceMesh; /** the chunk's height grid (a terraced world), for the page to adopt */ grid?: { e: Float32Array; base?: Float32Array }; ms: number }
+  | { t: 'far'; id: number; cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; ms: number }
   | { t: 'error'; message: string; id?: number };
 
 export class ChunkHost {
   private world: World | null = null;
   private blocks: BlockOf | null = null;
-  private queue: { id: number; cx: number; cy: number }[] = [];
+  private queue: (({ kind: 'build'; mesh: boolean } | { kind: 'far'; seed: number; step: number; half: number; stepped: boolean }) & { id: number; cx: number; cy: number })[] = [];
   private pumping = false;
 
   /** `post` sends a message to the page (with what to transfer); `schedule` runs a function in a later turn (so messages that arrive meanwhile are handled first). */
@@ -35,8 +40,11 @@ export class ChunkHost {
       } else if (m.t === 'ops') {
         if (!this.world) throw new Error('changes before init');
         for (const op of m.ops) this.world.apply(op);
+      } else if (m.t === 'far') {
+        this.queue.push({ kind: 'far', id: m.id, seed: m.seed, cx: m.cx, cy: m.cy, step: m.step, half: m.half, stepped: m.stepped });
+        this.pump();
       } else {
-        this.queue.push({ id: m.id, cx: m.cx, cy: m.cy });
+        this.queue.push({ kind: 'build', mesh: !!m.mesh, id: m.id, cx: m.cx, cy: m.cy });
         this.pump();
       }
     } catch (e) { this.post({ t: 'error', message: e instanceof Error ? e.message : String(e) }, []); }
@@ -50,9 +58,24 @@ export class ChunkHost {
       const job = this.queue.shift();
       if (!job) return;
       try {
-        if (!this.world || !this.blocks) throw new Error('build before init');
-        const t0 = performance.now(), { px, decos } = buildChunk(this.world, this.blocks, null, job.cx, job.cy);
-        this.post({ t: 'built', id: job.id, cx: job.cx, cy: job.cy, px, decos: encodeDecos(decos), ms: performance.now() - t0 }, [px.buffer]);
+        const t0 = performance.now();
+        if (job.kind === 'far') {
+          const g = terraceFarMesh(job.seed, job.cx, job.cy, job.step, job.half, job.stepped);
+          let r = g.next();
+          while (!r.done) r = g.next();
+          const m = r.value;
+          this.post({ t: 'far', id: job.id, cols: m.cols, rows: m.rows, step: m.step, cx: m.cx, cy: m.cy, pos: m.pos, col: m.col, ms: performance.now() - t0 }, [m.pos.buffer, m.col.buffer]);   // (the indices are a shared array the page makes itself: `farIndices`)
+        } else {
+          if (!this.world || !this.blocks) throw new Error('build before init');
+          const { px, decos } = buildChunk(this.world, this.blocks, null, job.cx, job.cy), fld = this.world.field;
+          // the hill mesh, from this worker's own copy of the field (the same grids, relief and water as the page's)
+          const mesh = job.mesh && fld ? terraceChunkMesh(fld.grid(job.cx, job.cy).e, job.cx, job.cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)) : undefined;
+          const g = fld ? fld.grid(job.cx, job.cy) : undefined, grid = g ? { e: g.e.slice(), base: g.base?.slice() } : undefined;   // (copies: the worker keeps its own)
+          const transfer: Transferable[] = [px.buffer];
+          if (grid) { transfer.push(grid.e.buffer); if (grid.base) transfer.push(grid.base.buffer); }
+          if (mesh) transfer.push(mesh.pos.buffer, mesh.nrm.buffer, mesh.idx.buffer, mesh.sub.buffer, mesh.wpos.buffer, mesh.widx.buffer, mesh.wkind.buffer);
+          this.post({ t: 'built', id: job.id, cx: job.cx, cy: job.cy, px, decos: encodeDecos(decos), mesh, grid, ms: performance.now() - t0 }, transfer);
+        }
       } catch (e) { this.post({ t: 'error', message: e instanceof Error ? e.message : String(e), id: job.id }, []); }
       if (this.queue.length) this.pump();
     });
