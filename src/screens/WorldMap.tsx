@@ -664,7 +664,7 @@ function WorldView({ id }: { id: string }) {
     let flyHeld = false, lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0;
     if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
     const mark = (k: string) => { if (!perf.on) return; const t = performance.now(); perf.ph[k] = (perf.ph[k] ?? 0) + (t - perf.pt); perf.pt = t; };   // (?perf: where the frame's time goes, averaged over 2 s)
-    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, mini: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }, gpuWait: !/nogpu/.test(location.href), hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
+    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, mini: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }, gpuWait: !/nogpu/.test(location.href), holeMin: Infinity, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
     let mapWasOpen = false, bigFill: BigMapFill | null = null, uploadBoost = 0;
     /** One frame of the full-screen map: fill more of it (a few ms), then build and upload the ground round the plane and read chunks for the small minimap, so closing the map finds them ready. */
     const mapFrame = (scale: number) => {
@@ -1145,7 +1145,8 @@ function WorldView({ id }: { id: string }) {
       let built = 0;
       const nearest = (a: [number, number], b: [number, number]) => Math.hypot((a[0] + 0.5) * CHUNK - camX, (a[1] + 0.5) * CHUNK - camY) - Math.hypot((b[0] + 0.5) * CHUNK - camX, (b[1] + 0.5) * CHUNK - camY);
       missing.sort(nearest);                                                         // the ground under you first, the horizon last
-      const budget = warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5;   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
+      const share = Math.min(20, frameEma * 1000 * 0.2);   // (a fifth of a slow frame: a fixed few ms a frame is a few ms a SECOND at 5 fps, too little for the ground to keep up, and then the coarse far mesh shows close by)
+      const budget = Math.max(warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5, share);   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
       for (const [cx, cy] of [...missing, ...stale]) {
         if (performance.now() - t0 >= budget) break;
         if (stepChunk(cx, cy, t0 + budget)) built++;
@@ -1183,7 +1184,7 @@ function WorldView({ id }: { id: string }) {
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
           farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) }; break;
         }
-        const tf = performance.now(), farMs = farLo >= 2 ? 10 : warming ? 6 : 2;   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
+        const tf = performance.now(), farMs = farLo >= 2 ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
           if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
           const r = farJob.gen.next();
@@ -1342,9 +1343,10 @@ function WorldView({ id }: { id: string }) {
         G.fx = L.shaders;
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
-        G.uploadMax = warming || aim.current.on || uploadBoost > 0 ? 6 : frameEma < 0.02 ? 2 : 1;   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
+        G.uploadMax = warming || aim.current.on || uploadBoost > 0 ? 6 : Math.max(frameEma < 0.02 ? 2 : 1, Math.min(4, Math.round(frameEma * 40)));   // (slow frames: more a frame, or the ground arrives a few chunks a second)   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
         { const g0 = performance.now(); G.ground(glChunks, CHUNK); if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
         if (++glFrames % 40 === 0) G.prune(k => chunks.current.has(k));
+        if (perf.on) perf.holeMin = Math.min(perf.holeMin, G.holeInfo.hole);   // (?perf: the nearest the far mesh came to the eye: under the chunks' reach, its coarse triangles show up close)
 
         if (L.showRivers) for (const rk of s.eco.riverTiles) { const rx = keyX(rk) + 0.5, ry = keyY(rk) + 0.5; if (far(rx, ry) || !ffp.inside(rx, ry, 1)) continue; G.flat('decal', rx, ry, 0.02, 0.5, 0.5, 0, -1, at.dot, 0.51, 0.9, 1, 0.45); }
         for (const c of s.eco.clouds) {                                               // cloud shadows on the ground
@@ -1512,16 +1514,17 @@ function WorldView({ id }: { id: string }) {
         G.skyMode = false;
 
         // fire: a flame on every burning tile with its glow on the ground, and the bolts from cloud to ground; both shine at night
+        const decalR2 = G.farHole ** 2;   // (patches on the ground only where the real chunks are: past them the far mesh's coarse triangles lie above or below the true ground and would cut them into straight-edged pieces)
         for (const [k, t0] of s.eco.scorched) {                                       // charred ground where a fire went out, fading as it recovers
           const wx = keyX(k) + 0.5, wy = keyY(k) + 0.5;
-          if (far(wx, wy) || !ffp.inside(wx, wy, 1)) continue;
+          if (far(wx, wy) || !ffp.inside(wx, wy, 1) || (wx - ex) * (wx - ex) + (wy - ey) * (wy - ey) > decalR2) continue;
           const sk = Math.max(0, 1 - (s.eco.now - t0) / SCORCH_COOLDOWN);
           if (L.shaders) G.flat('decal', wx, wy, 0.012, 1.7, 1.7, 0, -1, FX_UV, FX_SCORCH, sk, hash01(keyX(k), keyY(k), 7), 1 + FX_MARK);   // (drawn by the shader: char, ash and embers, in a ragged patch)
           else G.flat('decal', wx, wy, 0.012, 1.04, 1.04, 0, -1, at.dot, 0.07, 0.05, 0.04, 0.62 * sk);
         }
         if (L.shaders) for (const [k, until] of s.eco.wetUntil) {                     // grass the rain has wetted: dark, with the sky's sheen, puddles and glints, drying off as the tile does
           const tx = keyX(k), ty = keyY(k), wx = tx + 0.5, wy = ty + 0.5;
-          if (far(wx, wy) || !ffp.inside(wx, wy, 1) || s.world.terrainAt(tx, ty) === WATER) continue;
+          if (far(wx, wy) || !ffp.inside(wx, wy, 1) || (wx - ex) * (wx - ex) + (wy - ey) * (wy - ey) > decalR2 || s.world.terrainAt(tx, ty) === WATER) continue;
           G.flat('decal', wx, wy, 0.011, 1.7, 1.7, 0, -1, FX_UV, FX_WET, Math.max(0, Math.min(1, (until - s.eco.now) / WET_TIME)), hash01(tx, ty, 8), 1 + FX_MARK);
         }
         if (L.shaders) {                                                              // wind tunnels: streaks of air running along each corridor, the way it blows today
@@ -1975,7 +1978,7 @@ function WorldView({ id }: { id: string }) {
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
-            `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)`,
+            `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)` + (glr ? `  far from ${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}` : ''),
             `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),
             `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
             `why ${perfStat.why}`,
@@ -1984,7 +1987,7 @@ function WorldView({ id }: { id: string }) {
           ].filter(Boolean).join('\n');
           (window as unknown as { __instMs?: number }).__instMs = 0;
           perfStat.hc = s.world.field?.calls ?? 0; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
-          perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = perf.mini = 0; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
+          perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = perf.mini = 0; perf.holeMin = Infinity; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
         }
         (window as unknown as { __perfTxt?: string }).__perfTxt = perf.txt;
         ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `8px ${PXF}`; ctx.fillStyle = '#0009'; const lines = [...perf.txt.split('\n'), ...perf.hitches.map(h => '! ' + h)]; ctx.fillRect(4, H / 2 - 12, Math.min(W - 8, 400), 14 + lines.length * 11); ctx.fillStyle = '#fff'; lines.forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 11)); ctx.restore();

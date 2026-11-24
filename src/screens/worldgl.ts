@@ -464,6 +464,10 @@ export class WorldGL {
   /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
   capD = 1e5;
   private coverSm = Infinity;
+  /** For the ?perf readout: where the far mesh began last frame (tiles from the eye), and how far the chunks were meant to reach. */
+  get holeInfo() { return { hole: this.coverSm * 0.9, near: this.nearReach }; }
+  /** Where the real ground ends and the far mesh begins (tiles from the eye), last frame; Infinity when there is no far mesh. */
+  get farHole() { return this.farOn && this.farMesh && isFinite(this.coverSm) ? this.coverSm * 0.9 : Infinity; }
   private nearReach = 0;                                          // how far the real chunks reach when the far mesh covers the rest (0 = as far as `reach`)
   private baseH = 0;
   private sm: Record<string, number> = {}; private smAt = 0; private camDt = 0.016;   // the camera's smoothed ground heights (see smooth)                                              // the ground height under the camera's target
@@ -1117,7 +1121,7 @@ export class WorldGL {
       if (i < lo || !f) return;
       const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = i === n - 1 ? 1e9 : hole + E[Math.min(i, E.length - 1)];
       prevEnd = e0;
-      gl.polygonOffset(-3 + i * 1.5, -3 + i * 1.5);                       // (where two levels overlap the finer one wins every pixel, so they never fight)
+      gl.polygonOffset(1 + i * 1.5, 1 + i * 1.5);                         // (where two levels overlap the finer one wins every pixel, so they never fight; and all of them give way to the real ground in the ring where it overlaps the first: it was pulled in front of it, and its coarse triangles showed through beside the ledges)
       gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0);
       gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
