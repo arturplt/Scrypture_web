@@ -96,22 +96,28 @@ textarea { resize: vertical; }
 .ach-text { display: grid; gap: calc(4 * var(--u)); min-width: 0; overflow-wrap: anywhere; }
 
 /* onboarding */
-.onboarding { display: grid; gap: calc(8 * var(--u)); height: calc(100dvh - 32 * var(--u) - var(--kb-h, 0px)); max-height: calc(100dvh - 32 * var(--u) - var(--kb-h, 0px)); overflow: hidden; grid-template-rows: minmax(0, 1fr) auto auto; margin-bottom: calc(-1 * var(--nav-clear)); }
-.onboarding .pb { min-height: calc(28 * var(--u)); font-size: calc(var(--fs-xs) * 1.1); }
-.ob-sprite { --bh: min(calc(150 * var(--u)), 20dvh); position: relative; padding: 0; overflow: visible; min-height: 0; line-height: 0; }
-.ob-bubble { position: absolute; z-index: 2; bottom: calc(10 * var(--u) + var(--bh) + 14 * var(--u)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 20 * var(--u)); box-sizing: border-box; padding: calc(2 * var(--u)) calc(2 * var(--u)); color: var(--gold); font-size: var(--fs-xs); line-height: 1.4; text-align: center; overflow: visible; }
-.ob-bubble::after { content: ''; position: absolute; left: 50%; top: calc(100% + 16 * var(--u)); margin: calc(-2 * var(--u)) 0 0 calc(-10 * var(--u)); border: calc(10 * var(--u)) solid transparent; border-top-color: #0f3d0f; border-bottom-width: 0; filter: drop-shadow(0 calc(1 * var(--u)) 0 #4caf50); }
-.ob-sprite .scene { --cut: calc(4 * var(--u)); clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)); }   /* cut corners */
-.ob-bobr { position: absolute; left: 50%; bottom: calc(10 * var(--u)); transform: translateX(-50%); width: auto; height: var(--bh); z-index: 1; }
+/* the intro fills the screen exactly: .app becomes a column of exactly the window height, the banner (if any) takes what it needs, and the pages share the rest. Lengths are rem (--r = 1px at 16px text, times the interface scale), so nothing is tied to pixels and nothing can push the Next button off screen */
+.app.ob-app, :root[data-layout] .app.ob-app, :root[data-rail] .app.ob-app { max-width: none; width: 100%; align-items: stretch; height: calc(100dvh - var(--kb-h, 0px)); display: flex; flex-direction: column; overflow: hidden; }
+.app.ob-app > .content.ob-main { flex: 1 1 0; min-height: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.onboarding { --r: calc(0.0625rem * var(--ui)); box-sizing: border-box; display: grid; gap: calc(6 * var(--r)); height: 100%; padding: 0 calc(6 * var(--r)) calc(6 * var(--r)); overflow: hidden; grid-template-rows: minmax(0, 1fr) auto auto; }
+.onboarding .pb { min-height: calc(28 * var(--r)); font-size: calc(var(--fs-xs) * 1.1); }
+.ob-sprite { --bh: min(calc(150 * var(--r)), 20dvh); position: relative; padding: 0; overflow: visible; min-height: 0; line-height: 0; }
+.ob-bubble { position: absolute; z-index: 2; bottom: calc(10 * var(--r) + var(--bh) + 14 * var(--r)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 20 * var(--r)); box-sizing: border-box; padding: calc(2 * var(--r)) calc(2 * var(--r)); color: var(--gold); font-size: var(--fs-xs); line-height: 1.4; text-align: center; overflow: visible; }
+.ob-bubble::after { content: ''; position: absolute; left: 50%; top: calc(100% + 16 * var(--r)); margin: calc(-2 * var(--r)) 0 0 calc(-10 * var(--r)); border: calc(10 * var(--r)) solid transparent; border-top-color: #0f3d0f; border-bottom-width: 0; filter: drop-shadow(0 calc(1 * var(--r)) 0 #4caf50); }
+.ob-sprite .scene { --cut: calc(4 * var(--r)); clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)); }   /* cut corners */
+.ob-bobr { position: absolute; left: 50%; bottom: calc(10 * var(--r)); transform: translateX(-50%); width: auto; height: var(--bh); z-index: 1; }
 .ob-h1 { font-size: var(--fs-md); font-weight: normal; margin: 0; text-align: center; color: var(--gold); line-height: 1.4; }
-.ob-body { display: grid; gap: calc(8 * var(--u)); height: calc(150 * var(--u)); box-sizing: border-box; overflow: hidden; align-content: start; }   /* one fixed height for every page: the pen above never resizes between pages */
+.ob-body { display: grid; gap: calc(8 * var(--r)); min-height: calc(150 * var(--r)); box-sizing: border-box; align-content: start; }   /* the same height on every page, so the pen above holds still; it only grows when big text would otherwise be cut off (the pen gives way, never the button row) */
 .story { font-size: calc(var(--fs-xs) * 0.9); line-height: 1.6; margin: 0; min-height: 6em; }
 .story.short { min-height: 0; }
-.ob-sizes { display: grid; gap: calc(4 * var(--u)); }
-.ob-sizes .seg { min-height: calc(24 * var(--u)); white-space: nowrap; padding-inline: calc(4 * var(--u)); }
+.ob-sizes { display: grid; gap: calc(4 * var(--r)); }
+.ob-sizes .seg { min-height: calc(24 * var(--r)); white-space: nowrap; padding-inline: calc(4 * var(--r)); }
 .ob-sizes .small { margin: 0; }
-.onboarding .langs .seg { min-height: calc(28 * var(--u)); }
+.onboarding .langs .seg { min-height: calc(28 * var(--r)); }
 .onboarding .ob-h1 { font-size: var(--fs-sm, var(--fs-md)); }
+.onboarding > .row { flex-wrap: nowrap; gap: calc(4 * var(--r)); }
+.onboarding .dots { gap: calc(4 * var(--r)); flex: 0 1 auto; min-width: 0; }
+.onboarding .dots span { flex: 0 1 calc(8 * var(--r)); min-width: 0; }
 .dots { display: flex; gap: calc(8 * var(--u)); justify-content: center; }
 .dots span { width: calc(8 * var(--u)); height: calc(8 * var(--u)); background: var(--border-2); } .dots span.on { background: var(--gold); }
 
@@ -184,7 +190,13 @@ textarea { resize: vertical; }
    ===================================================================================== */
 .col { display: contents; }                 /* compact: children flow in the single column */
 .narrow { max-width: calc(640 * var(--u)); width: 100%; margin-inline: auto; }
-.onboarding { max-width: calc(480 * var(--u)); margin-inline: auto; }
+.onboarding { max-width: calc(480 * var(--r)); margin-inline: auto; }
+/* big screens: still one column (picture over words over buttons), just wider and with a bigger Bóbr */
+:root[data-layout='medium'] .onboarding, :root[data-layout='wide'] .onboarding { max-width: calc(960 * var(--r)); width: 100%; }
+:root[data-layout='medium'] .ob-sprite, :root[data-layout='wide'] .ob-sprite { --bh: min(calc(230 * var(--r)), 32dvh); }
+:root[data-layout='medium'] .ob-body, :root[data-layout='wide'] .ob-body { min-height: calc(170 * var(--r)); }
+:root[data-layout='medium'] .onboarding .story, :root[data-layout='wide'] .onboarding .story { font-size: calc(var(--fs-xs) * 1.1); }
+:root[data-layout='medium'] .onboarding .langs, :root[data-layout='wide'] .onboarding .langs, :root[data-layout='medium'] .ob-sizes, :root[data-layout='wide'] .ob-sizes, :root[data-layout='medium'] .onboarding .ob-body > input, :root[data-layout='wide'] .onboarding .ob-body > input { width: 100%; max-width: calc(480 * var(--r)); justify-self: center; }
 .cards > .subtitle { grid-column: 1 / -1; }
 
 :root[data-layout='medium'] .app { max-width: calc(780 * var(--u)); }

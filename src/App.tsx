@@ -220,7 +220,7 @@ export function App() {
   const banner = !persistent && <div className="banner" role="alert">{t('storageWarning')}</div>;
   // swipe the bar down to tuck it away (the click that ends such a swipe is swallowed). Above the onboarding return: every hook must run on every render, or finishing onboarding crashes the app
   const swipe = useRef<{ y: number; done: boolean } | null>(null);
-  if (!onboarded) return <div className="app">{banner}<main className="content"><Onboarding /></main><Keyboard /><Notices /></div>;   // (the notices too: a save from a newer app leaves this one at onboarding, and it must say why)
+  if (!onboarded) return <div className="app ob-app">{banner}<main className="content ob-main"><Onboarding /></main><Keyboard /><Notices /></div>;   // (the notices too: a save from a newer app leaves this one at onboarding, and it must say why)
   const swipeProps = {
     onPointerDown: (e: React.PointerEvent) => { swipe.current = { y: e.clientY, done: false }; },
     onPointerMove: (e: React.PointerEvent) => { const s = swipe.current; if (s && !s.done && e.clientY - s.y > 28) { s.done = true; toggleNav(true); } },
