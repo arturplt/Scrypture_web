@@ -42,13 +42,13 @@ export interface PadInput {
 export const NO_PAD: PadInput = { lx: 0, ly: 0, rx: 0, ry: 0, down: new Set(), active: false };
 
 /** Read a snapshot: dead zones applied, the d-pad folded into the left stick when that is at rest, the triggers counted as down past a third. */
-export function readPad(p: PadSnapshot | null | undefined): PadInput {
+export function readPad(p: PadSnapshot | null | undefined, opts: { dpadStick?: boolean } = {}): PadInput {   // dpadStick false: the d-pad is only buttons (the pattern keyboard's highlight moves with it)
   if (!p) return NO_PAD;
   const down = new Set<number>();
   p.buttons.forEach((b, i) => { if (b.pressed || (i === PAD.LT || i === PAD.RT ? b.value > 0.33 : false)) down.add(i); });
   const l = stick2(p.axes[0] ?? 0, p.axes[1] ?? 0), r = stick2(p.axes[2] ?? 0, p.axes[3] ?? 0);
   let lx = l.x, ly = l.y;
-  if (!lx && !ly) { lx = (down.has(PAD.RIGHT) ? 1 : 0) - (down.has(PAD.LEFT) ? 1 : 0); ly = (down.has(PAD.DOWN) ? 1 : 0) - (down.has(PAD.UP) ? 1 : 0); }
+  if (!lx && !ly && opts.dpadStick !== false) { lx = (down.has(PAD.RIGHT) ? 1 : 0) - (down.has(PAD.LEFT) ? 1 : 0); ly = (down.has(PAD.DOWN) ? 1 : 0) - (down.has(PAD.UP) ? 1 : 0); }
   return { lx, ly, rx: r.x, ry: r.y, down, active: !!(lx || ly || r.x || r.y || down.size) };
 }
 

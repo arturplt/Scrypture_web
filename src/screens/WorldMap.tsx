@@ -3,7 +3,7 @@ import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
 import { loadLakeDistrict, lakeOverview } from './lakeLoader';
 import { createPortal } from 'react-dom';
-import { TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh } from '../domain';
+import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
@@ -41,11 +41,11 @@ import { fpvAttitude, fpvBasis, fpvEase, type FpvAtt, MIN_EYE_H, duelLine, duelP
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import { newSas, nextSasMode, stepSas, type SasMode } from '../domain/sas';
-import { keyById, keyByHotkey, pressPatternKey, runProgress, type KeyRun } from '../domain/patternKeys';
-import { PatternKeyboard } from '../ui/PatternKeyboard';
-import { refuel } from '../domain/glider';
+import { keyById, keyByHotkey, pressPatternKey, runProgress, sanitizeHotkeys, moveFocus, keyAtFocus, FOCUS_START, type KeyRun, type KeyFocus } from '../domain/patternKeys';
+import { PatternKeyboard, HotkeyEditor } from '../ui/PatternKeyboard';
+import { refuel, type GlideControls } from '../domain/glider';
 import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
-import { rocketFuel, spaceFactor, airDensity } from '../domain/orbit';
+import { rocketFuel, spaceFactor, airDensity, warpAllowed, nextWarp, ORBIT } from '../domain/orbit';
 import { HEATSHIELD_K } from '../domain/shop';
 import { ORBIT_BONUS, addOrbit, heightPoints, type SavedOrbit } from '../domain/worldsave';
 import { STEP_KINDS, defaultStep, deleteSelected, loadPatterns, resetPatterns, stamped, savePatterns, startManeuver, stepManeuver, stepUnit, type Maneuver, type MCtl, type Pattern, type PatternStore } from '../domain/maneuver';
@@ -121,7 +121,7 @@ const loadGfx = (): Gfx => { try { const r = JSON.parse(localStorage.getItem(GFX
 
 /** Every setting in the menu that is a choice of the pilot's (not the world's and not a debug aid), kept in this browser and brought back on the next visit. */
 const PREFS_KEY = 'scrypture:worldPrefs';
-const PREF_DEFAULTS = { invertPitch: false, aero: false, freeStall: false, showEco: false, showFps: false, showInst: true, miniHoops: true, miniHeat: true, showMini: true, showArrows: true, hints: true, showRivers: false, billboards: false, gl3d: true, windAuto: true, muted: false, tilt: 16, walkDist: 100, mapUiSize: 50, instSize: 50, miniScale: 2, miniSize: 2, camMode: 'chase' as CamMode, secs: { debug: true } as Record<string, boolean> };
+const PREF_DEFAULTS = { invertPitch: false, aero: false, freeStall: false, showEco: false, showFps: false, showInst: true, miniHoops: true, miniHeat: true, showMini: true, showArrows: true, hints: true, showRivers: false, billboards: false, gl3d: true, windAuto: true, muted: false, tilt: 16, walkDist: 100, mapUiSize: 50, instSize: 50, miniScale: 2, miniSize: 2, camMode: 'chase' as CamMode, kbOpen: false, kbPos: null as { l: number; t: number } | null, keyHotkeys: {} as Record<string, string>, secs: { debug: true } as Record<string, boolean> };
 type Prefs = typeof PREF_DEFAULTS;
 const PREF_RANGE: Partial<Record<keyof Prefs, [number, number]>> = { tilt: [0, 16], walkDist: [25, 200], mapUiSize: [50, 160], instSize: [50, 160], miniScale: [0.5, 64], miniSize: [2, 3] };
 function loadPrefs(): Prefs {
@@ -133,6 +133,8 @@ function loadPrefs(): Prefs {
       const v = r[k], d = PREF_DEFAULTS[k];
       if (k === 'camMode') { if (v === 'chase' || v === 'free' || v === 'flyby' || v === 'fpv') out.camMode = v; }   // (the duel view belongs to a match: it is not brought back)
       else if (k === 'secs') { if (v && typeof v === 'object') out.secs = Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'boolean').slice(0, 20)) as Record<string, boolean>; }
+      else if (k === 'kbPos') { if (v && typeof v === 'object' && Number.isFinite(v.l) && Number.isFinite(v.t)) out.kbPos = { l: Math.max(0, v.l), t: Math.max(0, v.t) }; }   // (kept on the screen when the panel opens)
+      else if (k === 'keyHotkeys') out.keyHotkeys = sanitizeHotkeys(v);
       else if (typeof d === 'boolean') { if (typeof v === 'boolean') (out as Record<string, unknown>)[k] = v; }
       else if (typeof d === 'number') { const [lo, hi] = PREF_RANGE[k] ?? [-1e9, 1e9]; if (typeof v === 'number' && Number.isFinite(v)) (out as Record<string, unknown>)[k] = Math.max(lo, Math.min(hi, v)); }
     }
@@ -142,6 +144,7 @@ function loadPrefs(): Prefs {
 const savePrefs = (p: Prefs) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* private window: not kept */ } };
 const gfxPresetOf = (g: Gfx): 'low' | 'med' | 'high' | 'custom' => (['low', 'med', 'high'] as const).find(k => (Object.keys(GFX_PRESETS[k]) as (keyof Gfx)[]).every(x => GFX_PRESETS[k][x] === g[x])) ?? 'custom';
 
+const WIND_LETTERS = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'];
 const perfStat = { hc: 0, why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
 function WorldView({ id }: { id: string }) {
   const rStart = performance.now();
@@ -239,8 +242,8 @@ function WorldView({ id }: { id: string }) {
   const [showFps, setShowFps] = useState(prefs0.showFps);   // the frames-per-second box beside the menu button (a toggle in the menu)
   const [showInfo, setShowInfo] = useState(false);   // the "i" button in the menu: the how-to-control texts
   const [hideUi, setHideUi] = useState(false);   // the eye button: everything but the view (and the stick) goes away
-  const setZoomTo = (v: number) => { const m = camEffRef.current; setZoomPos(v); camZoom.current[m] = posToZoom(m, v); };
-  const zoomDrag = (e: React.PointerEvent<HTMLElement>) => { const r = e.currentTarget.getBoundingClientRect(), pad = r.width / 2; setZoomTo(Math.max(0, Math.min(1, 1 - (e.clientY - r.top - pad) / Math.max(1, r.height - 2 * pad)))); };   // (up is closer)
+  const setZoomTo = (v: number) => { const m = camEffRef.current; camZoom.current[m] = posToZoom(m, v); };   // (the slider keeps its own position: see PolledSlider)
+  const zoomNow = () => { const m = camEffRef.current; return zoomToPos(m, camZoom.current[m]); };
   const [trimPitch, setTrimPitch] = useState(0), [trimRoll, setTrimRoll] = useState(0), [trimYaw, setTrimYaw] = useState(0);   // glide trim, -50..50 % of the stick: held hands-off, like a trim tab
   const [showInst, setShowInst] = useState(prefs0.showInst);
   const [showMini, setShowMini] = useState(prefs0.showMini), [showArrows, setShowArrows] = useState(prefs0.showArrows);   // the minimap on or off, and the direction arrows (to the next hoop, to lift, to the other plane)
@@ -249,6 +252,7 @@ function WorldView({ id }: { id: string }) {
   const toggleSec = (id: string) => setSecs(m => ({ ...m, [id]: !m[id] }));
   const [pats, setPats] = useState<PatternStore>(loadPatterns);   // flight patterns: chains of steps flown on one button (X)
   const patsRef = useRef(pats); patsRef.current = pats;
+  const warpRef = useRef(1);   // the time warp on an orbit (1, 5, 20, 50: the plane's physics stepped that many times a frame); it falls back to 1 the moment anything flies the plane
   const man = useRef<Maneuver | null>(null);   // the pattern being flown, null when the pilot has the stick
   const dog = useRef<Dog | null>(null);   // the dogfight tag match, null when there is none
   const [dogOn, setDogOn] = useState(false);
@@ -280,24 +284,14 @@ function WorldView({ id }: { id: string }) {
   const fpvView = useRef<FpvAtt | null>(null);   // the FPV camera's eased attitude (see fpvEase)
   const duelAng = useRef<number | null>(null), duelTilt = useRef(0.85), flyby = useRef(newFlyby()), poseK = useRef(0), lastPose = useRef({ x: 0, y: 0, h: 10 }), pinch = useRef({ pts: new Map<number, { x: number; y: number }>(), d: 0 });
   // the tilt slider (next to the zoom slider): what it tips depends on the view. Chase: the ground's tilt (the menu's Tilt, 0..16); free and duel: the camera's angle from straight down. Up is nearer the horizon.
-  const [tiltPos, setTiltPos] = useState(0);
-  const tiltPosRef = useRef<() => number>(() => 0);
   const tiltPin = useRef<number | null>(null), tiltEff = useRef(0);   // chase tilt: the tilt in use now (steps), which fades with height; pinned = the slider holds it at every height
   const tiltPosNow = () => { const m = live.current.camMode, [lo, hi] = FREE_TILT_RANGE; return m === 'free' ? (freeTilt.current - lo) / (hi - lo) : m === 'duel' ? (duelTilt.current - lo) / (hi - lo) : m === 'flyby' || m === 'fpv' ? 0 : tiltEff.current / 16; };   // (the slider shows the tilt in use now, not the one asked for: that fades away with height)
-  const setTiltTo = (v: number) => { const m = live.current.camMode, [lo, hi] = FREE_TILT_RANGE, k = Math.max(0, Math.min(1, v)); setTiltPos(k); if (m === 'free') freeTilt.current = lo + k * (hi - lo); else if (m === 'duel') duelTilt.current = lo + k * (hi - lo); else if (m === 'chase') { const n = Math.round(k * 16); tiltPin.current = n; setTilt(n); } };   // (dragged: the tilt is held at every height, instead of fading to flat by 190 m)
-  tiltPosRef.current = tiltPosNow;
-  const tiltDrag = (e: React.PointerEvent<HTMLElement>) => { const r = e.currentTarget.getBoundingClientRect(), pad = r.width / 2; setTiltTo(1 - (e.clientY - r.top - pad) / Math.max(1, r.height - 2 * pad)); };
+  const setTiltTo = (v: number) => { const m = live.current.camMode, [lo, hi] = FREE_TILT_RANGE, k = Math.max(0, Math.min(1, v)); if (m === 'free') freeTilt.current = lo + k * (hi - lo); else if (m === 'duel') duelTilt.current = lo + k * (hi - lo); else if (m === 'chase') { const n = Math.round(k * 16); tiltPin.current = n; setTilt(n); } };   // (dragged: the tilt is held at every height, instead of fading to flat by 190 m)
   const cycleCam = () => setCamMode(m => { if (live.current.mode !== 'glide' || !poseOkRef.current) return 'chase'; if (dog.current) return m === 'chase' ? 'duel' : m === 'duel' ? 'free' : m === 'free' ? 'fpv' : 'chase'; return m === 'chase' ? 'free' : m === 'free' ? 'fpv' : 'chase'; });   // (chase, free and the nose view; in a dogfight chase, duel, free and the nose view)   // (the button and the C key go round them; the flyby is still chosen in the settings)
   const cycleCamRef = useRef(cycleCam); cycleCamRef.current = cycleCam;
   // the zoom slider (phones): 0..1, up = closer, on a log scale over the range of whichever camera is on; it follows the wheel and the pinch too
-  const [zoomPos, setZoomPos] = useState(0.5);
   const zoomToPos = (m: CamMode, z: number) => { const [a, b] = ZOOM_RANGE[m], k = Math.log(z / a) / Math.log(b / a); return m === 'chase' ? k : 1 - k; };
   const posToZoom = (m: CamMode, v: number) => { const [a, b] = ZOOM_RANGE[m], k = m === 'chase' ? v : 1 - v; return clampZoom(m, a * Math.pow(b / a, k)); };
-  useEffect(() => {
-    if (!window.matchMedia('(pointer: coarse)').matches) return;
-    const id = window.setInterval(() => { const m = camEffRef.current; setZoomPos(p => { const n = zoomToPos(m, camZoom.current[m]); return Math.abs(n - p) > 0.004 ? n : p; }); setTiltPos(p => { const n = tiltPosRef.current(); return Math.abs(n - p) > 0.004 ? n : p; }); }, 250);
-    return () => clearInterval(id);
-  }, []);
   const launchCam = useRef<{ t: number; x: number; y: number; eyeH: number; pitch: number } | null>(null);   // after a throw: the camera stays where it was held while the plane flies out of it, then swings in behind and backs off
   const lookLast = useRef<{ x: number; y: number; id: number } | null>(null);
   lookCam.current.on = lookUi;
@@ -307,6 +301,7 @@ function WorldView({ id }: { id: string }) {
   const audio = useRef<AudioEngine | null>(null);
   const sfx = useRef({ boost: 0, cd: 0, landed: true, streak: 0, streakAt: -99 });   // last frame's values, to find the moments sounds start
   const inst = useRef<Instruments>(emptyInstruments());
+  useEffect(() => { if (!import.meta.env.DEV) return; const w = window as unknown as Record<string, unknown>; w.__paperplane = { sim, inst, warp: warpRef }; return () => { delete w.__paperplane; }; }, []);   // (dev builds only: headless tests reach the running flight through this)
   const aim = useRef<{ on: boolean; t: number; x0: number | null; dx: number }>({ on: false, t: 0, x0: null, dx: 0 });   // the ground launch: hold to aim and charge, let go to throw
   const wasLanded = useRef(false), floated = useRef(false);   // a crash (the moment it lands) resets the trims and the mouse steering
   const [mouseFly, setMouseFly] = useState(false);   // click the attitude indicator: the mouse flies pitch and roll
@@ -318,6 +313,9 @@ function WorldView({ id }: { id: string }) {
   const [speed, setSpeed] = useState(3);
   const [pitch, setPitch] = useState(initial.plane.pitch);
   const [wind, setWind] = useState({ ...initial.wind });
+  const windLive = useRef(wind), windSeen = useRef(wind);   // the wind as it is now: the natural wind wanders it from the loop (no render), a wind set by hand comes through the state
+  if (windSeen.current !== wind) { windSeen.current = wind; windLive.current = wind; }
+  const windTxt = useRef<HTMLElement>(null), windNum = useRef<HTMLElement>(null);
   const [windAuto, setWindAuto] = useState(prefs0.windAuto);   // natural wind: strength and direction drift over time (the dial, the sliders or a double tap take over)
   const altZoom = useRef(1);   // 1 near the ground, down to 0.15 high up (smooth)
   const [miniScale, setMiniScale] = useState(Math.min(prefs0.miniScale, BIG_MAP_SCALE / 2));   // world tiles per minimap pixel (a world never opens on the full-screen map, which stops time)
@@ -344,7 +342,11 @@ function WorldView({ id }: { id: string }) {
   const planeY = useRef(0);   // where the plane was on the stage last frame (px from the top)
   const camTilt = useRef(0);   // the tilt in use now (the slider's value, changed by the plane's pitch)
   const [tilt, setTilt] = useState(prefs0.tilt);   // 0 = flat; 1..16 = how far the ground tips away; starts at the top and fades to flat by 190 m
-  useEffect(() => { savePrefs({ invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs }); }, [invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs]);   // every choice in the menu is remembered
+  const [kbOpen, setKbOpen] = useState(prefs0.kbOpen), kbOpenRef = useRef(false); kbOpenRef.current = kbOpen;   // the pattern keyboard (K, or R3 on a pad): symbols that fly a move, and queue the next while it flies (open or shut is remembered)
+  const [kbPos, setKbPos] = useState(prefs0.kbPos);   // where its panel was dragged to (set when a drag ends)
+  const [keyHotkeys, setKeyHotkeys] = useState<Record<string, string>>(prefs0.keyHotkeys), keyHotkeysRef = useRef(keyHotkeys); keyHotkeysRef.current = keyHotkeys;   // the player's own keys for it (the menu's list)
+  const kbFocus = useRef<KeyFocus>(FOCUS_START), padSeen = useRef(false);   // a gamepad's highlight on it (the d-pad moves it, A presses it), shown once a pad has been used
+  useEffect(() => { savePrefs({ invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys }); }, [invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys]);   // every choice in the menu is remembered
   const camOff = useRef({ x: 0, y: 0 });
   const camZRef = useRef<number | null>(null);   // the height above the ground the camera works from: eased on hills, or the view would breathe with every bump
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
@@ -357,7 +359,7 @@ function WorldView({ id }: { id: string }) {
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
   const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -444,12 +446,12 @@ function WorldView({ id }: { id: string }) {
   const patternRef = useRef(patternNow); patternRef.current = patternNow;
   const [armed, setArmed] = useState(false);   // ARM: pressing a pattern in the editor flies it at once (instead of just picking it)
   const firePattern = (p: Pattern) => { const s = sim.current; if (!s || live.current.mode !== 'glide' || s.glider.landed || aim.current.on || !p.steps.length) return; man.current = startManeuver(p, s.glider); };
-  const [kbOpen, setKbOpen] = useState(false), kbOpenRef = useRef(false); kbOpenRef.current = kbOpen;   // the pattern keyboard (K): symbols that fly a move, and queue the next while it flies
   const kbRun = useRef<KeyRun | null>(null);
   const pressKey = (id: string) => { const s = sim.current, k = keyById(id); if (!s || !k || live.current.mode !== 'glide' || s.glider.landed || aim.current.on) return; const r = pressPatternKey(man.current, kbRun.current, k, s.glider); if (!r) return; man.current = r.man; kbRun.current = r.run; };
   const pressKeyRef = useRef(pressKey); pressKeyRef.current = pressKey;
   const kbProgress = useRef(() => runProgress(man.current, kbRun.current)).current;
   const kbStop = useRef(() => { man.current = null; }).current;
+  const kbFocusId = useRef(() => (padSeen.current ? keyAtFocus(kbFocus.current)?.id ?? null : null)).current;
   const [, setSasMode] = useState<SasMode>('off'), sasRef = useRef(newSas('off'));   // stability assist (T): the plane holds its climb angle and bank, the stick only asks for a change
   const cycleSas = () => setSasMode(m => { const gl0 = sim.current?.glider, n = nextSasMode(m, !!dog.current, !!gl0 && !gl0.landed && airDensity(gl0.z + (gl0.gnd ?? 0)) < 0.15, upRef.current.rocket > 0); sasRef.current.mode = n; sasRef.current.engaged = false; return n; });
   const cycleSasRef = useRef(cycleSas); cycleSasRef.current = cycleSas;
@@ -512,7 +514,15 @@ function WorldView({ id }: { id: string }) {
   }, []);
   // gamepad: left stick pitch + roll (walks on foot), right stick yaw (looks round on foot), RT rocket, L3 run; A throws / boosts, X interact, Y camera, LB autopilot, RB pattern, Back dog, Start pauses
   const padPrev = useRef<ReadonlySet<number>>(new Set()), padPressRef = useRef((_b: number) => {}), padPressed = useRef(false);
+  const kbLive = () => kbOpenRef.current && live.current.mode === 'glide' && !footRef.current && !live.current.hideUi;   // (the panel is on the screen)
   padPressRef.current = (b: number) => {
+    if (b === PAD.R3) { setKbOpen(v => !v); return; }   // the right stick's click opens and shuts the pattern keyboard
+    if (kbLive()) {   // while it is open the d-pad moves its highlight, A presses that key and B shuts it (the sticks still fly)
+      const dir = b === PAD.UP ? 'up' : b === PAD.DOWN ? 'down' : b === PAD.LEFT ? 'left' : b === PAD.RIGHT ? 'right' : null;
+      if (dir) { kbFocus.current = moveFocus(kbFocus.current, dir); return; }
+      if (b === PAD.A) { const k = keyAtFocus(kbFocus.current); if (k) pressKeyRef.current(k.id); return; }
+      if (b === PAD.B) { setKbOpen(false); return; }
+    }
     if (b === PAD.A) throwRef.current();
     else if (b === PAD.X) interactRef.current();
     else if (b === PAD.Y) cycleCamRef.current();
@@ -538,7 +548,8 @@ function WorldView({ id }: { id: string }) {
       else if (k === 't' && !e.repeat && !e.ctrlKey && !e.metaKey) cycleSasRef.current();
       else if (k === 'o' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) toggleAutoRef.current();
       else if (k === 'k' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) setKbOpen(v => !v);
-      else if (kbOpenRef.current && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) { const pk = keyByHotkey(k); if (pk) pressKeyRef.current(pk.id); }   // (the keyboard's own keys, while it is open)
+      else if ((k === '.' || k === ',') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !kbOpenRef.current) warpRef.current = nextWarp(warpRef.current, k === '.' ? 1 : -1);   // time warp up / down (it only holds on a quiet orbit: see the loop)
+      else if (kbOpenRef.current && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) { const pk = keyByHotkey(k, keyHotkeysRef.current); if (pk) pressKeyRef.current(pk.id); }   // (the keyboard's own keys, while it is open)
     };
     const up = (e: KeyboardEvent) => { keys.current.delete(e.key.toLowerCase()); if (e.key === ' ') releaseAim(); };
     addEventListener('keydown', down); addEventListener('keyup', up);
@@ -551,6 +562,7 @@ function WorldView({ id }: { id: string }) {
     const cv = canvas.current!, el = stage.current!, ctx = cv.getContext('2d')!, img = sheet.current!;
     const s = sim.current!;
     const startedAt = performance.now();
+    let hop: { t: number; up: boolean } | null = null;   // on foot: the hop over the last ledge (see hopOffset)
     let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windSync = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lookTrim = 1, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
     let W = 1, H = 1, dpr = 1;
     let styleKey = '';
@@ -762,13 +774,15 @@ function WorldView({ id }: { id: string }) {
         windT += dt; windAcc += dt;
         if (windAcc >= 0.25) {
           windAcc = 0; const nw = naturalWind(s.world.seed, windT + windT0); s.eco.wind = { ...s.eco.wind, strength: nw.strength, dir: nw.dir }; L.wind = { ...L.wind, strength: nw.strength, dir: nw.dir };
-          // the dial turns and changes colour straight on the element; React (a re-render of this whole screen, a visible hitch) is only told when what it prints changes: the letter, or the strength by half a step
+          // the dial turns, changes colour and prints its letter and strength straight on the element: React is never told (a render of this whole screen is a visible hitch on a phone)
           const dEl = windDial.current; if (dEl) { dEl.style.setProperty('--dir', `${-nw.dir}rad`); dEl.style.setProperty('--h', String(Math.round(200 - nw.strength * 22))); }
           const letter = Math.round((((nw.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8;
-          if (letter !== windShown.letter || Math.abs(nw.strength - windShown.strength) >= 1) { windShown = { letter, strength: nw.strength }; setWind(w => ({ ...w, strength: nw.strength, dir: nw.dir })); }
+          windLive.current = L.wind;   // (what the screen draws the dial from when it renders for something else)
+          if (letter !== windShown.letter || Math.abs(nw.strength - windShown.strength) >= 1) { windShown = { letter, strength: nw.strength }; const lt = WIND_LETTERS[letter]; if (windTxt.current) windTxt.current.textContent = lt; if (windNum.current) windNum.current.textContent = String(nw.strength); dEl?.setAttribute('aria-valuenow', String(nw.strength)); dEl?.setAttribute('aria-valuetext', `${lt} ${nw.strength}`); }   // (and the letter and the number too, on the element: no render of this whole screen)
         }
       }
       frameEma += (dt - frameEma) * 0.04; scaleClock += dt;
+      if (hop) { hop.t += dt; if (hop.t > 0.5) hop = null; }
       if (useGL && scaleClock >= 1) {
         scaleClock = 0;
         if (L.resAuto) { if (frameEma > 0.036 && autoK > 0.4) autoK = Math.max(0.4, autoK * 0.85); else if (frameEma < 0.024 && autoK < 1) autoK = Math.min(1, autoK / 0.85); }   // (a slow phone: fewer trees, bushes and rocks to draw, too; the same ones are dropped each time)
@@ -778,7 +792,7 @@ function WorldView({ id }: { id: string }) {
       if (fpsAcc >= 1) { fps = frames; frames = 0; fpsAcc = 0; }
 
       // input: joystick, gamepad or keys
-      const pd = typeof navigator !== 'undefined' && navigator.getGamepads ? readPad(pickPad(navigator.getGamepads())) : NO_PAD;
+      const pd = typeof navigator !== 'undefined' && navigator.getGamepads ? readPad(pickPad(navigator.getGamepads()), { dpadStick: !kbLive() }) : NO_PAD; if (pd.active) padSeen.current = true;
       if (pd.active || padPrev.current.size) { const ev = padEdges(padPrev.current, pd.down); padPrev.current = pd.down; for (const b of ev.pressed) padPressRef.current(b); if (ev.released.includes(PAD.A)) releaseAim(); }
       let dx = stick.current.dx + pd.lx, dy = stick.current.dy + pd.ly;
       const k = keys.current;
@@ -829,7 +843,7 @@ function WorldView({ id }: { id: string }) {
               else if (rise > 1.0) { vx = 0; vy = 0; } else if (rise > 0) { const k = 1 / (1 + rise * 1.6); vx *= k; vy *= k; }
             }
             const wet = (x: number, y: number) => s.world.terrainAt(Math.round(x), Math.round(-y)) === WATER;
-            if (!wet(gl.x + vx, gl.y + vy) || wet(gl.x, gl.y)) { gl.x += vx; gl.y += vy; walkPh += dt * 7 * run; }   // (no wading in: only out of the water you landed in)
+            if (!wet(gl.x + vx, gl.y + vy) || wet(gl.x, gl.y)) { const h0 = s.world.field ? s.world.heightAt(gl.x, -gl.y) : 0; gl.x += vx; gl.y += vy; walkPh += dt * 7 * run; if (s.world.field) { const st = ledgeStep(h0, s.world.heightAt(gl.x, -gl.y)); if (st) hop = { t: 0, up: st === 'up' }; } }   // (a ledge crossed: the eye hops up it, or dips as the bobr lands below)   // (no wading in: only out of the water you landed in)
           }
         }
         if (walking || (useGL && aim.current.on && gl.landed)) camAng.current = gl.psi - Math.PI / 2;                      // the eyes look the way the bobr faces, at once
@@ -843,7 +857,12 @@ function WorldView({ id }: { id: string }) {
         let sc: { pitch: number; roll: number; yaw: number; aero?: boolean; rocket?: boolean } | null = null;   // the stability assist flies the stick's changes (not while a pattern flies, or on the ground: it takes the plane's attitude again afterwards)
         const sasOn = sasRef.current.mode !== 'off';
         if (sasOn && !mc && !gl.landed && !aim.current.on) sc = stepSas(sasRef.current, gl, { pitch: L.invertPitch ? -pull : pull, roll, yaw }, simDt, L.throttle / 100, dog.current && dog.current.phase !== 'over' ? dog.current.ai : null); else if (sasOn) sasRef.current.engaged = false;
-        stepGlider(gl, mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) } : sc ? { pitch: sc.pitch, roll: sc.roll, yaw: Math.max(-1, Math.min(1, sc.yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: sc.aero ?? L.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) || !!sc.rocket } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) }, (landEnv = { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }), simDt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
+        const glCtl: GlideControls = mc ? { pitch: mc.pitch, roll: mc.roll, yaw: mc.yaw, aero: mc.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) } : sc ? { pitch: sc.pitch, roll: sc.roll, yaw: Math.max(-1, Math.min(1, sc.yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: sc.aero ?? L.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) || !!sc.rocket } : { pitch: Math.max(-1, Math.min(1, (L.invertPitch ? -pull : pull) + L.trimPitch / 100)), roll: Math.max(-1, Math.min(1, roll + L.trimRoll / 100)), yaw: Math.max(-1, Math.min(1, yaw + L.trimYaw / 100)), freeStall: L.freeStall, aero: L.aero, thrust: L.throttle / 100, rocket: keys.current.has('r') || rocketTouch.current || pd.down.has(PAD.RT) };
+        stepGlider(gl, glCtl, (landEnv = { windX: Math.cos(wd) * wv, windY: Math.sin(wd) * wv, ground: hilly ? (x, y) => s.world.groundZAt(x, -y) : undefined, air: (x, y, t) => { if (L.debugLift) return L.debugLiftV; const r = s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper); return airVertical(tenv, x, -y, t) + (hilly ? ridgeLift(x, y, wv * Math.cos(wd), wv * Math.sin(wd), gl.z) : 0) + s.eco.fireHeat(x, -y) * 6 - r * (3.2 + 1.6 * Math.sin(t * 7.3 + x * 0.9) * Math.sin(t * 5.1 + y * 0.7)); }, turb: (x, y) => s.eco.rainAt(x, -y, gLayer()) * paperRain(upRef.current.paper), heat: (x, y) => Math.max(Math.max(0, gl.airLift) / 5, s.eco.fireHeat(x, -y), tunnelAt(s.world.seed, x, -y).k) }), simDt);   // under rain the air sinks and is gusty: the plane is dragged down and jolted
+        if (warpRef.current > 1) {   // time warp: the same step again, as many times over, while the orbit stays quiet (any stick, pattern, SAS or auto orbit, a burn or heat drops it to 1x at once)
+          if (L.paused || !warpAllowed(gl, Math.max(Math.abs(pull), Math.abs(roll), Math.abs(yaw)), !!mc || !!sc)) warpRef.current = 1;
+          else for (let k = 1; k < warpRef.current && warpAllowed(gl, 0, false); k++) stepGlider(gl, glCtl, landEnv as GlideEnv, simDt);
+        }
         if (!gl.landed) floated.current = false;
         else if (wasLanded.current && !floated.current && gl.wet < 1 && s.world.terrainAt(Math.round(f.x), Math.round(f.y)) === WATER) soakPlane(gl);   // standing in water (spawned in it, or it rose under the plane): soaked, whatever the landing was (a float upgrade only saves the touchdown itself)
         { const rn = s.eco.rainAt(gl.x, -gl.y, gLayer()) * paperRain(upRef.current.paper); if (rn > 0.05 && !L.paused) gl.wet = Math.min(1, gl.wet + rn * dt / 12); }   // rain soaks the paper too (a thick cloud in about ten seconds), and it dries as before
@@ -860,7 +879,7 @@ function WorldView({ id }: { id: string }) {
         if (!gl.landed) {
           runHeat = Math.max(runHeat, gl.heat);
           if (gl.orbited && !orbitPts) {   // the periapsis has cleared the air and stayed clear: orbit
-            orbitPts = ORBIT_BONUS; const o = addOrbit(orbitRef.current, gl.apo, gl.peri, Date.now()); orbitRef.current = o; actions.saveWorld(id, { orbit: o }); setOrbitPop({ key: Date.now(), o, apo: gl.apo, peri: gl.peri }); audio.current?.play('ready');
+            orbitPts = ORBIT_BONUS; const o = addOrbit(orbitRef.current, gl.apo, gl.peri, Date.now()); orbitRef.current = o; actions.saveWorld(id, { orbit: o }); actions.reachedOrbit(); setOrbitPop({ key: Date.now(), o, apo: gl.apo, peri: gl.peri }); audio.current?.play('ready');
           }
         }
         if (gl.landed && !wasLanded.current) { if (perf.on) perf.f.ev += ' LAND'; setTrimPitch(0); setTrimRoll(0); setTrimYaw(0); setMouseFly(false);
@@ -908,7 +927,7 @@ function WorldView({ id }: { id: string }) {
         dx = 0; dy = 0;
         const i = inst.current;
         i.airspeed = gl.landed ? 0 : gl.airspeed; i.stallSpeed = STALL_SPEED; i.bestGlide = TRIM_SPEED; i.altitude = gl.z + (gl.gnd ?? 0); i.vsi = gl.vsi; i.energyRate = gl.energyRate;
-        i.heading = (((90 - (gl.psi * 180) / Math.PI) % 360) + 360) % 360; i.pitch = gl.pitch; i.gamma = gl.gamma; i.bank = gl.phi; i.turnRate = gl.turnRate; i.slip = -gl.rud; i.stalled = gl.stalled && !gl.landed; i.load = gl.load; i.landed = gl.landed; i.fuel = gl.fuel; i.fuelMax = rocketFuel(upRef.current.rocket); i.apo = gl.apo; i.peri = gl.peri; i.heat = gl.heat; i.orbited = gl.orbited; i.rocketOn = gl.rocketOn; i.auto = sasRef.current.mode === 'auto' && !gl.landed ? sasRef.current.auto.phase : ''; i.mouse = L.mouseFly;
+        i.heading = (((90 - (gl.psi * 180) / Math.PI) % 360) + 360) % 360; i.pitch = gl.pitch; i.gamma = gl.gamma; i.bank = gl.phi; i.turnRate = gl.turnRate; i.slip = -gl.rud; i.stalled = gl.stalled && !gl.landed; i.load = gl.load; i.landed = gl.landed; i.fuel = gl.fuel; i.fuelMax = rocketFuel(upRef.current.rocket); i.apo = gl.apo; i.peri = gl.peri; i.heat = gl.heat; i.orbited = gl.orbited; i.warp = warpRef.current; i.rocketOn = gl.rocketOn; i.auto = sasRef.current.mode === 'auto' && !gl.landed ? sasRef.current.auto.phase : ''; i.mouse = L.mouseFly;
         { const D = dog.current; if (D && D.phase !== 'over' && !gl.landed) { const b = foeBearing(gl, D.ai); i.foe = { theta: b.theta, phi: b.phi, dist: b.dist, hunter: D.role === 'flee', lock: D.cooldown > 0 ? 0 : Math.min(1, D.lock / (D.role === 'chase' ? 1 : 1.4)) }; } else i.foe = null; }   // the dogfight opponent on the instrument
         {   // sound: wind in two ears, the stall whistle, rain (nothing while paused)
           const rainHere = s.eco.rainAt(f.x, f.y, layer) * paperRain(upRef.current.paper);
@@ -1056,7 +1075,7 @@ function WorldView({ id }: { id: string }) {
           const airK = onFoot ? 0 : sstep(gl.z, 0, 3);
           // coming down, the eye starts behind the plane (it stays in view) and slides forward the nearer the ground gets, to the nose at about 2 m, where the plane is out of sight
           const near = onFoot ? 1 : 1 - sstep(gl.z, treeTopM * 0.4, treeTopM), ahead = onFoot ? 0 : (-2.5 * (1 - near) + 0.5 * airK * near) * camK;
-          return { k: fpvK, air: !onFoot && !gl.landed, gx: f.x, gy: f.y, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 * camK + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 * camK : 0) : gl.z * 0.18 + 0.3 * camK * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
+          return { k: fpvK, air: !onFoot && !gl.landed, gx: f.x, gy: f.y, x: f.x + Math.cos(f.heading) * ahead, y: f.y - Math.sin(f.heading) * ahead, eyeH: 0.55 * camK + (onFoot ? (walking ? Math.sin(walkPh) * 0.025 * camK : 0) + (hop ? hopOffset(hop.t, hop.up) * camK : 0) : gl.z * 0.18 + 0.3 * camK * (1 - near)), pitch: 0.03 + lookCam.current.pitch + (onFoot ? 0 : gl.pitch * 0.7 * airK) };
         })() : undefined, lookH: tgt[2] });
         fp = glr!.footprint();
         // everything round the plane is always wanted, whatever the camera looks at (looking up, or from off to one side, the polygon of rays can miss the ground under the plane, and with it every sprite standing there)
@@ -1153,7 +1172,7 @@ function WorldView({ id }: { id: string }) {
       }
       if (glr) { let cover = Infinity; for (const [cx, cy] of missing) if (!chunks.current.has(tileKey(cx, cy))) cover = Math.min(cover, Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) - CHUNK); glr.cover = lodOnly ? 0 : Math.min(Math.max(0, cover), glr.capD); }   // (the far mesh covers the ground whose chunks are not built yet: no gap between the chunks and the far hills)
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
-      if (f.mode === 'glide' && useGL && !lodOnly && performance.now() - t0 < 3) {
+      if (f.mode === 'glide' && useGL && !lodOnly && s.glider.z < 1500 && performance.now() - t0 < 3) {   // (not high up, on a rocket flight over a flat world: a landing is minutes away, and the ground in view needs the budget)
         // (only the ring right round the plane and a wedge ahead of it, 60 degrees either side of the course: what is behind is not where a throw or a landing looks)
         const R = s.world.hilly ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
         for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) {
@@ -1339,7 +1358,7 @@ function WorldView({ id }: { id: string }) {
         const eyeH = -G.eye[2], nearFade = (x: number, y: number, h: number) => Math.max(0, Math.min(1, (Math.hypot(x - ex, y - ey, h - eyeH) - 3) / 8));   // (a cloud the camera is passing through thins out instead of filling the screen)
         { const rc = L.resScale / 100; glScale = L.resAuto ? Math.min(glScale, rc) : rc; }   // (the resolution setting is the ceiling; with auto on it still drops by itself when frames are slow)
         G.resize(W, H, dpr * glScale, glCv);
-        { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
+        { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, k = Math.max(0, Math.min(1, (hA - 2000) / 6000)); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders;
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
@@ -2042,16 +2061,17 @@ function WorldView({ id }: { id: string }) {
     const r = windDial.current!.getBoundingClientRect(), R = r.width / 2;
     const dx = e.clientX - r.left - R, dy = e.clientY - r.top - R, m = Math.hypot(dx, dy) / R;
     const strength = m > 1.05 ? 10 : Math.min(9, Math.round(Math.min(m, 1) * 18) / 2);   // 10 only by sliding out past the rim
-    setWindAuto(false); setWind(w => ({ ...w, enabled: strength > 0, strength, dir: strength > 0 ? Math.atan2(-dy, dx) : w.dir }));
+    setWindAuto(false); setWind(() => ({ ...windLive.current, enabled: strength > 0, strength, dir: strength > 0 ? Math.atan2(-dy, dx) : windLive.current.dir }));
   };
   const releaseStick = () => { joyActive.current = false; stick.current = { dx: 0, dy: 0 }; setKnob({ x: 0, y: 0 }); };
 
   const layer = currentLayer({ ...sim.current!.flight, mode, pitch });
   const MODES: [FlightMode, Key][] = [['glide', 'worldGlide'], ['manual', 'worldManual'], ['off', 'worldOff']];
   const compass = (deg: number) => ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'][Math.round(((deg % 360) + 360) % 360 / 45) % 8];
-  const windLetter = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'][Math.round((((wind.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8];
-  const windHue = wind.enabled ? Math.round(200 - wind.strength * 22) : 210;   // calm blue -> green -> yellow -> orange -> pink at full strength
-  const windDeg = Math.round(((wind.dir * 180 / Math.PI) % 360 + 360) % 360);
+  const wNow = windLive.current;   // (the natural wind has moved it on since the last render)
+  const windLetter = WIND_LETTERS[Math.round((((wNow.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8];
+  const windHue = wNow.enabled ? Math.round(200 - wNow.strength * 22) : 210;   // calm blue -> green -> yellow -> orange -> pink at full strength
+  const windDeg = Math.round(((wNow.dir * 180 / Math.PI) % 360 + 360) % 360);
 
   /** The Lightning button: a bolt comes down a few tiles ahead of the plane, on the best fuel it can find there (a tree if there is one), from the nearest cloud. */
   const ecoOf = useRef(() => sim.current?.eco ?? null).current;   // (stable, so the stats window does not restart its reader on every render)
@@ -2076,7 +2096,7 @@ function WorldView({ id }: { id: string }) {
   const perfWhy = useRef<Record<string, unknown>>({});   // (?perf: which state made this screen render again)
   useEffect(() => {
     if (!/perf/.test(location.href)) return;
-    const now: Record<string, unknown> = { scores, coins, act, pickToast, up, mode, trimPitch, trimRoll, trimYaw, pitch, wind, zoomPos, onFoot, fullUi, burnPop, runResult, paused, camMode, hideUi, instSize, shopOpen, miniScale };
+    const now: Record<string, unknown> = { scores, coins, act, pickToast, up, mode, trimPitch, trimRoll, trimYaw, pitch, wind, onFoot, fullUi, burnPop, runResult, paused, camMode, hideUi, instSize, shopOpen, miniScale, aero, armed, bigScale, billboards, brush, camDist, debugLift, debugLiftV, decoClouds, decoDensity, dogOn, dogShot, drawDist, failed, fpsCap, freeStall, full, gl3d, hints, invertPitch, kbOpen, mapUiSize, miniHeat, miniHoops, miniSize, mouseFly, muted, orbitPop, panelOpen, pats, planeSizeI, radius, ready, resAuto, resScale, secs, shaders, showArrows, showEco, showFps, showInfo, showInst, showMini, showRivers, speed, throttle, tilt, tool, walkDist, watersOpen, windAuto };   // (every state of this screen: the readout's `why` names whichever changed)
     const ch = Object.keys(now).filter(k => perfWhy.current[k] !== undefined && perfWhy.current[k] !== now[k]);
     perfWhy.current = now; if (ch.length) perfStat.why = [...new Set([...perfStat.why.split(','), ...ch])].filter(Boolean).join(',');
   });
@@ -2097,8 +2117,8 @@ function WorldView({ id }: { id: string }) {
       {(act.beaver || act.bush || act.dam.stick || act.dam.stone || act.dam.brk) && (
         <ActPanel act={act} sticks={stickRef.current} stones={stoneRef.current} berries={berryRef.current} primary={primaryAct(act)} onGive={giveToDam} onBreak={breakDam} onPick={pickBush} onFeed={feedBeaver} t={t} />
       )}
-      {mode === 'glide' && !onFoot && <OrbitReadout inst={inst} t={t} />}
-      {mode === 'glide' && !onFoot && up.rocket > 0 && <RocketButton label={t('worldRocket')} hold={holdRocket} fuel={rocketFuelNow} autoLabel={t('worldAuto')} auto={autoOn} onAuto={() => toggleAutoRef.current()} />}
+      {mode === 'glide' && !onFoot && <OrbitReadout inst={inst} t={t} hud={camMode === 'fpv' && tool === 'fly' && !hideUi} onWarp={dir => { warpRef.current = nextWarp(warpRef.current, dir); }} />}   {/* (in the FPV camera the numbers are on its head-up display: only the reentry glow stays) */}
+      {mode === 'glide' && !onFoot && up.rocket > 0 && !lookFly && <RocketButton label={t('worldRocket')} hold={holdRocket} fuel={rocketFuelNow} autoLabel={t('worldAuto')} auto={autoOn} onAuto={() => toggleAutoRef.current()} />}   {/* (the free view has it in its right-hand corner group, over the joystick) */}
       {orbitPop && <OrbitPopup key={orbitPop.key} pop={orbitPop} t={t} onDone={() => setOrbitPop(p => (p && p.key === orbitPop.key ? null : p))} />}
       {pickToast && <PickToast key={pickToast.at} item={pickToast.item} from={pickToast.from} to={pickToast.to} onDone={() => setPickToast(p => (p && p.at === pickToast.at ? null : p))} />}
 
@@ -2109,8 +2129,8 @@ function WorldView({ id }: { id: string }) {
       <div className="wui wui-hide"><PixelFrame as="button" theme="bronze" scale={1} className="wui-btn" aria-pressed={hideUi} aria-label={t('worldHideUi')} title={t('worldHideUi')} onClick={() => (lookUi ? setFullUi(true) : onFoot && fullUi ? setFullUi(false) : setHideUi(v => !v))}><Icon name="symbol_eye" size={24} alt="" /></PixelFrame>
         {mode === 'glide' && !onFoot && <PixelFrame as="button" theme="bronze" scale={1} className="wui-btn wui-lookbtn" aria-pressed={camMode !== 'chase'} aria-label={t('worldCamTip')} title={t('worldCamTip')} onClick={cycleCam}><span>{t(camMode === 'chase' ? 'worldCamChase' : camMode === 'free' ? 'worldCamFree' : camMode === 'duel' ? 'worldCamDuel' : camMode === 'fpv' ? 'worldCamFpv' : 'worldCamFlyby')}</span></PixelFrame>}
         <div className="wui-camsl">
-          {camMode !== 'fpv' && <div className="wui-zoom" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); zoomDrag(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) zoomDrag(e); }}><PixelSlider color="red" min={0} max={1} step={0.005} value={zoomPos} label={t('worldCamZoom')} onChange={setZoomTo} /></div>}
-          {mode === 'glide' && !onFoot && camMode !== 'flyby' && camMode !== 'fpv' && <div className="wui-zoom wui-tiltsl" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); tiltDrag(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) tiltDrag(e); }}><PixelSlider color="green" min={0} max={1} step={0.005} value={Math.max(0, Math.min(1, tiltPos))} label={t('worldTilt')} onChange={setTiltTo} /></div>}
+          {camMode !== 'fpv' && <PolledSlider cls="wui-zoom" color="red" label={t('worldCamZoom')} read={zoomNow} write={setZoomTo} />}
+          {mode === 'glide' && !onFoot && camMode !== 'flyby' && camMode !== 'fpv' && <PolledSlider cls="wui-zoom wui-tiltsl" color="green" label={t('worldTilt')} read={tiltPosNow} write={setTiltTo} />}
         </div></div>
 
       {/* top left: close */}
@@ -2140,15 +2160,15 @@ function WorldView({ id }: { id: string }) {
           </div>}
             <PixelFrame as={initial.kind === 'lakedistrict' ? 'button' : undefined} theme="green_ornate" scale={1} className="wui-banner wui-mapbanner" onClick={initial.kind === 'lakedistrict' ? () => setWatersOpen(v => !v) : undefined}><span className="wui-ellip"><HudText hud={hudRef} pick={h => initial.kind === 'lakedistrict' ? placeText(h.x, h.y, t).toUpperCase() : t(`worldBiome_${h.biome || 'grassland'}` as Key).toUpperCase()} /></span></PixelFrame>
             {watersOpen && initial.kind === 'lakedistrict' && root.current && createPortal(<WatersList hud={hudRef} t={t} onClose={() => setWatersOpen(false)} />, root.current)}
-            <div ref={windDial} className="wui-dial" role="slider" aria-label={t('worldWind')} aria-valuemin={0} aria-valuemax={10} aria-valuenow={wind.strength} aria-valuetext={`${windLetter} ${wind.strength}`}
-              style={{ '--dir': `${-wind.dir}rad`, '--h': windHue, '--base': `url(${rawUrl('joystick_base')})` } as CSSProperties} data-on={wind.enabled && wind.strength > 0}
+            <div ref={windDial} className="wui-dial" role="slider" aria-label={t('worldWind')} aria-valuemin={0} aria-valuemax={10} aria-valuenow={wNow.strength} aria-valuetext={`${windLetter} ${wNow.strength}`}
+              style={{ '--dir': `${-wNow.dir}rad`, '--h': windHue, '--base': `url(${rawUrl('joystick_base')})` } as CSSProperties} data-on={wNow.enabled && wNow.strength > 0}
               onPointerDown={e => {
-                if (e.timeStamp - lastWindTap.current < 320) { lastWindTap.current = 0; windActive.current = false; setWindAuto(false); setWind(w => ({ ...w, enabled: false, strength: 0 })); return; }   // double tap: no wind
+                if (e.timeStamp - lastWindTap.current < 320) { lastWindTap.current = 0; windActive.current = false; setWindAuto(false); setWind(() => ({ ...windLive.current, enabled: false, strength: 0 })); return; }   // double tap: no wind
                 lastWindTap.current = e.timeStamp; windActive.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); setWindFromPointer(e);
               }}
               onPointerMove={e => { if (windActive.current) setWindFromPointer(e); }} onPointerUp={() => { windActive.current = false; }} onPointerCancel={() => { windActive.current = false; }}>
               <i className="wui-dialleaf" />
-              <span className="wui-dialdisc"><b>{windLetter}</b><em>{wind.enabled ? wind.strength : 0}</em></span>
+              <span className="wui-dialdisc"><b ref={windTxt}>{windLetter}</b><em ref={windNum}>{wNow.enabled ? wNow.strength : 0}</em></span>
             </div>
           <PixelFrame theme="bronze" scale={1} className="wui-temp"><span className="wui-temptxt"><span><HudText hud={hudRef} pick={h => clockText(h.hour)} /></span><span><HudText hud={hudRef} pick={h => `${Math.round(h.temp)}°`} /></span></span></PixelFrame>
         </PixelFrame>
@@ -2166,11 +2186,11 @@ function WorldView({ id }: { id: string }) {
           </div>
         )}
         <div className="wui-row">
-        {showFps && <PixelFrame theme="green_ornate" scale={1} className="wui-count" aria-label={t('worldFps')}><HudText hud={hudRef} pick={h => String(h.fps)} /></PixelFrame>}
+        {showFps && !(lookFly && mode === 'glide' && !onFoot) && <PixelFrame theme="green_ornate" scale={1} className="wui-count" aria-label={t('worldFps')}><HudText hud={hudRef} pick={h => String(h.fps)} /></PixelFrame>}   {/* (the free view's left joystick covers this corner: there it heads the left-hand group) */}
         </div>
       </div>
 
-      {mode === 'glide' && !onFoot && !hideUi && kbOpen && <PatternKeyboard onPress={id => pressKeyRef.current(id)} onStop={kbStop} onClose={() => setKbOpen(false)} run={kbProgress} instScale={instSize / 100} title={t('worldKeysTitle')} hint={t('worldKeysHint')} stopLabel={t('worldKeysStop')} closeLabel={t('worldKeysClose')} />}
+      {mode === 'glide' && !onFoot && !hideUi && kbOpen && <PatternKeyboard onPress={id => pressKeyRef.current(id)} onStop={kbStop} onClose={() => setKbOpen(false)} run={kbProgress} instScale={instSize / 100} hotkeys={keyHotkeys} focus={kbFocusId} pos0={kbPos} onMoved={setKbPos} title={t('worldKeysTitle')} hint={t('worldKeysHint')} stopLabel={t('worldKeysStop')} closeLabel={t('worldKeysClose')} />}
 
       {/* bottom middle: flight mode and the joystick */}
       <div className="wui wui-bm">
@@ -2205,11 +2225,17 @@ function WorldView({ id }: { id: string }) {
       {mode === 'glide' && !onFoot && lookFly && (
         <div className="wui world-fjoys">
           <div className="world-fjbtns">
+            <div className="world-fjcol">   {/* (two stacks in the bottom corners, over the joysticks: the instrument sits in the middle and is left clear) */}
+            {showFps && <PixelFrame theme="green_ornate" scale={1} className="wui-count world-fjfps" aria-label={t('worldFps')}><HudText hud={hudRef} pick={h => String(h.fps)} /></PixelFrame>}
             <PatternButton cls="world-fjpattern" label={t('worldPattern')} name={() => pats.patterns[pats.sel]?.name ?? ''} running={() => man.current !== null} onPress={() => patternRef.current()} />
             <PatternButton cls="world-fjpattern" label={t('worldSas')} hint="T" icon="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" name={() => sasRef.current.mode} running={() => sasRef.current.mode !== 'off'} onPress={() => cycleSasRef.current()} />
             <PatternButton cls="world-fjpattern" label={t('worldKeysTitle')} hint="K" icon="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z" name={() => t('worldKeys')} running={() => kbOpenRef.current} onPress={() => setKbOpen(v => !v)} />
+            </div>
+            <div className="world-fjcol">
+            {up.rocket > 0 && <RocketButton cls="wui-rocket world-fjrocket" label={t('worldRocket')} hold={holdRocket} fuel={rocketFuelNow} autoLabel={t('worldAuto')} auto={autoOn} onAuto={() => toggleAutoRef.current()} />}
             <PixelFrame as="button" theme={aero ? 'red_thick' : 'bronze'} scale={1} className="wui-acro world-fjacro" style={{ '--bw': 5 } as CSSProperties} aria-pressed={aero} aria-label={t('worldAero')} title={t('worldAero')} onClick={() => setAero(v => !v)}><span>ACRO</span></PixelFrame>
             <BoostButton cls="world-fjboost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />
+            </div>
           </div>
           <div className="world-fjrow">
             <LookStick stick={yawStick} bare label={t('worldYaw')} />
@@ -2218,7 +2244,7 @@ function WorldView({ id }: { id: string }) {
         </div>
       )}
       {/* glide: the throw button after landing (the instruments replace the stick above) and the throw button after landing */}
-      {mode === 'glide' && !onFoot && <BoostButton cls="wui wui-boost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />}
+      {mode === 'glide' && !onFoot && !lookFly && <BoostButton cls="wui wui-boost" label={t('worldBoost')} cooldown={() => (sim.current ? sim.current.glider.boostCd / BOOST_COOLDOWN : 0)} charges={() => sim.current?.glider.boostCharges ?? 0} onBoost={x => throwRef.current(x)} />}
       <div ref={hoopHint} className="wui wui-hint wui-hint-hoop" style={{ display: 'none' }} aria-label={t('worldHoops')}>
         <img ref={hoopArrow} src={rawUrl('arrow_stone_up')} alt="" draggable={false} /><span ref={hoopDist} />
       </div>
@@ -2271,6 +2297,9 @@ function WorldView({ id }: { id: string }) {
             </Sec>
             <Sec id="patterns" title={t('worldPatterns')} open={!!secs["patterns"]} onToggle={toggleSec}>
               <PatternEditor store={pats} set={f => setPats(s => stamped(f(s)))} t={t} armed={armed} onArm={() => setArmed(v => !v)} onFire={firePattern} editOpen={!!secs["patedit"]} onToggleEdit={toggleSec} />
+              <Sec id="patkeys" nested title={t('worldKeysRemap')} open={!!secs["patkeys"]} onToggle={toggleSec}>
+                <HotkeyEditor map={keyHotkeys} onChange={setKeyHotkeys} labels={{ hint: t('worldKeysRemapHint'), press: t('worldKeysRemapPress'), taken: t('worldKeysRemapTaken'), reset: t('worldKeysRemapReset') }} />
+              </Sec>
             </Sec>
             <Sec id="camera" title={t('worldSecCamera')} open={!!secs["camera"]} onToggle={toggleSec}>
               <div className="row">{(['chase', 'free', 'fpv', 'flyby', 'duel'] as const).map(m => <PixelButton key={m} size="compact" scale={1} variant={camMode === m ? 'green' : 'red'} aria-pressed={camMode === m} onClick={() => setCamMode(m)}>{t(m === 'chase' ? 'worldCamChase' : m === 'free' ? 'worldCamFree' : m === 'duel' ? 'worldCamDuel' : m === 'fpv' ? 'worldCamFpv' : 'worldCamFlyby')}</PixelButton>)}</div>
@@ -2319,9 +2348,9 @@ function WorldView({ id }: { id: string }) {
               <div className="muted small">{t('worldLayer', { n: Math.round(layer * 10) / 10, p: Math.round(parallax(layer) * 100) })}</div>
             </Sec>
             <Sec id="wind" title={t('worldWind')} open={!!secs["wind"]} onToggle={toggleSec}>
-              <div className="row"><PixelButton size="compact" scale={1} variant={wind.enabled ? 'green' : 'red'} aria-pressed={wind.enabled} onClick={() => setWind(w => ({ ...w, enabled: !w.enabled }))}>{wind.enabled ? t('worldWindOn') : t('worldWindOff')}</PixelButton><PixelButton size="compact" scale={1} variant={windAuto ? 'green' : 'red'} aria-pressed={windAuto} onClick={() => setWindAuto(v => !v)}>{t('worldWindNatural')}</PixelButton></div>
-              <div className="world-slider"><span>{t('worldStrength')}</span><PixelSlider min={0} max={10} step={0.5} value={wind.strength} onChange={v => { setWindAuto(false); setWind(w => ({ ...w, strength: v })); }} label={t('worldStrength')} valueText={String(wind.strength)} /><b>{wind.strength}</b></div>
-              <div className="world-slider"><span>{t('worldDirection')}</span><PixelSlider min={0} max={359} step={5} value={windDeg} onChange={v => { setWindAuto(false); setWind(w => ({ ...w, dir: (v * Math.PI) / 180 })); }} label={t('worldDirection')} valueText={`${windDeg}`} /><b>{compass(windDeg)}</b></div>
+              <div className="row"><PixelButton size="compact" scale={1} variant={wind.enabled ? 'green' : 'red'} aria-pressed={wind.enabled} onClick={() => setWind(() => ({ ...windLive.current, enabled: !windLive.current.enabled }))}>{wind.enabled ? t('worldWindOn') : t('worldWindOff')}</PixelButton><PixelButton size="compact" scale={1} variant={windAuto ? 'green' : 'red'} aria-pressed={windAuto} onClick={() => setWindAuto(v => !v)}>{t('worldWindNatural')}</PixelButton></div>
+              <div className="world-slider"><span>{t('worldStrength')}</span><PixelSlider min={0} max={10} step={0.5} value={wind.strength} onChange={v => { setWindAuto(false); setWind(() => ({ ...windLive.current, strength: v })); }} label={t('worldStrength')} valueText={String(wind.strength)} /><b>{wind.strength}</b></div>
+              <div className="world-slider"><span>{t('worldDirection')}</span><PixelSlider min={0} max={359} step={5} value={windDeg} onChange={v => { setWindAuto(false); setWind(() => ({ ...windLive.current, dir: (v * Math.PI) / 180 })); }} label={t('worldDirection')} valueText={`${windDeg}`} /><b>{compass(windDeg)}</b></div>
               {showInfo && <div className="muted small">{t('worldWindHint')}</div>}
             </Sec>
             <Sec id="debug" title={t('worldSecDebug')} open={!!secs["debug"]} onToggle={toggleSec}>
@@ -2389,15 +2418,36 @@ function BoostButton({ cls, label, cooldown, charges, onBoost }: { cls: string; 
   );
 }
 
+/**
+ * A camera slider (zoom, tilt) on a touch screen: it shows where the camera is (the wheel, a pinch or the height move it too), read four
+ * times a second into its own state, so following the camera never renders the whole screen; dragging it writes the camera at once.
+ */
+function PolledSlider({ cls, color, label, read, write }: { cls: string; color: 'red' | 'green'; label: string; read: () => number; write: (v: number) => void }) {
+  const rd = useRef(read); rd.current = read;
+  const [v, setV] = useState(() => read());
+  useEffect(() => {
+    if (!window.matchMedia('(pointer: coarse)').matches) return;
+    const id = window.setInterval(() => setV(p => { const n = rd.current(); return Math.abs(n - p) > 0.004 ? n : p; }), 250);
+    return () => clearInterval(id);
+  }, []);
+  const set = (x: number) => { const k = Math.max(0, Math.min(1, x)); setV(k); write(k); };
+  const drag = (e: React.PointerEvent<HTMLElement>) => { const r = e.currentTarget.getBoundingClientRect(), pad = r.width / 2; set(1 - (e.clientY - r.top - pad) / Math.max(1, r.height - 2 * pad)); };   // (up is closer / steeper)
+  return (
+    <div className={cls} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); drag(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) drag(e); }}>
+      <PixelSlider color={color} min={0} max={1} step={0.005} value={Math.max(0, Math.min(1, v))} label={label} onChange={set} />
+    </div>
+  );
+}
+
 /** The rocket stage's button: held down it burns (R on a keyboard). The bar is the fuel left. */
-function RocketButton({ label, hold, fuel, autoLabel, auto, onAuto }: { label: string; hold: (on: boolean) => void; fuel: () => { left: number; max: number }; autoLabel: string; auto: () => boolean; onAuto: () => void }) {
+function RocketButton({ label, hold, fuel, autoLabel, auto, onAuto, cls = 'wui wui-rocket' }: { label: string; hold: (on: boolean) => void; fuel: () => { left: number; max: number }; autoLabel: string; auto: () => boolean; onAuto: () => void; cls?: string }) {
   const bar = useRef<HTMLSpanElement>(null), btn = useRef<HTMLButtonElement>(null), autoBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const id = setInterval(() => { const f = fuel(), k = f.max > 0 ? Math.max(0, Math.min(1, f.left / f.max)) : 0; bar.current?.style.setProperty('--fuel', String(Math.ceil(k * 10) / 10)); btn.current?.setAttribute('data-ready', k > 0 ? 'true' : 'false'); autoBtn.current?.setAttribute('aria-pressed', auto() ? 'true' : 'false'); }, 100);
     return () => { clearInterval(id); hold(false); };
   }, [fuel, hold, auto]);
   return (
-    <div className="wui wui-rocket">
+    <div className={cls}>
       <button ref={btn} type="button" className="wui-rocketbtn" aria-label={label} title={`${label} (R)`} data-ready="true"
         onPointerDown={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); hold(true); }} onPointerUp={() => hold(false)} onPointerCancel={() => hold(false)} onLostPointerCapture={() => hold(false)}>
         <span>{label}</span><span ref={bar} className="wui-rocketfuel" />
@@ -2408,12 +2458,12 @@ function RocketButton({ label, hold, fuel, autoLabel, auto, onAuto }: { label: s
 }
 
 /** The orbit readout: fuel, the orbit it is on (apoapsis and periapsis above sea level), and the heat, once there is a rocket aboard or the plane is high. */
-function OrbitReadout({ inst, t }: { inst: MutableRefObject<Instruments>; t: TFn }) {
-  const [d, setD] = useState<{ show: boolean; fuel: number; apo: number; peri: number; heat: number; orbited: boolean; burn: boolean; auto: string }>({ show: false, fuel: 0, apo: 0, peri: 0, heat: 0, orbited: false, burn: false, auto: '' });
+function OrbitReadout({ inst, t, hud, onWarp }: { inst: MutableRefObject<Instruments>; t: TFn; hud: boolean; onWarp: (dir: 1 | -1) => void }) {
+  const [d, setD] = useState<{ show: boolean; fuel: number; apo: number; peri: number; heat: number; orbited: boolean; burn: boolean; auto: string; warp: number }>({ show: false, fuel: 0, apo: 0, peri: 0, heat: 0, orbited: false, burn: false, auto: '', warp: 1 });
   useEffect(() => {
     const id = setInterval(() => setD(p => {
-      const i = inst.current, show = !i.landed && (i.fuelMax > 0 || i.altitude > 2500), n = { show, fuel: Math.round(i.fuel * 10) / 10, apo: Number.isFinite(i.apo) ? Math.round(i.apo) : Infinity, peri: Math.round(i.peri), heat: Math.round(i.heat * 20) / 20, orbited: i.orbited, burn: i.rocketOn, auto: i.auto };
-      return n.show === p.show && n.fuel === p.fuel && n.apo === p.apo && n.peri === p.peri && n.heat === p.heat && n.orbited === p.orbited && n.burn === p.burn && n.auto === p.auto ? p : n;
+      const i = inst.current, show = !i.landed && (i.fuelMax > 0 || i.altitude > 2500), n = { show, fuel: Math.round(i.fuel * 10) / 10, apo: Number.isFinite(i.apo) ? Math.round(i.apo) : Infinity, peri: Math.round(i.peri), heat: Math.round(i.heat * 20) / 20, orbited: i.orbited, burn: i.rocketOn, auto: i.auto, warp: i.warp };
+      return n.show === p.show && n.fuel === p.fuel && n.apo === p.apo && n.peri === p.peri && n.heat === p.heat && n.orbited === p.orbited && n.burn === p.burn && n.auto === p.auto && n.warp === p.warp ? p : n;
     }), 150);
     return () => clearInterval(id);
   }, [inst]);
@@ -2422,14 +2472,21 @@ function OrbitReadout({ inst, t }: { inst: MutableRefObject<Instruments>; t: TFn
   return (
     <>
     {d.heat > 0.05 && <div className="world-reentry" style={{ opacity: Math.min(1, d.heat * 1.1) }} aria-hidden="true" />}
-    <div className="wui wui-orbit" data-orbited={d.orbited ? 'true' : 'false'} aria-label={t('worldOrbit')}>
+    {!hud && <div className="wui wui-orbit" data-orbited={d.orbited ? 'true' : 'false'} aria-label={t('worldOrbit')}>
       {d.orbited && <b className="wui-orbitbadge">{t('worldOrbit')}</b>}
       {d.auto && <b className="wui-orbitauto">{t('worldAuto')} {t(`worldAuto${d.auto[0].toUpperCase()}${d.auto.slice(1)}` as Key)}</b>}
       <span>{t('worldFuel')} {d.fuel.toFixed(1)}{d.burn ? ' >>' : ''}</span>
       <span>{t('worldApo')} {km(d.apo)}</span>
       <span>{t('worldPeri')} {km(d.peri)}</span>
       {d.heat > 0.05 && <span className="wui-orbitheat" data-hot={d.heat > 0.6 ? 'true' : 'false'}>{t('worldPaperHeat')} {Math.round(Math.min(1, d.heat) * 100)}%</span>}
-    </div>
+      {d.orbited && (   // time warp: only on a quiet orbit (the loop drops it back to 1x the moment anything flies the plane)
+        <span className="wui-orbitwarp" role="group" aria-label={t('worldWarp')}>
+          <button type="button" aria-label={`${t('worldWarp')} -`} title={`${t('worldWarp')} - (,)`} disabled={d.warp <= 1} onPointerDown={e => { e.stopPropagation(); onWarp(-1); }}>-</button>
+          <b>{t('worldWarp')} x{d.warp}</b>
+          <button type="button" aria-label={`${t('worldWarp')} +`} title={`${t('worldWarp')} + (.)`} disabled={d.warp >= 50} onPointerDown={e => { e.stopPropagation(); onWarp(1); }}>+</button>
+        </span>
+      )}
+    </div>}
     </>
   );
 }

@@ -65,7 +65,7 @@ export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserS
   const have = new Set(achievements.map(x => x.id));
   for (const x of [...device.achievements, ...cloud.achievements]) if (!have.has(x.id)) { have.add(x.id); achievements.push(x); }
 
-  return { ...lead, stats, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])] };
+  return { ...lead, stats, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])], orbitsReached: Math.max(device.orbitsReached ?? 0, cloud.orbitsReached ?? 0) };
 }
 
 /** The shortlist only names open tasks that still exist. */

@@ -15,7 +15,7 @@
  */
 import { Pond, POND_MAX, type PondEnv } from './hydrology';
 import { setPondSurface, lakeWaterAt, LAKE_WATER, LAKE_RIVER, LAKE_LAND } from './lakedistrict';
-import { onLedge, TERRACE_LAYER_M } from './terrace';
+import { onLedge, TERRACE_LAYER_M, terraceLakeOutlets } from './terrace';
 import { hash01, GRASS, SAND, WATER, DECO_BUSH, DECO_CONIFER, DECO_DECIDUOUS, CHUNK, tileKey, keyX, keyY, plainTile, type World, type Terrain, type TileState, chunkOf } from './worldgen';
 
 export const LAYER_CAPACITY = [1, 2, 3, 5, 8, 13, 8, 21, 3, 1];       // layers 1..10
@@ -55,6 +55,8 @@ export const IRRIGATE_CHANCE = 0.15, IRRIGATE_REACH = 2;   // chance a source ir
 // Becks: a line of runoff crossed over and over turns into a narrow stream with stones on its banks (hilly worlds, see `makeBeck`): one tile wide, one line at a time, no other beck within BECK_GAP tiles, never beside sand.
 /** The terraced hills: a tile crossed this often by runoff makes a stream of its whole way downhill to water (see `connectStream`), up to this many tiles; a path that finds nothing is not tried again for a while. */
 export const STREAM_PATH_AT = 6, STREAM_PATH_MAX = 70;
+/** Seconds between the spills of a terraced lake (each a packet of runoff from its outlet, enough to keep the beck it cut fed). */
+export const LAKE_SPILL_EVERY = 3;
 export const BECK_AT = 8, MAX_BECK_TILES = 300, BECK_GAP = 10;       // crossings before a tile in a line turns to beck; becks alive at once
 export const BANK_ROCK = 0.45, WATER_ROCK = 0.05;     // chance a grass tile beside a new beck tile becomes a rock; chance an irrigation round near water puts a rock instead of growth
 // Tarns: a hollow (or a small real tarn) is a pond with a water level that rain raises and the sun lowers (see `tarnAt`).
@@ -221,6 +223,8 @@ export class Ecosystem {
   private tarnOf = new Map<number, { pond: Pond; vol: number; region?: number[] }>();
   private noTarn = new Set<number>();
   private runoffAcc = 0;
+  /** The terraced hills: where the lakes in the watched area spill over (see `spillLakes`), for the area they were found for. */
+  private outlets: { x: number; y: number }[] = []; private outletsFor = ''; private spillAcc = 0; private readonly outletSeen = new Set<number>();
   private migrateAcc = 0;
   /** Tiles that changed since the last time the renderer asked (to redraw the chunks that hold them). */
   readonly dirty = new Set<number>();
@@ -1094,6 +1098,7 @@ export class Ecosystem {
   }
   /** One step for every packet: it walks to its lowest neighbour and counts the tile; it ends in water, or at a pit (where the count turns the pit to a puddle). */
   private runoff() {
+    this.spillLakes();
     if (!this.packets.length) return;
     const keep: typeof this.packets = [];
     for (const p of this.packets) {
@@ -1108,6 +1113,23 @@ export class Ecosystem {
       if (++p.n < PACKET_STEPS) keep.push(p);
     }
     this.packets = keep;
+  }
+  /**
+   * The terraced hills: a lake is always a little over full, so every few seconds it sends a packet of runoff from where it spills (see terraceLakeOutlets). The packets wear a beck downhill from
+   * there by the same rules as the rain's (and keep it fed, so it does not dry). A new outlet starts one crossing short of a beck, so the stream is cut at its first spill.
+   */
+  private spillLakes() {
+    const f = this.world.field, a = this.area; if (!f || a.x1 < a.x0) return;
+    const key = `${a.x0},${a.y0},${a.x1},${a.y1}`;
+    if (key !== this.outletsFor) {
+      this.outletsFor = key;
+      this.outlets = terraceLakeOutlets(a.x0 - 60, a.y0 - 60, a.x1 + 60, a.y1 + 60, this.world.seed).filter(o => this.inArea(o.x, o.y) && this.terrainAt(o.x, o.y) !== WATER);
+      for (const o of this.outlets) { const k = tileKey(o.x, o.y); if (this.outletSeen.has(k)) continue; this.outletSeen.add(k); this.trickle.set(k, Math.max(this.trickle.get(k) ?? 0, STREAM_PATH_AT - 1)); }
+    }
+    this.spillAcc += MIGRATE_TICK;
+    if (this.spillAcc < LAKE_SPILL_EVERY) return;
+    this.spillAcc = 0;
+    for (const o of this.outlets) { if (this.packets.length >= MAX_PACKETS) break; this.cross(o.x, o.y); this.packets.push({ x: o.x, y: o.y, n: 0 }); }
   }
   private tarnWater(x: number, y: number) { return this.terrainAt(x, y) === WATER && this.tarnOf.has(tileKey(x, y)); }
   /**

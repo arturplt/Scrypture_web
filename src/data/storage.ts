@@ -47,6 +47,9 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
   // keep seeded achievements that the saved state doesn't know yet (e.g. added in a newer release)
   const savedAch: any[] = s.achievements ?? [];
   const achievements = [...savedAch, ...d.achievements.filter(a => !savedAch.some(x => x.id === a.id))];
+  const worlds = sanitizeWorlds(s.worlds);
+  // the lifetime orbit count; a save from before it existed starts from the orbits its worlds remember
+  const orbitsReached = Number.isInteger(s.orbitsReached) && s.orbitsReached >= 0 ? Math.min(s.orbitsReached, 1e6) : worlds.list.reduce((n, w) => n + (w.orbit?.reached ?? 0), 0);
   return {
     ...d,
     ...s,
@@ -69,7 +72,8 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     notes: sanitizeNotes(s.notes),
     exercise: sanitizeExerciseSave(s.exercise),
     planner: sanitizePlanner(s.planner),
-    worlds: sanitizeWorlds(s.worlds),
+    worlds,
+    orbitsReached,
     tasks: (s.tasks ?? []).map((t: any) => (t && typeof t === 'object' ? { ...withGroups(t), completionCount: t.completionCount ?? (t.completed ? 1 : 0), lastCompletedAt: t.lastCompletedAt ?? (t.completed ? t.updatedAt : undefined) } : t)),
     habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, ...rest } = withGroups(h); return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: s.chat ?? [], achievements,
     version: CURRENT_VERSION,

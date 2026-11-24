@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, stepGlider, type GlideEnv } from './glider';
 import { STEP_KINDS, stepManeuver, type Maneuver } from './maneuver';
-import { KEY_ROWS, MAX_QUEUE_STEPS, PATTERN_KEYS, keyByHotkey, keyById, keySymbolUrl, pressPatternKey, runProgress, type KeyRun } from './patternKeys';
+import { KEY_ROWS, MAX_QUEUE_STEPS, PATTERN_KEYS, keyByHotkey, keyById, keySymbolUrl, pressPatternKey, runProgress, type KeyRun, hotkeyFor, setHotkey, sanitizeHotkeys, hotkeyUsable, RESERVED_HOTKEYS, moveFocus, keyAtFocus, FOCUS_START } from './patternKeys';
 
 /** The symbol files in public/, by file name (read at build time: the project has no node typings). */
 const files = Object.keys(import.meta.glob('../../public/assets/symbols_svg/*.svg', { query: '?raw', eager: true })).map(p => p.split('/').pop());
@@ -111,5 +111,53 @@ describe('pattern keyboard', () => {
       expect(run.pattern.steps.length).toBe(24);
       expect(r).toBeNull();
     });
+  });
+});
+
+describe('pattern keyboard: own hotkeys', () => {
+  const zig = PATTERN_KEYS[0];   // Zigzag, Z by default
+  it('keeps the defaults with no map, and finds keys through a map', () => {
+    expect(hotkeyFor(zig)).toBe('z');
+    expect(keyByHotkey('Z')?.id).toBe(zig.id);
+    const m = setHotkey({}, zig.id, 'ä')!;
+    expect(keyByHotkey('ä', m)?.id).toBe(zig.id);
+    expect(keyByHotkey('z', m)).toBeUndefined();
+  });
+  it('refuses the flying keys and anything unprintable', () => {
+    for (const h of RESERVED_HOTKEYS) expect(setHotkey({}, zig.id, h)).toBeNull();
+    expect(setHotkey({}, zig.id, 'Shift')).toBeNull();
+    expect(setHotkey({}, zig.id, 'ArrowUp')).toBeNull();
+    expect(hotkeyUsable('7')).toBe(true);
+  });
+  it('swaps a key that is already taken, so no two keys ever share one', () => {
+    const one = keyByHotkey('1')!, m = setHotkey({}, zig.id, '1')!;
+    expect(hotkeyFor(zig, m)).toBe('1'); expect(hotkeyFor(one, m)).toBe('z');
+    const all = PATTERN_KEYS.map(k => hotkeyFor(k, m));
+    expect(new Set(all).size).toBe(21);
+    const back = setHotkey(m, zig.id, 'z')!;   // putting it back swaps them home, and the map is empty again
+    expect(back).toEqual({});
+  });
+  it('cleans a saved map: unknown ids, reserved keys and clashes are dropped', () => {
+    const one = keyByHotkey('1')!;
+    expect(sanitizeHotkeys({ nope: 'x', [zig.id]: 'w' })).toEqual({});
+    expect(sanitizeHotkeys({ [zig.id]: '1' })).toEqual({});   // (1 is still the default of another key)
+    expect(sanitizeHotkeys({ [zig.id]: '1', [one.id]: 'z' })).toEqual({ [zig.id]: '1', [one.id]: 'z' });
+    expect(sanitizeHotkeys('junk')).toEqual({});
+  });
+});
+
+describe('pattern keyboard: the gamepad highlight', () => {
+  it('starts on Straight and moves along a row, stopping at the ends', () => {
+    expect(keyAtFocus(FOCUS_START)?.label).toBe('Straight');
+    expect(moveFocus({ r: 2, c: 0 }, 'left')).toEqual({ r: 2, c: 0 });
+    expect(moveFocus({ r: 2, c: 8 }, 'right')).toEqual({ r: 2, c: 8 });
+  });
+  it('keeps its place across rows of other widths', () => {
+    expect(moveFocus({ r: 0, c: 0 }, 'down')).toEqual({ r: 1, c: 2 });   // (from the single top key to the middle of five)
+    expect(moveFocus({ r: 2, c: 8 }, 'down')).toEqual({ r: 3, c: 2 });   // (the right end stays the right end)
+    expect(moveFocus({ r: 2, c: 4 }, 'down')).toEqual({ r: 3, c: 1 });
+    expect(moveFocus({ r: 1, c: 4 }, 'up')).toEqual({ r: 0, c: 0 });
+    expect(moveFocus({ r: 4, c: 1 }, 'down')).toEqual({ r: 4, c: 1 });
+    for (let r = 0; r < KEY_ROWS.length; r++) for (let c = 0; c < KEY_ROWS[r].length; c++) for (const d of ['up', 'down', 'left', 'right'] as const) expect(keyAtFocus(moveFocus({ r, c }, d))).toBeDefined();
   });
 });

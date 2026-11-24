@@ -31,6 +31,9 @@ const DEFS: Def[] = [
   ['lake_ullswater', 'Ullswater Steamer', 'Fly over Ullswater', 'SPECIAL', 'UNCOMMON'],
   ['road_m6', 'Motorway Overpass', 'Fly over the M6 motorway', 'SPECIAL', 'UNCOMMON'],
   ['lake_coniston', 'Coniston Crossing', 'Fly over Coniston Water', 'SPECIAL', 'COMMON'],
+  // Paperplane: the rocket stage
+  ['orbit_first', 'Low Orbit', 'Reach orbit with the paper plane', 'SPECIAL', 'RARE'],
+  ['orbit_10', 'Frequent Orbiter', 'Reach orbit 10 times', 'SPECIAL', 'EPIC'],
 ];
 
 export const seedAchievements = (): Achievement[] =>
@@ -44,13 +47,15 @@ export interface AchievementContext {
   rock?: RockStats;
   /** Named Lake District waters flown over. */
   lakes?: string[];
+  /** Paperplane flights that reached orbit (all worlds). */
+  orbits?: number;
 }
 
 /** The flown-over list holds lakes and roads (the M6): only the waters count towards the lake achievements. */
 const waterCount = (places: string[]) => places.filter(n => n !== 'M6').length;
 
 /** Same rules as Android AchievementViewModel.checkAndUnlockAchievements (level checks use total XP). */
-export function isConditionMet(condition: string, { stats, maxHabitStreak, rock = emptyRockStats(), lakes = [] }: AchievementContext): boolean {
+export function isConditionMet(condition: string, { stats, maxHabitStreak, rock = emptyRockStats(), lakes = [], orbits = 0 }: AchievementContext): boolean {
   switch (condition) {
     case 'first_task': return stats.totalTasksCompleted >= 1;
     case 'ten_tasks': return stats.totalTasksCompleted >= 10;
@@ -77,6 +82,8 @@ export function isConditionMet(condition: string, { stats, maxHabitStreak, rock 
     case 'lake_windermere': return lakes.includes('Windermere');
     case 'lake_ullswater': return lakes.includes('Ullswater');
     case 'lake_coniston': return lakes.includes('Coniston Water');
+    case 'orbit_first': return orbits >= 1;
+    case 'orbit_10': return orbits >= 10;
     default: return false;
   }
 }
@@ -112,6 +119,7 @@ const TARGETS: Record<string, [value: (c: AchievementContext) => number, target:
   lake_first: [c => waterCount(c.lakes ?? []), 1],
   lake_5: [c => waterCount(c.lakes ?? []), 5],
   lake_10: [c => waterCount(c.lakes ?? []), 10],
+  orbit_10: [c => c.orbits ?? 0, 10],
 };
 
 /** Progress toward a count-based achievement, or null when it has no countable progress (speed, perfect-level and distance minigame ones). */

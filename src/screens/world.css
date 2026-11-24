@@ -385,7 +385,12 @@
 .world-throwcol { display: flex; flex-direction: column; align-items: stretch; gap: calc(6 * var(--u)); }   /* Throw above Shop, in one column between the two joysticks */
 .world-fjoys { left: calc(10 * var(--u)); right: calc(10 * var(--u)); bottom: calc(14 * var(--u) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: calc(8 * var(--u)); }   /* free view: ACRO and the boost over the two flying joysticks, bottom corners */
 .world-fjbtns, .world-fjrow { display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; }   /* (the rows themselves let taps through to the view: a double tap there is the boost; only the buttons and joysticks catch touches) */
-.world-fjbtns > * { pointer-events: auto; }
+.world-fjcol { display: flex; flex-direction: column; align-items: center; gap: calc(6 * var(--u)); pointer-events: none; }   /* a stack in each bottom corner, over its joystick: the middle is the instrument's */
+.world-fjcol > * { pointer-events: auto; }
+.world-fjrocket { display: grid; justify-items: center; }
+.world-fjrocket > * { pointer-events: auto; }
+.world-fjcol > .world-fjfps { pointer-events: none; }
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) { .world-fjcol { flex-direction: row; align-items: flex-end; } .world-fjbtns { padding-right: calc(50px + 6 * var(--u)); } }   /* a phone held sideways: rows in the corners (there is width to spare, and a stack would reach up over the throttle) */
 .wui-acro.world-fjacro { position: static; margin: 0; }
 .world-fjboost { pointer-events: auto; }
 .world-fjboost .wui-boostbtn { --bs: 48px; width: 48px; height: 48px; }
@@ -473,6 +478,9 @@
 .wui-autobtn { width: calc(64 * var(--u)); height: calc(24 * var(--u)); box-sizing: border-box; padding: 0; font: inherit; font-size: calc(7 * var(--u)); color: #fff; background: #123a4a; border: calc(2 * var(--u)) solid #6fd3ff; cursor: pointer; touch-action: none; user-select: none; }
 .wui-autobtn[aria-pressed='true'] { background: #1f7aa0; box-shadow: 0 0 0 calc(2 * var(--u)) #bfeaff inset; }
 .wui-orbitauto { color: #6fd3ff; }
+.wui-orbitwarp { display: flex; align-items: center; gap: calc(4 * var(--u)); color: #9fe8ff; }   /* the time warp: - x5 + (the readout lets taps through; only these buttons catch them) */
+.wui-orbitwarp button { pointer-events: auto; font: inherit; color: inherit; background: rgba(0, 24, 4, 0.55); border: calc(1 * var(--u)) solid currentColor; width: calc(16 * var(--u)); height: calc(16 * var(--u)); padding: 0; cursor: pointer; }
+.wui-orbitwarp button:disabled { opacity: 0.35; cursor: default; }
 
 /* The pattern keyboard: the 21 flight-pattern symbols as keys, in the reference layout (1, 5, 9, 3, 3). Centred over the view; the keys shrink to fit a short or narrow screen. */
 .wui-kb { z-index: 8; left: calc(66 * var(--u)); top: calc(40 * var(--u) + env(safe-area-inset-top, 0px)); --is: 0.5; --kw: clamp(24px, min(34px, calc((100vh - 280px * var(--is) - 140px) / 6.2), calc((100vw - 120px) / 9.8)), 34px); }   /* (top left, under the HUD banner and beside the menu buttons: clear of the instrument at the bottom, whose size (--is) it is fitted to; the top strip drags it elsewhere) */
@@ -495,3 +503,15 @@
 .wui-kbkey:active, .wui-kbkey[data-lit='true'] { filter: brightness(1.35) saturate(1.2); }
 .wui-kbkey:active img { transform: translateY(1px); }
 .wui-keysbtn { position: absolute; right: 100%; bottom: calc(6 * var(--u) + 174px); margin-right: calc(10 * var(--u)); pointer-events: auto; }
+.wui-kbkey[data-focus='true'] { outline: 2px solid #ffd54f; outline-offset: 1px; filter: brightness(1.2); }   /* the gamepad's highlight (the d-pad moves it, A presses it) */
+
+/* the menu's pattern keys: the 21 symbols with the key each answers to; tap one, then press its new key */
+.wui-hkedit { display: grid; gap: calc(6 * var(--u)); font-size: var(--fs-xs); }
+.wui-hkhint { margin: 0; line-height: 1.5; opacity: 0.85; }
+.wui-hkgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(34 * var(--u)), 1fr)); gap: calc(4 * var(--u)); }
+.wui-hkkey { position: relative; display: grid; place-items: center; aspect-ratio: 1; padding: 0; font: inherit; color: #ffd9a0; background: #5a1a14; border: 2px solid #2a0a08; cursor: pointer; }
+.wui-hkkey img { width: 70%; height: 70%; image-rendering: pixelated; pointer-events: none; }
+.wui-hkkey kbd { position: absolute; right: 2px; bottom: 1px; font: inherit; font-size: 6px; line-height: 1; }
+.wui-hkkey[aria-pressed='true'] { outline: 2px solid #ffd54f; outline-offset: 1px; animation: wui-orbit-blink 0.6s steps(2) infinite; }
+.wui-hkreset { justify-self: start; font: inherit; padding: calc(3 * var(--u)) calc(8 * var(--u)); color: #eaffef; background: #3a2a10; border: 2px solid #1a1206; cursor: pointer; }
+.wui-hkreset:disabled { opacity: 0.4; cursor: default; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Ecosystem, defaultWind } from './ecosystem';
 import { World, WATER, tileKey, keyX, keyY, plainTile } from './worldgen';
-import { terraceSpawn, onLedge, TerraceField, TERRACE_STEP, TERRACE_G, TERRACE_SUB, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf } from './terrace';
+import { terraceSpawn, onLedge, TerraceField, TERRACE_STEP, TERRACE_G, TERRACE_SUB, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf, terraceLakeOutlets, terraceLakeShoreAt, layerOf, elevation } from './terrace';
 import { mulberry32 } from './sanctuary';
 
 /** A terraced world with the weather ready: no clouds of its own, the area watched round the spawn. */
@@ -220,5 +220,47 @@ describe('ponds on the terraced hills', () => {
     expect(flat.wkind.length).toBe(0);
     const same = terraceChunkMesh(e, 0, 0, () => 5);   // (one level of water on both sides: nothing falls)
     expect([...same.wkind].filter(k => k >= 2).length).toBe(0);
+  });
+});
+
+describe('streams out of the lakes on the terraced hills', () => {
+  /** The first lake outlet near a seed's spawn (seeds tried in turn). */
+  function outletNear(seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+    for (const seed of seeds) {
+      const sp = terraceSpawn(seed), os = terraceLakeOutlets(sp.x - 400, sp.y - 400, sp.x + 400, sp.y + 400, seed);
+      if (os.length) return { seed, sp, o: os[0], all: os };
+    }
+    return null;
+  }
+  it('finds where lakes spill: past their water and shore, a layer or more below the lake, the same every time', () => {
+    let n = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const sp = terraceSpawn(seed), os = terraceLakeOutlets(sp.x - 500, sp.y - 500, sp.x + 500, sp.y + 500, seed);
+      expect(terraceLakeOutlets(sp.x - 500, sp.y - 500, sp.x + 500, sp.y + 500, seed)).toEqual(os);
+      for (const o of os) {
+        n++;
+        expect(terraceLakeAt(o.x + 0.5, o.y + 0.5, seed)).toBe(false);
+        expect(terraceLakeShoreAt(o.x + 0.5, o.y + 0.5, seed)).toBe(false);
+        expect(layerOf(elevation(o.x + 0.5, o.y + 0.5, seed))).toBeLessThanOrEqual(o.level - 1);
+      }
+    }
+    expect(n).toBeGreaterThan(2);   // (most worlds have lakes that spill somewhere near the start)
+  });
+  it('wears a beck downhill from a lake\'s outlet, and keeps it fed', () => {
+    const f = outletNear(); expect(f).not.toBeNull();
+    const { seed, o } = f!;
+    const w = new World(seed, undefined, 'terraced'), e = new Ecosystem(w, mulberry32(5), { enabled: false, strength: 0, dir: 0 });
+    e.setWatchedArea(o.x - 60, o.y - 60, o.x + 60, o.y + 60); e.step(0.1);
+    (e as any).importCloud = () => {}; (e as any).spawnCloud = () => {}; e.clouds.length = 0;
+    for (let t = 0; t < 120; t += 0.5) e.step(0.5);
+    const becks = (e as any).becks as Map<number, number>;
+    const near = [...becks.keys()].filter(k => Math.hypot(keyX(k) - o.x, keyY(k) - o.y) <= 2.5);
+    expect(near.length).toBeGreaterThan(0);                       // a beck starts at the outlet
+    const lines = new Set(near.map(k => becks.get(k))), mine = [...becks.keys()].filter(k => lines.has(becks.get(k)));   // (other lakes in the area spill too: only this outlet's line)
+    expect(mine.length).toBeGreaterThan(4);                       // and runs on from it
+    const h0 = w.metresAt(o.x, o.y);
+    for (const k of mine) expect(w.metresAt(keyX(k), keyY(k))).toBeLessThanOrEqual(h0 + 1e-6);   // (all of it at or below the outlet: it ran downhill)
+    for (let t = 0; t < 120; t += 0.5) e.step(0.5);                // two more minutes, no rain: the spills keep it
+    expect(([...becks.keys()].filter(k => Math.hypot(keyX(k) - o.x, keyY(k) - o.y) <= 2.5)).length).toBeGreaterThan(0);
   });
 });

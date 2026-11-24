@@ -71,10 +71,10 @@ describe('progress + achievements', () => {
     const r = applyTaskCompletion(initialStats(), { experienceReward: 13, statRewards: { body: 1, mind: 0, soul: 1 } });
     expect(r.stats).toMatchObject({ totalExperiencePoints: 13, body: 1, soul: 1, totalTasksCompleted: 1 });
   });
-  it('seed has 25 unique achievements', () => {
+  it('seed has 27 unique achievements', () => {
     const s = seedAchievements();
-    expect(s).toHaveLength(25);
-    expect(new Set(s.map(a => a.id)).size).toBe(25);
+    expect(s).toHaveLength(27);
+    expect(new Set(s.map(a => a.id)).size).toBe(27);
   });
   it('unlocks once and reports new ones', () => {
     const stats = { ...initialStats(), totalTasksCompleted: 10, totalExperiencePoints: 700, body: 100 };
@@ -86,6 +86,14 @@ describe('progress + achievements', () => {
   });
   it('minigame conditions are not met yet', () => {
     expect(isConditionMet('rock_game_first', { stats: initialStats(), maxHabitStreak: 0 })).toBe(false);
+  });
+  it('orbit achievements count flights that reached orbit', () => {
+    const base = { stats: initialStats(), maxHabitStreak: 0 };
+    expect(isConditionMet('orbit_first', base)).toBe(false);
+    expect(isConditionMet('orbit_first', { ...base, orbits: 1 })).toBe(true);
+    expect(isConditionMet('orbit_10', { ...base, orbits: 9 })).toBe(false);
+    expect(isConditionMet('orbit_10', { ...base, orbits: 10 })).toBe(true);
+    expect(seedAchievements().some(a => a.id === 'orbit_first')).toBe(true);
   });
 });
 

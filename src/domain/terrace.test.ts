@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor } from './terrace';
+import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor } from './terrace';
 import { World, GRASS, SAND, WATER, DECO_NONE, CHUNK, MARGIN, SIDE, generateTerraceChunk } from './worldgen';
 import { newSavedWorld, sanitizeWorlds } from './worldsave';
 
@@ -237,5 +237,21 @@ describe('far levels by height', () => {
   });
   it('a coarse level covers the ground under a plane well up: its half-size is more than the eye height at which it starts', () => {
     for (let i = 1; i < TERRACE_FAR_LODS.length; i++) expect(TERRACE_FAR_LODS[i].half).toBeGreaterThan(FAR_LEVEL_FROM[i]);
+  });
+});
+
+describe('the hop over a ledge on foot', () => {
+  it('lifts the eye up a layer in an arc, and dips it a little down one', () => {
+    expect(hopOffset(0, true)).toBe(0);
+    expect(hopOffset(HOP.UP_T / 2, true)).toBeCloseTo(HOP.UP_H, 6);
+    expect(hopOffset(HOP.UP_T, true)).toBe(0);
+    expect(hopOffset(HOP.DOWN_T / 2, false)).toBeCloseTo(-HOP.DOWN_H, 6);
+    expect(hopOffset(-1, true)).toBe(0); expect(hopOffset(NaN, true)).toBe(0);
+    expect(HOP.UP_H).toBeLessThan(TERRACE_STEP);
+  });
+  it('tells a ledge from the slope of a shelf', () => {
+    expect(ledgeStep(1, 1 + TERRACE_STEP)).toBe('up');
+    expect(ledgeStep(1 + TERRACE_STEP, 1)).toBe('down');
+    expect(ledgeStep(1, 1.1)).toBeNull();
   });
 });

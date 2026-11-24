@@ -24,6 +24,8 @@ export interface AppState {
   rockGame: RockSave;
   /** Lake District: the named waters the plane has flown over (across all worlds), for the lake achievements. */
   lakesFlown: string[];
+  /** Paperplane: how many flights have reached orbit (across all worlds), for the orbit achievements. */
+  orbitsReached: number;
   /** Sanctuary block builder: saved levels + the unsaved work in progress. */
   sanctuary: SanctuarySave;
   /** Mind maps: boxes and the links between them. */
@@ -53,6 +55,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   chat: [],
   rockGame: emptyRockSave(),
   lakesFlown: [],
+  orbitsReached: 0,
   sanctuary: emptySanctuarySave(),
   mindMaps: emptyMindMaps(),
   notes: emptyNotes(),

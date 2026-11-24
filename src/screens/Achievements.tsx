@@ -48,7 +48,8 @@ export function Achievements() {
   const stats = useAppState(s => s.stats);
   const lakes = useAppState(s => s.lakesFlown);
   const habits = useAppState(s => s.habits);
-  const ctx = { stats, maxHabitStreak: habits.reduce((m, h) => Math.max(m, h.streak, h.bestStreak), 0), rock, lakes };
+  const orbits = useAppState(s => s.orbitsReached);
+  const ctx = { stats, maxHabitStreak: habits.reduce((m, h) => Math.max(m, h.streak, h.bestStreak), 0), rock, lakes, orbits };
   const unlocked = achievements.filter(a => a.unlocked).length;
 
   return (

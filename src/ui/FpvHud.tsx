@@ -89,6 +89,18 @@ export function drawFpvHud(g: CanvasRenderingContext2D, W: number, H: number, d:
   }
   text(`G ${d.load.toFixed(1)}`, Math.max(16 * u, cx - Math.min(W * 0.36, 330 * u)), cy + 56 * u, 'left', fs * 0.95);
 
+  // ---- the orbit (the rocket stage, or high up): under the height box, the same numbers as the readout the other views show --------------------------
+  if (d.fuelMax > 0 || d.altitude > 2500) {
+    const km = (m: number) => (!Number.isFinite(m) ? '--' : Math.abs(m) >= 10000 ? `${(m / 1000).toFixed(1)}K` : String(Math.round(m)));
+    const rows: [string, string][] = [];
+    if (d.orbited) rows.push(['#7dd8ff', d.warp > 1 ? `ORBIT x${d.warp}` : 'ORBIT']);
+    if (d.auto) rows.push([GREEN, `AUTO ${d.auto.toUpperCase()}`]);
+    if (d.fuelMax > 0) rows.push([GREEN, `FUEL ${d.fuel.toFixed(1)}${d.rocketOn ? ' >>' : ''}`]);
+    rows.push([GREEN, `APO ${km(d.apo)}`], [GREEN, `PER ${km(d.peri)}`]);
+    if (d.heat > 0.05 && (d.heat < 0.6 || Math.floor(now / 200) % 2 === 0)) rows.push([d.heat > 0.6 ? '#ff5a4a' : '#ffb300', `HEAT ${Math.round(Math.min(1, d.heat) * 100)}%`]);
+    rows.forEach(([c, s], i) => text(s, ex, cy + 46 * u + i * fs * 1.6, 'right', fs * 0.85, c));
+  }
+
   // ---- warnings ----------------------------------------------------------------------------------------------------------------------------------------------------
   if (d.stalled && Math.floor(now / 250) % 2 === 0) text('STALL', cx, cy + Math.min(H * 0.2, 130 * u), 'center', fs * 1.6, '#ff5a4a');
   if (d.altitude < 6 && d.vsi < -1.5 && Math.floor(now / 200) % 2 === 0) text('PULL UP', cx, cy + Math.min(H * 0.2, 130 * u) + 22 * u, 'center', fs * 1.2, '#ffb300');

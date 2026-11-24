@@ -56,3 +56,23 @@ export const heatRate = (rho: number, v: number) => Math.max(0, Math.sqrt(rho) *
 /** How much like space the sky looks at this height above sea level: 0 below SPACE_FROM, 1 above SPACE_TO, smooth between. */
 export const SPACE_FROM = 8000, SPACE_TO = 24000;
 export const spaceFactor = (h: number) => { const t = Math.max(0, Math.min(1, (h - SPACE_FROM) / (SPACE_TO - SPACE_FROM))); return t * t * (3 - 2 * t); };
+
+/**
+ * Time warp on an orbit: the plane's own physics is stepped this many times a frame (the step itself stays the frame's, so the flight is
+ * exactly what it would be at 1x, only sooner). One orbit of the small planet takes about 18 minutes at 1x.
+ */
+export const WARP_STEPS = [1, 5, 20, 50] as const;
+/** Air thinner than this (about 19 km up) is quiet enough to warp through. */
+export const WARP_RHO = 1e-4;
+/**
+ * Whether time may run fast: on an orbit that has counted, with the rocket off, the paper cool, the air this thin, and nothing flying the
+ * plane (no stick, no pattern, no SAS or auto orbit: those steer on the real clock). `steering` is how far the stick is from the middle.
+ */
+export function warpAllowed(g: { orbited: boolean; rocketOn: boolean; landed: boolean; heat: number; z: number; gnd?: number }, steering: number, flown: boolean): boolean {
+  return g.orbited && !g.rocketOn && !g.landed && g.heat < 0.01 && !flown && steering < 0.05 && airDensity(g.z + (g.gnd ?? 0)) < WARP_RHO;
+}
+/** The next warp step up (+1) or down (-1) from `w`, kept to WARP_STEPS. */
+export function nextWarp(w: number, dir: 1 | -1): number {
+  const i = Math.max(0, WARP_STEPS.findIndex(s => s >= w));
+  return WARP_STEPS[Math.max(0, Math.min(WARP_STEPS.length - 1, i + dir))];
+}

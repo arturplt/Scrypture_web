@@ -43,7 +43,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
   /** Re-evaluate achievements against the given state, record unlock events. */
   function withAchievements(s: AppState): AppState {
     const maxHabitStreak = s.habits.reduce((m, h) => Math.max(m, h.streak, h.bestStreak), 0);
-    const r = checkAchievements(s.achievements, { stats: s.stats, maxHabitStreak, rock: s.rockGame.stats, lakes: s.lakesFlown }, clock());
+    const r = checkAchievements(s.achievements, { stats: s.stats, maxHabitStreak, rock: s.rockGame.stats, lakes: s.lakesFlown, orbits: s.orbitsReached }, clock());
     r.newlyUnlocked.forEach(a => pushEvents({ type: 'achievement', achievement: a }));
     return { ...s, achievements: r.achievements, ...(r.newlyUnlocked.length ? { bobr: state.bobr } : {}) };   // pushEvents above made him playful
   }
@@ -459,6 +459,10 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     flewOverLake(name: string) {
       if (state.lakesFlown.includes(name)) return;
       set(withAchievements({ ...state, lakesFlown: [...state.lakesFlown, name] }));
+    },
+    /** A Paperplane flight reached orbit: count it, and check the orbit achievements. */
+    reachedOrbit() {
+      set(withAchievements({ ...state, orbitsReached: (state.orbitsReached ?? 0) + 1 }));
     },
     saveWorld(id: string, patch: Partial<Omit<SavedWorld, 'id'>>) {
       set({ ...state, worlds: { list: state.worlds.list.map(w => (w.id === id ? { ...w, ...patch, playedAt: clock() } : w)) } });

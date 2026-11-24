@@ -14,6 +14,20 @@ const CHUNK = 16;
 export const TERRACE_STEP = 0.45;
 /** Grid points a tile for the height grid and the chunk mesh: 2 = every half tile, fine enough for the ledges to read as edges. */
 export const TERRACE_SUB = 2;
+
+/**
+ * Stepping over a ledge on foot: up a layer the eye hops (a quick arc on top of the ground's own easing), down one it dips a little as
+ * the bobr lands. Times in seconds, heights in tiles.
+ */
+export const HOP = { UP_T: 0.3, UP_H: TERRACE_STEP * 0.4, DOWN_T: 0.2, DOWN_H: TERRACE_STEP * 0.15 };
+/** How far the eye is lifted (or, down a ledge, lowered) `age` seconds into a hop; 0 once it is over. */
+export function hopOffset(age: number, up: boolean): number {
+  const T = up ? HOP.UP_T : HOP.DOWN_T;
+  if (!(age >= 0) || age >= T) return 0;
+  return (up ? HOP.UP_H : -HOP.DOWN_H) * Math.sin((Math.PI * age) / T);
+}
+/** Whether a step on foot from ground height h0 to h1 (tiles) crossed a ledge: 'up', 'down', or null on the level. */
+export const ledgeStep = (h0: number, h1: number): 'up' | 'down' | null => (h1 - h0 > TERRACE_STEP * 0.5 ? 'up' : h0 - h1 > TERRACE_STEP * 0.5 ? 'down' : null);
 /** Nominal real metres a layer stands for (for code that compares heights in metres, e.g. which side of a dam is uphill). */
 export const TERRACE_LAYER_M = 30;
 /** Layers from which the tops are bare (sand and rocks, no trees). */
@@ -98,7 +112,7 @@ const LAKE_ALL = 3;
  */
 export const lakeScalesFor = (step: number): number => { let n = 0; for (const sc of LAKE_SCALES) if ((sc.rMin + sc.rSpan) * 2 >= step * 0.6) n++; else break; return n; };
 const LAKE_MIN_LEVEL = 3, LAKE_SHORE = 2.6, LAKE_MAX_SPREAD = 6;
-interface Lake { x: number; y: number; r: number; level: number; blend: number; deep: number; sw: number; phi: number; sa: number; p2: number; p3: number; p5: number; a2: number; a3: number; a5: number }
+interface Lake { x: number; y: number; r: number; level: number; spill: number; blend: number; deep: number; sw: number; phi: number; sa: number; p2: number; p3: number; p5: number; a2: number; a3: number; a5: number }
 const LAKE_TMP = new Float64Array(LOW_N), lakeCaches = new Map<number, Map<number, Lake | null>>();
 const baseDirect = (x: number, y: number, s: number): number => { lowAt(x, y, s, LAKE_TMP, 0); return baseAt(x, y, s, LAKE_TMP, 0); };
 /** The lake of a cell of one scale: whether there is one (odds raised or lowered by the region's wetness), its place and radius from hashes, and its level and blend. Remembered per seed and scale. */
@@ -120,13 +134,13 @@ function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | n
     const r = sc.rMin + hash01(cx, cy, s + 72 + si * 10) * sc.rSpan, blend = 6 + r * 0.4, edge = r * LAKE_REACH + LAKE_SHORE + blend + 1, room = sc.cell - 2 * edge;
     for (let t = 0; t < 6 && !l && room > 2; t++) {   // a few places in the cell are tried, and the first that is a basin (see above) takes the lake
       const x = cx * sc.cell + edge + hash01(cx, cy, s + 73 + si * 10 + t * 100) * room, y = cy * sc.cell + edge + hash01(cx, cy, s + 74 + si * 10 + t * 100) * room;
-      let lo = Infinity, hi = -Infinity;   // the ground on a ring just outside the shore: the lake fills up to its lowest shelf, and the ground must not be steep or run down to the sea
-      for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, rr = r * 1.3 + LAKE_SHORE + 1, e = baseDirect(x + Math.cos(a) * rr, y + Math.sin(a) * rr, s); lo = Math.min(lo, e); hi = Math.max(hi, e); }
+      let lo = Infinity, hi = -Infinity, spill = 0;   // the ground on a ring just outside the shore: the lake fills up to its lowest shelf, and the ground must not be steep or run down to the sea (where it is lowest, the lake spills over)
+      for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, rr = r * 1.3 + LAKE_SHORE + 1, e = baseDirect(x + Math.cos(a) * rr, y + Math.sin(a) * rr, s); if (e < lo) { lo = e; spill = a; } hi = Math.max(hi, e); }
       const level = Math.floor(lo);
       if (level >= LAKE_MIN_LEVEL && hi - lo <= LAKE_MAX_SPREAD) {
         const deep = Math.max(1, Math.min(level - 1, r < 6 ? 1 : r < 12 ? 2 : r < 22 ? 3 : 4)), h = (k: number) => hash01(cx, cy, s + 75 + si * 10 + k * 7);
         // an odd shape: stretched along some direction (up to 1.8 to 1), and lobed by a few harmonics round its rim, each with its own phase and a strength of its own
-        l = { x, y, r, level, blend, deep, sw: Math.max(1.5, (r - 1) / deep), phi: h(1) * Math.PI, sa: Math.sqrt(1 + h(2) * 0.8), p2: h(3) * 6.283, p3: h(4) * 6.283, p5: h(5) * 6.283, a2: 0.05 + h(6) * 0.13, a3: 0.04 + h(7) * 0.12, a5: 0.02 + h(8) * 0.08 };
+        l = { x, y, r, level, spill, blend, deep, sw: Math.max(1.5, (r - 1) / deep), phi: h(1) * Math.PI, sa: Math.sqrt(1 + h(2) * 0.8), p2: h(3) * 6.283, p3: h(4) * 6.283, p5: h(5) * 6.283, a2: 0.05 + h(6) * 0.13, a3: 0.04 + h(7) * 0.12, a5: 0.02 + h(8) * 0.08 };
       }
     }
   }
@@ -159,6 +173,33 @@ export const terraceLakeTopAt = (x: number, y: number, seed: number): number => 
 export const terraceLakeSheetAt = (x: number, y: number, seed: number): number => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkW >= 1 && lkDepth > -0.5 ? lkLevel : -1; };
 /** Is the point (a tile's centre, say) in an inland lake's water? */
 export const terraceLakeAt = (x: number, y: number, seed: number, lakes = LAKE_ALL): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0, lakes); return lkWater; };
+/**
+ * Where the inland lakes whose middles lie in a box spill over: along each lake's lowest side (where it fills to), the first tile out past its water and shore that lies a layer or more below the
+ * lake's own shelf, the drop the overflow runs off. A lake whose low side never falls away there (a closed basin) has none. The ecosystem sends runoff from these, which cuts a beck downhill.
+ */
+export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: number, seed: number): { x: number; y: number; level: number }[] {
+  const s = (seed ^ 0x7e77ace) | 0, out: { x: number; y: number; level: number }[] = [];
+  for (let si = 0; si < LAKE_SCALES.length; si++) {
+    const c = LAKE_SCALES[si].cell;
+    for (let cy = Math.floor(y0 / c); cy <= Math.floor(y1 / c); cy++) for (let cx = Math.floor(x0 / c); cx <= Math.floor(x1 / c); cx++) {
+      const l = lakeOfCell(si, cx, cy, s); if (!l || l.x < x0 || l.x > x1 || l.y < y0 || l.y > y1) continue;
+      let o = OUTLETS.get(l);
+      if (o === undefined) {
+        o = null;
+        const reach = l.r * LAKE_REACH + LAKE_SHORE + l.blend + 10, ca = Math.cos(l.spill), sa = Math.sin(l.spill);
+        for (let d = l.r; d <= reach && !o; d += 0.7) {
+          const tx = Math.floor(l.x + ca * d), ty = Math.floor(l.y + sa * d);
+          lakeProbe(tx + 0.5, ty + 0.5, s); if (lkWater || lkShore) continue;
+          if (layerOf(elevation(tx + 0.5, ty + 0.5, seed)) <= l.level - 1) o = { x: tx, y: ty, level: l.level };
+        }
+        OUTLETS.set(l, o);
+      }
+      if (o) out.push(o);
+    }
+  }
+  return out;
+}
+const OUTLETS = new WeakMap<Lake, { x: number; y: number; level: number } | null>();
 /** Is the point on the sand shore of an inland lake (the first tile or two beside its water)? */
 export const terraceLakeShoreAt = (x: number, y: number, seed: number): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkShore; };
 

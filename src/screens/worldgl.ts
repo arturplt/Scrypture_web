@@ -32,9 +32,9 @@ import TREELINE_URL from '../assets/treeline.png';
 
 const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
-uniform mat4 uVP;
+uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC;   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down)
 out vec2 vUv; out vec4 vCol; out vec3 vPos;
-void main() { gl_Position = uVP * vec4(aPos, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
+void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; p.z += uCurveC * dot(d, d); gl_Position = uVP * vec4(p, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
 const FS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec4 vCol; in vec3 vPos;
@@ -220,7 +220,7 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
-uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
+uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh, uDip;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
 uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas, uDrop; uniform float uHasT, uSea;   // uDrop: how far (degrees) the mountains, then the far, middle and near tree lines have sunk, the higher the eye   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
@@ -237,11 +237,11 @@ vec4 band(sampler2D tex, float az, float elDeg, float span, float hDeg, float vb
 }
 void main() {
   vec3 ray = normalize(uF + uR * (vN.x * uTan.x) + uU * (vN.y * uTan.y));
-  float e = clamp(-ray.z, 0.0, 1.0);                                          // height of the ray over the horizon (z is down)
+  float e = clamp(-ray.z + uDip, 0.0, 1.0);                                   // height of the ray over the horizon (z is down). High up the horizon is the planet's rim, uDip below level: the whole sky (its colours, the stars' dome, the picture bands) stands on the rim, or the rays between the rim and level would all sample one row of it and streak
   vec3 c = mix(uHor, uZen, pow(e, 0.5));
   float nk = max(clamp(uNight.a / 0.7, 0.0, 1.0), uSpace);
-  c = mix(c, vec3(0.004, 0.006, 0.016), uSpace * smoothstep(-0.1, 0.5, e + 0.35 * uSpace));            // space: black above, the air's blue left only low down
-  c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(e) * 22.0);                  // and a thin blue limb of air along the horizon
+  c = mix(c, vec3(0.004, 0.006, 0.016), uSpace * smoothstep(-0.1, 0.5, e + 0.35 * uSpace));           // space: black above, the air's blue left only low down
+  c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(-ray.z + uDip) * 22.0);      // and a thin blue limb of air along the rim
   float d = dot(ray, uSun);
   c += vec3(1.0, 0.78, 0.45) * (0.30 * pow(max(d, 0.0), 14.0) + 0.25 * pow(max(d, 0.0), 120.0)) * uDay;   // the sun's glow
   c += vec3(1.0, 0.55, 0.25) * 0.22 * pow(max(d, 0.0), 4.0) * pow(1.0 - e, 6.0) * uDay * uFx;               // and the haze low on its side of the horizon
@@ -264,7 +264,7 @@ void main() {
     if (dot(ray, md) > 0.0 && abs(q.x) < 1.0 && abs(q.y) < 1.0) { vec4 mt = texture(uMoon, vec2(0.5 + 0.5 * q.x, 0.5 - 0.5 * q.y)); c = mix(c, mt.rgb * 1.08, mt.a * nk); S *= 1.0 - mt.a * nk; }
   } else c = mix(c, vec3(0.88, 0.92, 1.0), smoothstep(0.9989, 0.9993, m) * nk);                              // (until the picture loads)
   // the layers, far to near, over the sun and the stars: so the sun sets behind the mountains and the clouds drift across it
-  float az = atan(ray.y, ray.x), el = degrees(asin(clamp(-ray.z, -1.0, 1.0)));
+  float az = atan(ray.y, ray.x), el = degrees(asin(clamp(-ray.z + uDip, -1.0, 1.0)));
   if (el > -91.0) {
     vec3 night = mix(uNight.rgb, vec3(0.03, 0.04, 0.10), 0.6);
     // clouds: the art is dusk light (peach and violet); at midday it turns white and bluish, at night dark
@@ -316,7 +316,7 @@ void main() {
       }
     }
   }
-  if (-ray.z < 0.0) {   // below the horizon, high up: the haze of the ground out to the edge of the world (the far ground fades into the same colour), never the sky's stars and layers, which all sample one row down here and streak
+  if (-ray.z < -uDip) {   // below the horizon (the planet's rim, high up), high up: the haze of the ground out to the edge of the world (the far ground fades into the same colour), never the sky's stars and layers, which all sample one row down here and streak
     float k = max(uHigh, uSpace);
     vec3 hz = mix(uHor * (1.0 - 0.45 * uSpace), uNight.rgb, uNight.a);
     c = mix(c, hz, k); S *= 1.0 - k;
@@ -415,6 +415,10 @@ export class WorldGL {
   fx = true;
   /** 0 in the air .. 1 in space: set by the screen from the plane's height above sea level (see spaceFactor). Blacks out the sky and brings out the stars. */
   space = 0;
+  /** The planet's curve as drawn: the ground drops by curveC * d^2 (tiles) at d tiles from the eye. The screen sets it from the height (0 low down, so nothing changes there). */
+  curveC = 0;
+  /** The sine of how far the planet's rim has sunk below level for this eye: the tangent from the eye to the curved ground (z = curveC d^2) falls at 2 sqrt(curveC H). */
+  dipSin() { const H = Math.max(0, -this.eye[2]); if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
@@ -532,8 +536,8 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -884,7 +888,7 @@ export class WorldGL {
       gl.uniform3f(L.uHor, this.sky[0], this.sky[1], this.sky[2]); gl.uniform3f(L.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
       gl.uniform3f(L.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform2f(L.uTan, this.tanX, this.tanY);
       gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.dayK); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
-      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
+      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uDip, this.dipSin()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
       gl.uniform2f(L.uPos, Math.tanh(this.eye[0] / 400) * 400, Math.tanh(this.eye[1] / 400) * 400);   // (the position is squashed to +-400 tiles: the shift changes with the azimuth, so a big shift would squeeze and stretch the clouds; this keeps every layer within about 9% of its width)
       gl.uniform1f(L.uHasMoon, this.moonTex ? 1 : 0);
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
@@ -901,7 +905,7 @@ export class WorldGL {
     }
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(this.loc.uVP, false, this.vp);
-    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]);
+    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]); gl.uniform1f(this.loc.uCurveC, this.curveC);
     { const sp = 1 - 0.45 * this.space; gl.uniform3f(this.loc.uFog, this.sky[0] * sp, this.sky[1] * sp, this.sky[2] * sp); }   // (the same haze as the sky's below the horizon)
     // no distance haze, except high up over a hilly world: the far ground fades into the haze before the edge of what is drawn, so it meets the sky with no gap
     { const hk = this.farOn && this.farMesh ? this.highK() : 0, st = this.reach * (0.55 + 3 * (1 - hk)); if (hk > 0) gl.uniform2f(this.loc.uFogRange, st, st + this.reach * 0.42); else gl.uniform2f(this.loc.uFogRange, 1e7, 2e7); }

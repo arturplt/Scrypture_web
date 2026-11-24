@@ -60,3 +60,12 @@ describe('gamepad', () => {
     expect(pickPad(undefined)).toBeNull();
   });
 });
+
+describe('the d-pad as buttons only', () => {
+  it('folds into the left stick by default, and not when asked', () => {
+    const p: PadSnapshot = { axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === PAD.UP, value: i === PAD.UP ? 1 : 0 })) };
+    expect(readPad(p).ly).toBe(-1);
+    const q = readPad(p, { dpadStick: false });
+    expect(q.ly).toBe(0); expect(q.down.has(PAD.UP)).toBe(true); expect(q.active).toBe(true);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, launchPlane, refuel, stepGlider, type Glider, type GlideEnv, type GlideControls } from './glider';
-import { SPACE_FROM, SPACE_TO, spaceFactor, ORBIT, MU, G0, airDensity, gravityAt, orbitElements, circularSpeed, rocketFuel, thinness, heatRate, clearsAir } from './orbit';
+import { SPACE_FROM, SPACE_TO, spaceFactor, ORBIT, MU, G0, airDensity, gravityAt, orbitElements, circularSpeed, rocketFuel, thinness, heatRate, clearsAir, warpAllowed, nextWarp, WARP_STEPS } from './orbit';
 
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0 };
 const DT = 1 / 60;
@@ -151,5 +151,33 @@ describe('the way down from a spent orbit, and the edge of space', () => {
     const g = newGlider(0, 0, 0, 1); launchPlane(g, 0, 0, 0, 1); refuel(g, 22);
     let t = 0, top = 0; while (t < 700 && !g.landed) { stepGlider(g, { pitch: 0, roll: 0, yaw: 0, rocket: t < 18 }, still, DT); t += DT; top = Math.max(top, g.z); }
     expect(top).toBeGreaterThan(ORBIT.CEILING); expect(top).toBeLessThan(ORBIT.CEILING + 15000); expect(g.vz).toBeLessThan(0);
+  });
+});
+
+describe('time warp', () => {
+  it('steps through 1, 5, 20 and 50 and stops at the ends', () => {
+    expect(nextWarp(1, 1)).toBe(5); expect(nextWarp(5, 1)).toBe(20); expect(nextWarp(50, 1)).toBe(50);
+    expect(nextWarp(20, -1)).toBe(5); expect(nextWarp(1, -1)).toBe(1); expect(WARP_STEPS[0]).toBe(1);
+  });
+  it('is only allowed on a quiet orbit: no rocket, no heat, no stick, nothing flying the plane, thin air', () => {
+    const o = { orbited: true, rocketOn: false, landed: false, heat: 0, z: 30000 };
+    expect(warpAllowed(o, 0, false)).toBe(true);
+    expect(warpAllowed({ ...o, orbited: false }, 0, false)).toBe(false);
+    expect(warpAllowed({ ...o, rocketOn: true }, 0, false)).toBe(false);
+    expect(warpAllowed({ ...o, heat: 0.2 }, 0, false)).toBe(false);
+    expect(warpAllowed({ ...o, z: 12000 }, 0, false)).toBe(false);
+    expect(warpAllowed(o, 0.3, false)).toBe(false);
+    expect(warpAllowed(o, 0, true)).toBe(false);
+  });
+  it('a warped coast is the same orbit: a whole period at 50 steps a frame keeps the periapsis, and the apoapsis only decays a little', () => {
+    const r = ascend(3);
+    expect(r.g.orbited).toBe(true);
+    const g = r.g, apo0 = g.apo, peri0 = g.peri, period = orbitElements(g.z + (g.gnd ?? 0), Math.hypot(g.vx, g.vy), g.vz).period;
+    let frames = 0;
+    for (let t = 0; t < period; t += DT * 50, frames++) { expect(warpAllowed(g, 0, false)).toBe(true); for (let k = 0; k < 50; k++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, DT); }
+    expect(frames).toBeLessThan(period / DT / 49);   // (a whole orbit in a fiftieth of the frames)
+    expect(Math.abs(g.peri - peri0) / peri0).toBeLessThan(0.01);
+    expect(g.apo).toBeLessThan(apo0);                        // (the thin air at the low point drags a little each pass: the orbit decays from the top, slowly)
+    expect((apo0 - g.apo) / apo0).toBeLessThan(0.02);
   });
 });
