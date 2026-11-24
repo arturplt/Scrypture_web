@@ -98,7 +98,7 @@ describe('rain on the Lake District ground', () => {
     const w = new World(7, undefined, 'lakedistrict'), e = new Ecosystem(w, mulberry32(3), { enabled: false, strength: 0, dir: 0 });
     e.setWatchedArea(-40, -40, 40, 40); e.step(0.1);
     // a slope with no stream on it: x = 30..34 rises 0.4 m a tile away from the stream at x = 0, so water runs west toward it; shed many packets from one tile
-    const sx = 30, sy = 0, hh = (x: number, y: number) => w.metresAt(x, y);
+    const sx = 30, sy = 0;
     for (let i = 0; i < 40; i++) { (e as any).packets.push({ x: sx, y: sy, n: 0 }); }
     const path: [number, number][] = [];
     for (let t = 0; t < 120; t += 0.2) { e.step(0.2); }

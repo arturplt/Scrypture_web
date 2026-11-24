@@ -12,7 +12,7 @@ import { CategoryManager } from './CategoryManager';
 import { Dropdown } from '../ui/Dropdown';
 import { CategoryChip } from '../ui/CategoryChip';
 import { useI18n, useT } from '../i18n/useT';
-import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
+import { frameOr, resolveFrame } from '../ui/themes';
 import { CATEGORY_TINT } from '../ui/colors';
 import { useTintedFrame } from '../ui/tintFrame';
 import { Sparkles, fxVars, prefersReducedMotion, useFlip } from '../ui/CompleteFx';

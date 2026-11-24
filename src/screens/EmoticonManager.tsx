@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { REPERTOIRE, emoticonGroups, EMOTICON_EXTRAS, matchesEmoticon, type Emoticon, EMOTICONS, isPlanned, type EmoticonFeeling } from '../domain';
+import { REPERTOIRE, emoticonGroups, EMOTICON_EXTRAS, matchesEmoticon, type Emoticon, EMOTICONS, isPlanned } from '../domain';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
 import { PixelFrame } from '../ui/PixelFrame';

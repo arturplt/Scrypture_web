@@ -51,8 +51,7 @@ import { NAV_DEFS, isActivePath, navDefsIn } from './ui/navItems';
 import { useNavBadges } from './ui/navBadges';
 import { AppDrawerHost, setAppDrawer } from './ui/appDrawer';
 import { useLongPress } from './ui/misc';
-import { LIGHT_FRAMES, frameOr, resolveFrame, splitFrame } from './ui/themes';
-import type { Key } from './i18n';
+import { LIGHT_FRAMES, frameOr, resolveFrame } from './ui/themes';
 import './app.css';
 
 function Screen({ route }: { route: string }) {

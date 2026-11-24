@@ -77,7 +77,6 @@ describe('stability assist', () => {
 });
 
 describe('stability assist: target', () => {
-  const bearingErr = (g: ReturnType<typeof settled>, tg: ReturnType<typeof settled>) => { const dx = tg.x - g.x, dy = tg.y - g.y, e = Math.atan2(dy, dx) - g.psi; return Math.abs(Math.atan2(Math.sin(e), Math.cos(e))); };
   it('is in the cycle only when there is a target', () => {
     expect(nextSasMode('acro', true)).toBe('target'); expect(nextSasMode('acro', false)).toBe('off'); expect(nextSasMode('target', true)).toBe('off');
   });

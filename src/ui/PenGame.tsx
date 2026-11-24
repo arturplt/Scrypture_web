@@ -25,7 +25,7 @@ export function PenGame({ card, mode, onClose }: { card: HTMLElement; mode: Game
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const cr = card.getBoundingClientRect(), er = el.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
     const Wf = Math.min(er.width, er.height * (FIELD_W / FIELD_H)), Hf = Wf * (FIELD_H / FIELD_W);
     const g: Geo = { left: (er.width - Wf) / 2, width: Wf, height: Hf };
     const timers: number[] = [];

@@ -35,7 +35,6 @@ export function Dashboard() {
   const fr = (id: string) => frameOr(id, 'app');
   const tasks = useAppState(s => s.tasks);
   const habits = useAppState(s => s.habits);
-  const achievements = useAppState(s => s.achievements);
   const planner = useAppState(s => s.planner);
   const now = useNow(1000);
   const t = useT();

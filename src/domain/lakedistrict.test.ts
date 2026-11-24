@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import roadsRaw from '../../public/assets/lakedistrict/roads.json?raw';
 import { CHUNK, GRASS, SAND, WATER, World, generateLakeChunk, MARGIN, SIDE } from './worldgen';
-import { lakeSpawnFor, setLakeRoads, lakePlaceLabels, lakeRoadAt, lakeTileOf, lakeOnMap, LAKE_WATER, groundTiles, groundZ, lakeMetresAt, lakeWaterAt, setLakeData, cornerMetres, HEIGHT_STRETCH, REAL_TILE_M } from './lakedistrict';
+import { lakeSpawnFor, setLakeRoads, lakePlaceLabels, lakeRoadAt, lakeTileOf, lakeOnMap, LAKE_WATER, groundTiles, lakeMetresAt, lakeWaterAt, setLakeData, cornerMetres, HEIGHT_STRETCH, REAL_TILE_M } from './lakedistrict';
 import { newSavedWorld, sanitizeWorlds } from './worldsave';
 import { newGlider, stepGlider, throwPlane, type GlideEnv } from './glider';
 

@@ -222,7 +222,6 @@ export class Ecosystem {
   readonly tarns = new Set<{ pond: Pond; vol: number; region?: number[] }>();   // (region: a terraced tarn's whole shelf, so each tile of it finds the same tarn)
   private tarnOf = new Map<number, { pond: Pond; vol: number; region?: number[] }>();
   private noTarn = new Set<number>();
-  private runoffAcc = 0;
   /** The terraced hills: where the lakes in the watched area spill over (see `spillLakes`), for the area they were found for. */
   private outlets: { x: number; y: number }[] = []; private outletsFor = ''; private spillAcc = 0; private readonly outletSeen = new Set<number>();
   private migrateAcc = 0;
@@ -1131,7 +1130,6 @@ export class Ecosystem {
     this.spillAcc = 0;
     for (const o of this.outlets) { if (this.packets.length >= MAX_PACKETS) break; this.cross(o.x, o.y); this.packets.push({ x: o.x, y: o.y, n: 0 }); }
   }
-  private tarnWater(x: number, y: number) { return this.terrainAt(x, y) === WATER && this.tarnOf.has(tileKey(x, y)); }
   /**
    * The tarn at (x, y), made if there is none: a small real lake (up to TARN_BODY_MAX tiles of the map's lake water) starts from its own
    * water, a hollow on land (every neighbour higher) starts empty at its lowest tile. Anything else (a stream, a dam pond, a big lake) is none.

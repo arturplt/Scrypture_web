@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Ecosystem, defaultWind } from './ecosystem';
 import { World, WATER, tileKey, keyX, keyY, plainTile } from './worldgen';
-import { terraceSpawn, onLedge, TerraceField, TERRACE_STEP, TERRACE_G, TERRACE_SUB, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf, terraceLakeOutlets, terraceLakeShoreAt, layerOf, elevation } from './terrace';
+import { terraceSpawn, TerraceField, TERRACE_STEP, TERRACE_G, TERRACE_SUB, terraceChunkMesh, terraceLakeAt, terraceSpawn as spawnOf, terraceLakeOutlets, terraceLakeShoreAt, layerOf, elevation } from './terrace';
 import { mulberry32 } from './sanctuary';
 
 /** A terraced world with the weather ready: no clouds of its own, the area watched round the spawn. */

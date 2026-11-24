@@ -2,7 +2,7 @@ import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { PixelFrame } from './PixelFrame';
 import { useTickUrls } from './TickLook';
 import { useAppState } from '../data/hooks';
-import { backdropFrame, frameOr, rawUrl, type FrameTheme } from './themes';
+import { backdropFrame, frameOr, rawUrl } from './themes';
 import { useTintedImage } from './tintFrame';
 import './ui.css';
 

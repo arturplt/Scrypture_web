@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newGlider, stepGlider, type GlideEnv, type Glider } from './glider';
-import { CHASE_PTS, steer, FLEE_PTS, HITS_TO_WIN, SHOT_RANGE, aimOf, endDogfight, makeShot, placeAi, shotTolerance, sliderPos, startDogfight, stepDog, tapHits, tapShot, type Dog } from './dogfight';
+import { CHASE_PTS, steer, FLEE_PTS, HITS_TO_WIN, SHOT_RANGE, aimOf, endDogfight, makeShot, placeAi, shotTolerance, sliderPos, startDogfight, stepDog, tapHits, tapShot } from './dogfight';
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const still: GlideEnv = { windX: 0, windY: 0, air: () => 0.9 };   // (a gentle updraft: nobody runs out of sky during a long match)

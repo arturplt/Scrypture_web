@@ -14,7 +14,7 @@
  * with distance, so ground that is not drawn beyond the far limit is never missed.
  * All sprites come from one atlas: the sheet plus a few extra cells (shadow, a white dot, a haze gradient, the cloud pictures).
  */
-import { TILE_PX, sunAzimuth, sunElevation } from '../domain';
+import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl, BAND_ALT } from '../domain/terrace';
 import { CLOUD_W, CLOUD_H, loadSkyBands, silhouette } from './cloudsprites';
 import { FLAME_W, FLAME_H, BOLT_W, BOLT_H } from './firesprites';
@@ -397,7 +397,6 @@ export interface CameraSpec {
   T: number;                      // pixels per tile at the middle of the screen
   fullView?: boolean;             // draw everything the camera can see, with no haze, as long as that is a finite stretch of ground (else out to a cap, fading)
   lockTo?: [number, number];      // the chase camera locked rigidly behind a plane at this point: its height follows the ground under the plane exactly, instead of easing towards it (so the plane does not bob up and down in the view as the ground rises and falls)
-  noFog?: boolean;                // no distance haze: everything the footprint reaches is drawn as it is
   reach?: number;                 // a fixed ground reach (tiles) for a camera that looks towards the horizon
   lookH?: number;                 // how high above the ground the camera's target is (it follows the plane up a little, so the plane stays in view)
   /** A camera that stands anywhere (the free view, the flyby): the eye as (x, y, height above the ground), looking at the target (`x`, `y`, `lookH`). `tilt` and `T` are then not used; the horizon stays level. */
@@ -417,7 +416,6 @@ const TEX_KEEP = 200;   // chunk textures kept at most (the longest unseen go fi
 
 export class WorldGL {
   private fpvK = 0;
-  private noFog = false;
   private skyProg!: WebGLProgram;
   private skyLoc: Record<string, WebGLUniformLocation | null> = {};
   private disposed = false;
@@ -499,7 +497,6 @@ export class WorldGL {
   private pose: { x: number; y: number; h0: number; dx: number; dy: number; roll: number; pitch: number; len: number; sa: number; sx: number; sy: number; tint?: [number, number, number]; basis?: { f: ArrayLike<number>; u: ArrayLike<number> } } | null = null;
   private poses: NonNullable<WorldGL['pose']>[] = [];   // every plane queued this frame (the player's, and an opponent's)
   private shadowOut = new Float32Array(0);
-  private buf = new Float32Array(4 * FLOATS);                      // one ground quad
   // the atlas
   readonly aw: number; readonly ah: number;
   private cells: { shadow: UV; clouds: UV[]; cloudShadows: UV[]; dot: UV; haze: UV; ring: UV; stick: UV; leaf: UV; maple: UV; pollen: UV; stone: UV; berry: UV; flames: UV[]; bolt: UV | null; beavers: UV[] };
@@ -702,7 +699,6 @@ export class WorldGL {
       D = Math.max(0.5, Math.hypot(dx, dy, dz)); f = norm([dx, dy, dz]);
       r = Math.hypot(f[0], f[1]) > 0.05 ? norm(cross(f, [0, 0, -1])) : norm(cross(f, [c.upX, c.upY, 0]));
     }
-    this.noFog = !!c.noFog;
     this.reach = c.reach ?? D * 3.3; this.fogStart = c.reach ? c.reach * 0.7 : D * 1.8;
     let near = Math.max(0.004, D * 0.05), far = this.reach * 1.6 + D;
     if (!(c.fpv && c.fpv.k > 0.5)) delete this.sm.eyeg;                   // (the walker's eased eye height starts afresh each time it lands)
@@ -732,11 +728,11 @@ export class WorldGL {
       // the reach is one fixed distance (the draw distance setting), whatever the camera looks at. It used to be just past the farthest visible ground, and the full cap
       // the moment the horizon came on screen: looking up (the plane above the horizon) then asked for far more ground at once, which was not built yet, and the ground vanished
       const CAP = 200 * this.drawK;
-      this.reach = CAP; this.fogStart = CAP * 0.85; this.noFog = false;   // (the haze only in the last sixth: at night it is dark, and a wide dark band at the horizon reads as missing ground)
+      this.reach = CAP; this.fogStart = CAP * 0.85   // (the haze only in the last sixth: at night it is dark, and a wide dark band at the horizon reads as missing ground)
       far = this.reach * 1.6 + D;
     }
     if (T && this.farMesh && !(c.fpv && c.fpv.k > 0)) {                 // flying: the same far mesh beyond the chunks the view needs, so the fells stand on the horizon
-      this.nearReach = Math.min(this.reach, 200 * this.drawK, 400); this.reach = Math.max(FAR_REACH, Math.max(0, -this.eye[2]) * 4); this.fogStart = Math.max(this.fogStart, 500); this.noFog = false; this.farOn = true;
+      this.nearReach = Math.min(this.reach, 200 * this.drawK, 400); this.reach = Math.max(FAR_REACH, Math.max(0, -this.eye[2]) * 4); this.fogStart = Math.max(this.fogStart, 500); this.farOn = true;
       far = Math.max(far, this.reach * 1.05 + D);
     }
     far = Math.max(far, this.skyRadius * 1.05 + D);
@@ -1268,7 +1264,7 @@ export class WorldGL {
     }
     const n = m.local.length / 3, g0 = this.terrain ? this.terrain(p.x, p.y) : 0;   // (the pose's height is above the ground under it)
     if (shadow && this.shadowOut.length < n * FLOATS) this.shadowOut = new Float32Array(n * FLOATS);
-    const out = shadow ? this.shadowOut : m.out, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2;
+    const out = shadow ? this.shadowOut : m.out;
     for (let i = 0; i < n; i++) {
       const a = m.local[i * 3] * p.len, b = m.local[i * 3 + 1] * p.len, c = m.local[i * 3 + 2] * p.len, o = i * FLOATS;
       const x = p.x + f1[0] * a + r1[0] * b + u2[0] * c, y = p.y + f1[1] * a + r1[1] * b + u2[1] * c, z = -p.h0 + f1[2] * a + r1[2] * b + u2[2] * c;

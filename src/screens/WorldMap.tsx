@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { hopOffset, ledgeStep, TERRACE_SUB, TERRACE_STEP, TERRACE_FAR_LODS, farLevelFor, terraceFarMesh, terraceChunkMesh, terracePlaneSpawn, bandTint, layerOf, TERRACE_G, type TerraceField, type TerraceFarMesh } from '../domain';
 import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersFrom, lakeWaterAt, lakeRoadAt, M6, lakePlaceLabels, lakeData, LAKE_LAND, LAKE_WATER, compass } from '../domain';
 import {
-  BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, MAX_STOCK, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, FLAT_VIEW_MIN_LOOK, FULL_LOOK_AIRSPEED, MAX_TILT_STEP, tiltAltitudeFactor, Ecosystem, MAX_CAMERA_DISTANCE, billboardLean, chaseOffset, easeOffset, isFlying, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, biomeAt, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
+  BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, tiltAltitudeFactor, Ecosystem, billboardLean, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
   BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
 } from '../domain';
@@ -37,7 +37,7 @@ import { BerryPatch } from '../domain/berries';
 import maleIdleUrl from '../assets/male_idle.png';
 import femaleIdleUrl from '../assets/female_idle.png';
 import { BEAVER_ASPECT, beaverLook, beaverSprites, loadBeaverSprites } from './beaversprites';
-import { fpvAttitude, fpvBasis, fpvEase, type FpvAtt, MIN_EYE_H, duelLine, duelPose, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, nextCamMode, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
+import { fpvAttitude, fpvBasis, fpvEase, type FpvAtt, MIN_EYE_H, duelLine, duelPose, ZOOM_DEFAULT, ZOOM_RANGE, clampZoom, FREE_TILT_RANGE, flybyStep, newFlyby, orbitEye, pinchBy, zoomBy, type CamMode } from '../domain/cameraman';
 import SHEET_URL from '../assets/world-tiles.png';
 import { CLOUD_ASPECT, cirrusSprites, cloudSprites, cloudPick, shadowOf, loadCloudSprites } from './cloudsprites';
 import { newSas, nextSasMode, stepSas, type SasMode } from '../domain/sas';
@@ -75,7 +75,6 @@ interface Act { dam: { stick: boolean; stone: boolean; brk: boolean }; bush: { x
 const NO_ACT: Act = { dam: NO_NEED, bush: null, beaver: null };
 type PickItem = 'stick' | 'stone' | 'berry';
 const WALK_SPEED = 2.6;   // tiles per second on foot (Shift: twice)
-const LAUNCH_CAM_T = 5;   // seconds the launch camera runs after a throw
 const sstep = (v: number, a: number, b: number) => { const q = Math.max(0, Math.min(1, (v - a) / (b - a))); return q * q * (3 - 2 * q); };
 const ACRO_BASE = 128, ACRO_KNOB = 64, ACRO_R = 48;   // the acro sticks in CSS px: the 32 px sprites at 4x (base) and 2x (knob); the knob travels 48 px to reach the rim
 const PITCH_TILT = 0.3;   // how far the plane's pitch moves the tilt (the slider's scale: 0.3 = 3 steps), nose up = more
@@ -296,7 +295,6 @@ function WorldView({ id }: { id: string }) {
   // the zoom slider (phones): 0..1, up = closer, on a log scale over the range of whichever camera is on; it follows the wheel and the pinch too
   const zoomToPos = (m: CamMode, z: number) => { const [a, b] = ZOOM_RANGE[m], k = Math.log(z / a) / Math.log(b / a); return m === 'chase' ? k : 1 - k; };
   const posToZoom = (m: CamMode, v: number) => { const [a, b] = ZOOM_RANGE[m], k = m === 'chase' ? v : 1 - v; return clampZoom(m, a * Math.pow(b / a, k)); };
-  const launchCam = useRef<{ t: number; x: number; y: number; eyeH: number; pitch: number } | null>(null);   // after a throw: the camera stays where it was held while the plane flies out of it, then swings in behind and backs off
   const lookLast = useRef<{ x: number; y: number; id: number } | null>(null);
   lookCam.current.on = lookUi;
   const [hints, setHints] = useState(prefs0.hints);
@@ -314,7 +312,7 @@ function WorldView({ id }: { id: string }) {
   const dual = useRef(new Map<number, { side: 'L' | 'R'; x0: number; y0: number; x: number; y: number }>());   // acro: one finger per half of the view, like an FPV drone's two sticks (left: yaw, right: pitch and roll)
   const acroEl = useRef<{ L: HTMLDivElement | null; R: HTMLDivElement | null }>({ L: null, R: null });
   const touchStick = useRef<{ x: number; y: number; id: number } | null>(null);   // a finger down on the view: the stick starts where it touched and goes away when it lifts
-  const [speed, setSpeed] = useState(3);
+  const [speed] = useState(3);
   const [pitch, setPitch] = useState(initial.plane.pitch);
   const [wind, setWind] = useState({ ...initial.wind });
   const windLive = useRef(wind), windSeen = useRef(wind);   // the wind as it is now: the natural wind wanders it from the loop (no render), a wind set by hand comes through the state
@@ -332,8 +330,8 @@ function WorldView({ id }: { id: string }) {
   const [decoClouds, setDecoClouds] = useState(gfx0.clouds);
   const [showRivers, setShowRivers] = useState(prefs0.showRivers);
   const [billboards, setBillboards] = useState(prefs0.billboards);
-  const [camDist, setCamDist] = useState(DEFAULT_CAMERA_DISTANCE);
-  const [gl3d, setGl3d] = useState(prefs0.gl3d);   // tilt / behind plane are drawn through WebGL (a real camera); off = the flat canvas, tipped by the browser
+  const [camDist] = useState(DEFAULT_CAMERA_DISTANCE);
+  const [gl3d, setGl3d] = useState(prefs0.gl3d);   // the 3D view (a real camera: tilt, behind the plane, free, flyby, FPV); off = the flat north-up canvas, which has no tilt and no turn
   const [shaders, setShaders] = useState(gfx0.shaders);   // the 3D view's extras: living water, sunlight, glow and sun rays
   const gfxNow: Gfx = { res: resScale, auto: resAuto, cap: fpsCap, density: decoDensity, shaders, clouds: decoClouds, draw: drawDist };
   const gfxPreset = gfxPresetOf(gfxNow);
@@ -351,7 +349,6 @@ function WorldView({ id }: { id: string }) {
   const [keyHotkeys, setKeyHotkeys] = useState<Record<string, string>>(prefs0.keyHotkeys), keyHotkeysRef = useRef(keyHotkeys); keyHotkeysRef.current = keyHotkeys;   // the player's own keys for it (the menu's list)
   const kbFocus = useRef<KeyFocus>(FOCUS_START), padSeen = useRef(false);   // a gamepad's highlight on it (the d-pad moves it, A presses it), shown once a pad has been used
   useEffect(() => { savePrefs({ invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys }); }, [invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys]);   // every choice in the menu is remembered
-  const camOff = useRef({ x: 0, y: 0 });
   const camZRef = useRef<number | null>(null);   // the height above the ground the camera works from: eased on hills, or the view would breathe with every bump
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
   const [paused, setPaused] = useState(false);
@@ -417,7 +414,7 @@ function WorldView({ id }: { id: string }) {
   const startAim = (x0: number | null = null) => { const s = sim.current!; if (live.current.mode !== 'glide' || !s.glider.landed || aim.current.on) return; aim.current = { on: true, t: 0, x0, dx: 0 }; s.glider.z = launchHeight(upRef.current.launch); setRunResult(null); setShopOpen(false); };
   const releaseAim = () => {
     const a = aim.current; if (!a.on) return; aim.current = { on: false, t: 0, x0: null, dx: 0 };
-    const s = sim.current!; launchCam.current = { t: 0, x: s.flight.x, y: s.flight.y, eyeH: 0.55, pitch: 0.03 + lookCam.current.pitch };
+    const s = sim.current!;
     launchPlane(s.glider, s.flight.x, -s.flight.y, s.glider.psi, Math.max(launchMinPower(upRef.current.launch), aimPower(a.t)), launchHeight(upRef.current.launch)); s.flight.glideLanded = false;
     runStat.current = { startZ: launchHeight(upRef.current.launch), peakZ: launchHeight(upRef.current.launch) };   // a new flight: height is counted from where it started
   };
@@ -517,7 +514,7 @@ function WorldView({ id }: { id: string }) {
     return () => { removeEventListener('wheel', wheel); removeEventListener('pointermove', move); removeEventListener('pointerdown', move); removeEventListener('pointerdown', press); removeEventListener('pointerup', lift); removeEventListener('pointercancel', lift); removeEventListener('keydown', esc); };
   }, []);
   // gamepad: left stick pitch + roll (walks on foot), right stick yaw (looks round on foot), RT rocket, L3 run; A throws / boosts, X interact, Y camera, LB autopilot, RB pattern, Back dog, Start pauses
-  const padPrev = useRef<ReadonlySet<number>>(new Set()), padPressRef = useRef((_b: number) => {}), padPressed = useRef(false);
+  const padPrev = useRef<ReadonlySet<number>>(new Set()), padPressRef = useRef((_b: number) => {});
   const kbLive = () => kbOpenRef.current && live.current.mode === 'glide' && !footRef.current && !live.current.hideUi;   // (the panel is on the screen)
   padPressRef.current = (b: number) => {
     if (b === PAD.R3) { setKbOpen(v => !v); return; }   // the right stick's click opens and shuts the pattern keyboard
@@ -567,11 +564,10 @@ function WorldView({ id }: { id: string }) {
     const s = sim.current!;
     const startedAt = performance.now();
     // The loading screen: the world's clock stands still, and the ground round the plane is built and uploaded at full speed, until it is all there (or 20 s have passed). Opening or refreshing a world used to drop the player into a few chunks and a stuttering flight.
-    let loading = true, loadT0 = 0, loadDone = 0;
+    let loading = true, loadT0 = 0;
     let hop: { t: number; up: boolean } | null = null;   // on foot: the hop over the last ledge (see hopOffset)
-    let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windSync = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lookTrim = 1, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
+    let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
     let W = 1, H = 1, dpr = 1;
-    let styleKey = '';
     const glCv = glCanvas.current!;
     let glr: WorldGL | null = null, glFailed = false, glFrames = 0;
     const hoopsDone = new Set<string>();   // the hoops passed this visit
@@ -764,17 +760,12 @@ function WorldView({ id }: { id: string }) {
       if (import.meta.env.DEV && glr) (window as unknown as Record<string, unknown>).__wgl = glr;   // (dev builds only: for headless tests that starve the chunk uploads)
       if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
       glCv.style.display = useGL ? 'block' : 'none';
-      // the launch camera: runs for LAUNCH_CAM_T seconds after a throw (p = how far it has backed off, 0 at the throw, 1 when it hands over to the normal view)
-      { const l = launchCam.current; if (l) { l.t += dt; if (l.t > LAUNCH_CAM_T || f.mode !== 'glide' || s.glider.landed) launchCam.current = null; } }
       // a throw is a landing played backwards: the eye starts at the plane's nose (it is held at the eye), and as the plane climbs the eye slides back behind it, then the chase view takes over. No special launch camera.
-      const launchActive = false, lcT = 99, lcP = 1;
-      // chase view: the world turns (CSS rotate on the canvas) so the plane's heading points up; eased along the shortest way round
       const poseOn = camEff !== 'chase' && camEff !== 'fpv' && useGL && f.mode === 'glide' && !footRef.current;   // the free view or the flyby: the camera stands where the cameraman puts it
       const chasePoseOn = camEff === 'chase' && useGL && f.mode === 'glide' && !footRef.current;   // the chase view in 3D is an orbit round the plane itself (like the free view, always behind it), not a ground point scaled by the 2D map's zoom
-      const viewChase = L.tool === 'fly', chaseOn = viewChase && !useGL;
+      const viewChase = L.tool === 'fly';   // (the 3D camera turns to the plane's heading, eased along the shortest way round; the flat canvas always stays north-up)
       f.course = f.mode === 'glide' ? (s.glider.landed ? s.glider.psi : s.glider.course) : f.heading;   // the way the view looks: the heading, but for a glider it holds through loops and rolls (see glider.ts)
-      if (viewChase) { let d = (f.course - Math.PI / 2 - camAng.current) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2; camAng.current += d * (1 - Math.exp(-(poseOn || launchActive ? 14 : 5) * dt)); } else camAng.current = 0;
-      const rot = useGL ? 0 : camAng.current;   // (the flat canvas's own turn; the 3D camera takes the angle itself)
+      if (viewChase) { let d = (f.course - Math.PI / 2 - camAng.current) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2; camAng.current += d * (1 - Math.exp(-(poseOn ? 14 : 5) * dt)); } else camAng.current = 0;
       anim += simDt; frames++; fpsAcc += dt; const warming = performance.now() - startedAt < 2500;   // (the first couple of seconds fill the screen quickly. `frames` is the fps count, reset every second: it used to stand in for this, and so it held at the start's budgets for good)   // (the scenery clouds are time and stop with it; the skybox is drawn by the shader on the real clock and keeps moving)
       if (frames === 8) releaseWorldPortal();   // a few frames are on screen: the cover can fade
       if (L.windAuto && L.wind.enabled && !L.paused) {                                // natural wind: wander on a slow curve, written to the sim at once and to the dial twice a second
@@ -804,7 +795,6 @@ function WorldView({ id }: { id: string }) {
       let dx = stick.current.dx + pd.lx, dy = stick.current.dy + pd.ly;
       const k = keys.current;
       if (k.size) { dx += (k.has('arrowright') || k.has('d') ? 1 : 0) - (k.has('arrowleft') || k.has('a') ? 1 : 0); dy += (k.has('arrowdown') || k.has('s') ? 1 : 0) - (k.has('arrowup') || k.has('w') ? 1 : 0); }
-      if (rot !== 0 && f.mode !== 'glide') { const sx = dx, sy = dy; dx = sx * Math.cos(rot) + sy * Math.sin(rot); dy = -sx * Math.sin(rot) + sy * Math.cos(rot); }   // the stick points on the screen, the plane flies in the world
       const climb = (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) - pd.ry;                   // E up (lower layer number), Q down
       if (climb && f.mode !== 'glide') { const np = Math.max(-45, Math.min(45, f.pitch + climb * 40 * dt)); f.pitch = np; setPitch(Math.round(np * 10) / 10); }
       if (!L.paused) s.hour = advanceHour(s.hour, dt);
@@ -954,13 +944,11 @@ function WorldView({ id }: { id: string }) {
       } else { layer = stepFlight(f, { dx, dy }, simDt); audio.current?.update(SILENT, 0); }
 
       // 3rd-person camera: the view eases to a point ahead of the plane while it flies, and back when it stops
-      const flying = isFlying(f, Math.hypot(dx, dy) > 0.01);
       // how far ahead it looks grows with speed (0 when slow); the tilt starts at the slider's value and fades to flat at 190 m, so the floor follows it
       const camZ = (camZRef.current = !s.world.hilly || gl.landed || camZRef.current === null || Math.abs(gl.z - camZRef.current) > 150 ? gl.z : camZRef.current + (gl.z - camZRef.current) * (1 - Math.exp(-dt / 1.5)));
       const altK = f.mode === 'glide' ? (s.world.hilly ? 0.8 : tiltAltitudeFactor(camZ)) : 1;   // (over the fells the view keeps most of its tilt: looking straight down, the hills read as flat ground)
       // (the view no longer follows the plane's pitch or speed: the tilt is the slider's value (fading with height) and nothing looks ahead, so the picture, and the ground it needs, stay the same)
-      const pn = 0, dive = 0;
-      const tiltSet = tiltPin.current ?? L.tilt, tiltNow = L.tool === 'fly' ? (tiltPin.current !== null ? tiltPin.current : L.tilt * altK * (1 - 0.5 * dive)) : 0;
+      const tiltSet = tiltPin.current ?? L.tilt, tiltNow = L.tool === 'fly' ? (tiltPin.current !== null ? tiltPin.current : L.tilt * altK) : 0;
       tiltEff.current = chasePoseOn ? L.tilt : tiltNow;   // (in the 3D chase view the tilt is the camera's angle behind the plane and does not fade with height)
       { const foot = f.mode === 'glide' && useGL && gl.landed && !aim.current.on; if (foot !== footRef.current) { footRef.current = foot; setOnFoot(foot); if (!foot) setFullUi(false); } }
       const lookingFly = L.lookFly && f.mode === 'glide' && !gl.landed && useGL;
@@ -970,7 +958,7 @@ function WorldView({ id }: { id: string }) {
       const lowSlow = useGL && !poseOn && f.mode === 'glide' && !gl.landed && !aim.current.on ? (1 - sstep(camZ, treeTopM, treeTopM * 2)) : 0;   // (low and nothing else: speed and pitch no longer decide when the eye comes down to the nose)   // (not while it stands on its tail or flies upside down: the eye has no roll)
       const fpvMode = camEff === 'fpv' && useGL && f.mode === 'glide' && !gl.landed && !footRef.current;   // the FPV camera: the eye is the plane's nose and turns with it (the plane itself is not drawn)
       const aiming = useGL && f.mode === 'glide' && gl.landed && aim.current.on;   // holding the plane up to throw: the same eye as on foot, and the path it will fly is drawn
-      fpvK += (((walking || aiming || fpvMode) ? 1 : launchActive ? (lcT < 0.35 ? 1 : 0) : lowSlow) - fpvK) * (1 - Math.exp(-4 * dt));
+      fpvK += (((walking || aiming || fpvMode) ? 1 : lowSlow) - fpvK) * (1 - Math.exp(-4 * dt));
       if (!walking && fpvK > 0.002 && f.mode === 'glide') {                       // the view turns to where the plane points as it comes in (on foot it already does)
         let da = (f.course - Math.PI / 2 - camAng.current) % (Math.PI * 2); if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
         camAng.current += da * (1 - Math.exp(-8 * dt * fpvK));
@@ -978,45 +966,16 @@ function WorldView({ id }: { id: string }) {
       const camX = f.x, camY = f.y;   // (the camera looks at the plane: nothing looks ahead of it)
       camPos.current = { x: camX, y: camY };
 
-      // tilted ground: the canvas is drawn flat but bigger than the stage and tipped back by the browser (CSS perspective + rotateX, done on
-      // the GPU, so it costs almost nothing). It is as tall as needed to still fill the stage after the tip: far rows need more ground, near
-      // rows less, so the plane's row (CX, CY) sits at the stage's middle and the canvas reaches further up than down. Not while painting.
-      // the slider sets the tilt; the plane's pitch moves it: nose up tips the ground further away (you see ahead), nose down brings the view
-      // over the top of the ground. The canvas is sized for the largest tilt it can reach, so only the CSS transform changes per frame.
-      const sliderOn = L.tool === 'fly' && tiltSet > 0, taBase = sliderOn ? tiltUnit(tiltNow) : 0, taMaxV = sliderOn ? Math.min(TILT_CAP, tiltUnit(tiltSet) + PITCH_TILT) : 0, taMax = useGL ? 0 : taMaxV;
-      const taTarget = sliderOn ? Math.max(Math.min(0.03, taBase), Math.min(taMaxV, taBase + Math.max(0, pn) * PITCH_TILT * altK)) : 0;   // (nose up adds to the tilt, fading with the height; nose down is the dive above)
+      // the tilt the slider sets (and the plane's pitch moves: nose up tips the ground further away, nose down brings the view over the top of it) is the 3D camera's angle; the flat canvas is never tipped or turned
+      const sliderOn = L.tool === 'fly' && tiltSet > 0, taBase = sliderOn ? tiltUnit(tiltNow) : 0, taMaxV = sliderOn ? Math.min(TILT_CAP, tiltUnit(tiltSet) + PITCH_TILT) : 0;
+      const taTarget = sliderOn ? Math.max(Math.min(0.03, taBase), Math.min(taMaxV, taBase)) : 0;
       camTilt.current = sliderOn ? camTilt.current + (taTarget - camTilt.current) * (1 - Math.exp(-4 * dt)) : 0;
-      const ta = camTilt.current, th = ta * TILT_RAD, thMax = taMax * TILT_RAD;   // (the 3D camera tips by th too)
-      let VW = W, VH = H, CX = W / 2, CY = H / 2, persp = 0;
-      if (taMax > 0) {
-        persp = 1.1 * Math.max(W, H);
-        const c = Math.cos(thMax), sn = Math.sin(thMax), far = (H / 2 * persp) / (persp * c - H / 2 * sn), near = Math.max(H / 2, (H / 2 * persp) / (persp * c + H / 2 * sn));   // (a steep tilt needs more below the plane's row than a flat one)
-        const sTop = persp / (persp + far * sn);
-        if (chaseOn) {   // it turns, so the canvas must cover a circle round the plane's row: the farthest corner of the stage, seen from the ground
-          const R = Math.max(Math.hypot(W / 2 / sTop, far), Math.hypot(W / 2, near));
-          VW = VH = Math.ceil(2 * R) + 2; CX = CY = VW / 2;
-        } else { VW = Math.ceil(W / sTop) + 2; CX = VW / 2; CY = Math.ceil(far) + 1; VH = CY + Math.ceil(near) + 2; }
-      } else if (chaseOn) { VW = VH = Math.ceil(Math.hypot(W, H)) + 2; CX = CY = VW / 2; }
-      const big = taMax > 0 || chaseOn;
-      // a big canvas costs fill rate: at most 1 device pixel per CSS pixel, and at most ~1.6 million pixels (the art is blocky anyway)
-      const bs = big ? Math.max(0.35, Math.min(dpr, 1, Math.sqrt(1.6e6 / (VW * VH)))) : dpr;
-      const bw = Math.max(1, Math.round(VW * bs)), bh = Math.max(1, Math.round(VH * bs));
+      const ta = camTilt.current, th = ta * TILT_RAD;   // (the 3D camera tips by th)
+      const VW = W, VH = H, CX = W / 2, CY = H / 2;
+      const bw = Math.max(1, Math.round(W * dpr)), bh = Math.max(1, Math.round(H * dpr));
       if (cv.width !== bw) cv.width = bw;
       if (cv.height !== bh) cv.height = bh;
-      const key = big ? `${VW}|${VH}|${CX}|${CY}|${W}|${H}` : '';
-      const st = cv.style;
-      if (key !== styleKey) {
-        styleKey = key;
-        if (big) { st.inset = 'auto'; st.width = `${VW}px`; st.height = `${VH}px`; st.left = `${W / 2 - CX}px`; st.top = `${H / 2 - CY}px`; st.transformOrigin = `${CX}px ${CY}px`; }
-        else { st.inset = ''; st.width = ''; st.height = ''; st.left = ''; st.top = ''; st.transformOrigin = ''; }
-      }
-      const tf = big ? `${taMax > 0 ? `perspective(${persp}px) rotateX(${th}rad) ` : ''}${chaseOn ? `rotate(${rot}rad)` : ''}` : '';
-      if (st.transform !== tf) st.transform = tf;
       const g = ctx;
-      // screen -> canvas for a vector: the canvas may be turned (chase view), but clouds stand like banners, facing the screen, and their
-      // height offset and falling rain stay screen-vertical
-      const cr = Math.cos(rot), sr = Math.sin(rot);
-      const scr = (vx: number, vy: number): [number, number] => [vx * cr + vy * sr, -vx * sr + vy * cr];
       // the higher it flies the farther the view pulls back (from ~80 m, on down to 0.15x at about 1 km), eased so it never jumps, or the plane fills the screen
       const altZoomTarget = f.mode === 'glide' ? Math.max(0.15, 1 / (1 + Math.max(0, camZ - 80) / 160)) : 1;
       altZoom.current += (altZoomTarget - altZoom.current) * (1 - Math.exp(-2.5 * dt));
@@ -1028,12 +987,11 @@ function WorldView({ id }: { id: string }) {
       const zoom = Math.min(camZoomNow.current.chase, chaseCap);   // (the wheel, in the chase view)
       const Tn = TILE_PX * zoom * fitK * altZoom.current / camC;
       // after a throw the camera starts close behind the plane and backs off to the normal distance (and from a flat look down the line of flight to the normal tilt)
-      const Dn = (H / 2) / (Tn * Math.tan(0.36)), Dl = launchActive ? Math.min(Dn, 6.5 * camC) + (Dn - Math.min(Dn, 6.5 * camC)) * lcP : Dn;
-      const T = launchActive ? (H / 2) / (Dl * Math.tan(0.36)) : Tn, tiltNormal = th, tiltNow2 = launchActive ? 1.2 + (tiltNormal - 1.2) * lcP : tiltNormal;
+      const T = Tn, tiltNow2 = th;
       const ox = CX - camX * T, oy = CY - camY * T;
       let Tv = T;   // pixels a tile at the plane, as the camera in use sees it (the free view and the flyby set their own)
       let cx0 = 0, cx1 = 0, cy0 = 0, cy1 = 0;
-      let vis: (x: number, y: number, m: number) => boolean = () => true, chunkVis: (cx: number, cy: number) => boolean = () => true;
+      let chunkVis: (cx: number, cy: number) => boolean = () => true;
       let fp: ReturnType<WorldGL['footprint']> | null = null;
       if (useGL) {
         // the 3D camera: the visible ground (clamped at the reach, where everything has faded into the sky) says which chunks are needed
@@ -1042,7 +1000,7 @@ function WorldView({ id }: { id: string }) {
         const lookHstd = f.mode === 'glide' ? Math.max(0, planeAbs.current - s.world.heightAt(f.x, f.y)) : (1 - 0.5 * camC) * Math.min(25, 4 + (10 - layer) * 2);   // (the camera looks at the plane itself, at the height it is drawn at, so it sits in the middle of the view)
         void camZ;   // (the last part: the plane's height above the ground, less its eased value, is exactly what the ground's bumps take away, so the look point stays on the plane's own smooth height and the plane does not bob on screen)   // (half way up with the plane: it still looks high above the ground, and stays in view)
         // the free view and the flyby put the eye where the cameraman says, looking at the plane; coming and going, the view eases between that and the chase view
-        const poseWant = (poseOn || chasePoseOn) && !gl.landed && !launchActive;
+        const poseWant = (poseOn || chasePoseOn) && !gl.landed;
         poseK.current += ((poseWant ? 1 : 0) - poseK.current) * (1 - Math.exp(-8 * dt)); if (!poseWant && poseK.current < 0.002) poseK.current = 0;
         if (camEff !== 'flyby') flyby.current.on = false;
         let tgt: [number, number, number] = [camX, camY, lookHstd], eyeV: [number, number, number] | undefined;
@@ -1075,7 +1033,6 @@ function WorldView({ id }: { id: string }) {
         } else { fpvView.current = null; inst.current.view = null; }
         glr!.setCamera({ x: tgt[0], y: tgt[1], upX, upY, tilt: tiltV, T, W, H, eye: eyeV, lockTo: f.mode === 'glide' && !gl.landed ? [tgt[0], tgt[1]] : undefined,   // (the ground under what the camera looks at is taken exactly in every view, free and flyby too: eased, it lags a ledge the plane's height above the ground has already stepped over, and the plane twitches
            fullView: true, fpv: fpvK > 0.002 ? (() => {
-          if (launchActive) { const l = launchCam.current!; return { k: fpvK, x: l.x, y: l.y, eyeH: l.eyeH, pitch: l.pitch }; }   // (just thrown: the eye stays where the plane was held)
           if (fpvMode) { const F = gl.fwd, a = 0.5 * camK; return { k: fpvK, air: true, gx: f.x, gy: f.y, x: f.x + F[0] * a, y: f.y - F[1] * a, eyeH: gl.z * 0.18 + F[2] * a + 0.12 * camK, pitch: gl.pitch, basis: fpvB }; }   // (FPV: at the nose, looking where it points, wings and all, eased)
           const onFoot = walking || aiming;
           // on foot: the eye at the bobr; in the air: at the plane's nose, as high as the plane is, looking where it points (the nose offset and the height go to the on-foot values as it touches down)
@@ -1101,28 +1058,8 @@ function WorldView({ id }: { id: string }) {
         const capD = glr!.capD;
         chunkVis = (cx: number, cy: number) => base(cx, cy) && Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) <= capD;
       } else {
-        // What the stage really shows, as a quad on the canvas: its four corners taken back through the tip and the turn. The canvas is a bigger
-        // rectangle than that, so everything (ground chunks, trees, clouds, the ecosystem's watched area) is only handled where this quad reaches.
-        const quad: number[] = [];
-        for (const [qx, qy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-          const xp = qx * W / 2, yp = qy * H / 2;
-          let u = xp, v = yp;
-          if (taMax > 0) { const sn = Math.sin(th), c = Math.cos(th); v = (yp * persp) / (c * persp + yp * sn); u = (xp * (persp - v * sn)) / persp; }
-          const [a, b] = scr(u, v);
-          quad.push(CX + a, CY + b);
-        }
-        const edge: number[] = [];   // per edge: from x, y, direction x, y, length
-        for (let i = 0; i < 4; i++) { const x0 = quad[i * 2], y0 = quad[i * 2 + 1], x1 = quad[((i + 1) % 4) * 2], y1 = quad[((i + 1) % 4) * 2 + 1]; edge.push(x0, y0, x1 - x0, y1 - y0, Math.hypot(x1 - x0, y1 - y0) || 1); }
-        /** Is a thing at canvas (x, y), reaching `m` px round it, anywhere near what the stage shows? */
-        vis = (x: number, y: number, m: number) => {
-          if (!big) return true;
-          for (let i = 0; i < 20; i += 5) if ((edge[i + 2] * (y - edge[i + 1]) - edge[i + 3] * (x - edge[i])) / edge[i + 4] < -m) return false;
-          return true;
-        };
-        let qx0 = 1e9, qx1 = -1e9, qy0 = 1e9, qy1 = -1e9;
-        for (let i = 0; i < 8; i += 2) { qx0 = Math.min(qx0, quad[i]); qx1 = Math.max(qx1, quad[i]); qy0 = Math.min(qy0, quad[i + 1]); qy1 = Math.max(qy1, quad[i + 1]); }
-        cx0 = chunkOf(camX + (qx0 - CX) / T) - 1; cx1 = chunkOf(camX + (qx1 - CX) / T) + 1; cy0 = chunkOf(camY + (qy0 - CY) / T) - 1; cy1 = chunkOf(camY + (qy1 - CY) / T) + 1;
-        chunkVis = (cx: number, cy: number) => vis(ox + (cx + 0.5) * CHUNK * T, oy + (cy + 0.5) * CHUNK * T, CHUNK * T * 0.72);
+        // the flat canvas is the stage itself (north-up, never tipped or turned): the chunks it shows are the ones its rectangle reaches
+        cx0 = chunkOf(camX - CX / T) - 1; cx1 = chunkOf(camX + (VW - CX) / T) + 1; cy0 = chunkOf(camY - CY / T) - 1; cy1 = chunkOf(camY + (VH - CY) / T) + 1;
       }
       s.eco.hour = s.hour;
       if (useGL) { const w0 = chunkOf(camX - 26) - 1, w1 = chunkOf(camX + 26) + 1, v0 = chunkOf(camY - 26) - 1, v1 = chunkOf(camY + 26) + 1; s.eco.setWatchedArea(Math.max(cx0 - 1, w0) * CHUNK, Math.max(cy0 - 1, v0) * CHUNK, (Math.min(cx1 + 2, w1 + 2)) * CHUNK - 1, (Math.min(cy1 + 2, v1 + 2)) * CHUNK - 1); }   // (far ground is only looked at)
@@ -1153,7 +1090,7 @@ function WorldView({ id }: { id: string }) {
 
       if (useGL) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); }   // this canvas is only the overlay now: night, text, the wind dial
       else {
-        g.setTransform(bs, 0, 0, bs, 0, 0);
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.imageSmoothingEnabled = false;
         g.fillStyle = TERRAIN_COLOR[0]; g.fillRect(0, 0, VW, VH);
       }
@@ -1188,7 +1125,7 @@ function WorldView({ id }: { id: string }) {
         if (loadBar.current) loadBar.current.style.width = `${Math.round(Math.min(1, pct) * 100)}%`;
         if (loadPct.current) loadPct.current.textContent = `${Math.round(Math.min(1, pct) * 100)}%`;
         if (timedOut || (glOk && have.length === need.length && up === need.length && farOk)) {
-          loading = false; loadDone = performance.now();
+          loading = false;
           const el = loadEl.current; if (el) { el.classList.add('done'); setTimeout(() => { el.style.display = 'none'; }, 500); }
         }
       }
@@ -1497,7 +1434,7 @@ function WorldView({ id }: { id: string }) {
           const sa = glide ? Math.max(0.12, 0.34 - alt / 500) : 0.25, ssz = 2 * planeK * (glide ? 1 - Math.min(0.35, alt / 300) : 1);
           if (fpvK < 0.3 && !G.hasModel) G.flat('decal', shx, shy, 0.02, ssz * (glide ? Math.max(0.35, Math.cos(gl.phi)) : 1), ssz, hdx, hdy, at.shadow, 0, 0, 0, sa);
           for (const q of splash) G.board('blend', q.x, q.y, q.h, 0.32, 0.32, false, cdrop, 0.85, 0.95, 1, Math.min(0.9, q.life * 1.5));   // the spray of a water skim
-          if (!fpvMode && (fpvK < 0.3 || (!walking && !aiming && !launchActive && !gl.landed && gl.z > 2.5) || (launchActive && Math.hypot(f.x - launchCam.current!.x, f.y - launchCam.current!.y) > 5))) { if (G.hasModel) G.drawModel(f.x, f.y, hP, hdx, hdy, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35, 2.4 * planeK, sa, 0.12, 0.25, glide && !gl.landed ? { f: gl.fwd, u: gl.top } : undefined); else G.flat('solid', f.x, f.y, hP, 2 * planeK, 2 * planeK, hdx, hdy, cplane, 1, 1, 1, 1, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35); }
+          if (!fpvMode && (fpvK < 0.3 || (!walking && !aiming && !gl.landed && gl.z > 2.5))) { if (G.hasModel) G.drawModel(f.x, f.y, hP, hdx, hdy, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35, 2.4 * planeK, sa, 0.12, 0.25, glide && !gl.landed ? { f: gl.fwd, u: gl.top } : undefined); else G.flat('solid', f.x, f.y, hP, 2 * planeK, 2 * planeK, hdx, hdy, cplane, 1, 1, 1, 1, glide ? gPhi : 0, glide ? gPitch : tilt * 0.35); }
           { const D = dog.current; if (D && D.phase !== 'over' && glide && G.hasModel) { const a = D.ai; G.drawModel(a.x, -a.y, Math.max(0.1, Math.min(a.z * 0.18, planeCap + 4)), Math.cos(a.psi), -Math.sin(a.psi), a.phi, a.pitch, 2.4 * 1.8 * planeK, sa, 0.12, 0.25, { f: a.fwd, u: a.top }, D.role === 'flee' ? [1, 0.45, 0.4] : [0.5, 0.65, 1]); } }   // the opponent: red when it hunts you, blue when you hunt it
         }
 
@@ -1646,8 +1583,8 @@ function WorldView({ id }: { id: string }) {
       g.globalAlpha = 0.22;
       for (const c of s.eco.clouds) {
         const size = T * 2 * c.size, sx = ox + (c.rx ?? c.x) * T + c.layer * 1.4 * zoom, sy = oy + (c.ry ?? c.y) * T + c.layer * 2.4 * zoom;   // the sun stays put in the world, so the shadow turns with the ground (as in the 3D view)
-        if (sx < -size || sy < -size || sx > VW + size || sy > VH + size || !vis(sx, sy, size)) continue;
-        if (cloudSprites.length) { const w = size * 1.7, h = w * CLOUD_ASPECT; g.save(); g.translate(sx, sy); g.rotate(-rot); g.drawImage(shadowOf(cloudPick(c.id)), -w / 2, -h / 2, w, h); g.restore(); }   // like a billboard's shadow: its spot turns with the ground, its shape stays upright like the cloud
+        if (sx < -size || sy < -size || sx > VW + size || sy > VH + size) continue;
+        if (cloudSprites.length) { const w = size * 1.7, h = w * CLOUD_ASPECT; g.save(); g.translate(sx, sy); g.drawImage(shadowOf(cloudPick(c.id)), -w / 2, -h / 2, w, h); g.restore(); }   // like a billboard's shadow: its spot turns with the ground, its shape stays upright like the cloud
       }
       g.globalAlpha = 1;
 
@@ -1655,19 +1592,19 @@ function WorldView({ id }: { id: string }) {
       decos.sort((a, b) => a.y - b.y);
       for (const d of decos) {
         const sz = T * d.scale, sx = ox + (d.x + 0.5) * T, sy = oy + (d.y + 1 + bottomPad(img, d.cell) * d.scale) * T;
-        if (sx < -sz || sx > VW + sz || sy < 0 || sy > VH + sz * 2 || !vis(sx, sy - sz / 2, sz)) continue;
+        if (sx < -sz || sx > VW + sz || sy < 0 || sy > VH + sz * 2) continue;
         if (L.billboards) {                                                   // billboards: lean away from the middle of the view, from the base
           const ddx = sx - CX, ddy = sy - CY;                                 // (in the screen's frame: the world may be turned)
-          const lean = billboardLean(ddx * Math.cos(rot) - ddy * Math.sin(rot), ddx * Math.sin(rot) + ddy * Math.cos(rot), layer, BILLBOARD_MAX_DISTANCE * (zoom / 2));
+          const lean = billboardLean(ddx, ddy, layer, BILLBOARD_MAX_DISTANCE * (zoom / 2));
           const w = sz * lean.scale;
           g.fillStyle = 'rgba(0,0,0,0.22)';                                 // the shadow stays on the ground (on the tile) while the tree leans off it
-          g.beginPath(); g.ellipse(sx, sy - w * 0.04, w * 0.32, w * 0.1, -rot, 0, Math.PI * 2); g.fill();
+          g.beginPath(); g.ellipse(sx, sy - w * 0.04, w * 0.32, w * 0.1, 0, 0, Math.PI * 2); g.fill();
           g.save();
-          g.translate(sx, sy); g.rotate(-rot);                               // upright on the screen
+          g.translate(sx, sy);                               // upright on the screen
           g.transform(1, 0, -lean.shear, lean.stretch, 0, 0);               // x' = x - shear * y (y is negative above the base)
           g.drawImage(img, d.cell[0] * TILE_PX, d.cell[1] * TILE_PX, TILE_PX, TILE_PX, -w / 2, -w, w, w);
           g.restore();
-        } else if (rot !== 0) { g.save(); g.translate(sx, sy); g.rotate(-rot); g.drawImage(img, d.cell[0] * TILE_PX, d.cell[1] * TILE_PX, TILE_PX, TILE_PX, -sz / 2, -sz, sz, sz); g.restore(); }
+        }
         else g.drawImage(img, d.cell[0] * TILE_PX, d.cell[1] * TILE_PX, TILE_PX, TILE_PX, sx - sz / 2, sy - sz, sz, sz);   // grows up from the tile's bottom edge
         if (T >= 9 && d.cell === SHEET.bush && berryImg.current && s.berries.ripeBush(d.x, d.y)) {   // ripe berries on the bush
           const bs = sz * 0.2, base = sy - bottomPad(img, d.cell) * sz;
@@ -1678,7 +1615,6 @@ function WorldView({ id }: { id: string }) {
       // hoops, seen from straight above: a standing disc is a line across its facing
       for (const hp of hoopsIn(s.world.seed, camX - CX / T - 5, camY - CY / T - 5, camX + (VW - CX) / T + 5, camY + (VH - CY) / T + 5)) {
         const hx = ox + hp.x * T, hy = oy + hp.y * T;
-        if (!vis(hx, hy, hp.r * T + 8)) continue;
         const tx = -Math.sin(hp.angle) * hp.r * T, ty = Math.cos(hp.angle) * hp.r * T, done = hoopsDone.has(hp.key);
         g.strokeStyle = done ? 'rgba(120,255,140,0.5)' : '#ffc233'; g.lineWidth = 4 * zoom / 2; g.lineCap = 'round';
         g.beginPath(); g.moveTo(hx - tx, hy - ty); g.lineTo(hx + tx, hy + ty); g.stroke();
@@ -1704,29 +1640,27 @@ function WorldView({ id }: { id: string }) {
       // each deco layer sits at a plane layer (nearest sky layer = high altitude); the ones below the plane go under it, the rest over it
       // the sky slides with the wind (speed and direction); with no wind it keeps its slow eastward drift. Integrated per frame so changing the wind never makes it jump
       const decoBelow = (li: number) => layer < DECO_ALTITUDE[li];
-      if (L.decoClouds) drawDecoClouds(g, s.world.seed, f.x, f.y, 2 * CX, 2 * CY, T, zoom, anim, skyOff, li => decoBelow(li), rot);
+      if (L.decoClouds) drawDecoClouds(g, s.world.seed, f.x, f.y, 2 * CX, 2 * CY, T, zoom, anim, skyOff, li => decoBelow(li));
 
       // the clouds of the water cycle, then the rain under them; clouds higher than the plane (lower layer number) are drawn after it
       const drawWater = (above: boolean) => {
       const dirX = Math.cos(L.wind.dir), dirY = -Math.sin(L.wind.dir), reach = L.wind.enabled ? L.wind.strength : 0;
       for (const c of s.eco.clouds) {
         if ((c.layer < layer) !== above) continue;
-        const size = T * 2 * c.size, lo = scr(0, -c.layer * 2 * zoom), sx = ox + (c.rx ?? c.x) * T + lo[0], sy = oy + (c.ry ?? c.y) * T + lo[1];
-        if (sx < -size || sy < -size || sx > VW + size || sy > VH + size * 3 || !vis(sx, sy, size * 1.5 + (reach + 3) * T)) continue;
+        const size = T * 2 * c.size, lo = [0, -c.layer * 2 * zoom], sx = ox + (c.rx ?? c.x) * T + lo[0], sy = oy + (c.ry ?? c.y) * T + lo[1];
+        if (sx < -size || sy < -size || sx > VW + size || sy > VH + size * 3) continue;
         g.globalAlpha = Math.min(1, 0.45 + c.layer * 0.06 + Math.min(0.3, c.water * 0.3));
         if (cloudSprites.length) {
           const sp = cloudPick(c.id), w = size * 1.7, h = w * CLOUD_ASPECT;
-          if (rot !== 0) { g.save(); g.translate(sx, sy); g.rotate(-rot); g.drawImage(sp, -w / 2, -h / 2, w, h); g.restore(); }
-          else g.drawImage(sp, sx - w / 2, sy - h / 2, w, h);
+          g.drawImage(sp, sx - w / 2, sy - h / 2, w, h);
         }
         if (c.raining) {
           const rx = ox + ((c.rx ?? c.x) + dirX * reach) * T, ry = oy + ((c.ry ?? c.y) + dirY * reach) * T, spread = rainRadius(c.rain) * T;
           g.globalAlpha = 0.9;
           for (let i = 0; i < 16; i++) {
             const a = hash01(c.id, i, 1) * Math.PI * 2, r = Math.sqrt(hash01(c.id, i, 2)) * spread, fall = (anim * 1.4 + hash01(c.id, i, 3)) % 1;
-            const fo = scr(0, -(1 - fall) * T * 2.5), px = rx - dirX * reach * T * (1 - fall) + Math.cos(a) * r + fo[0], py = ry - dirY * reach * T * (1 - fall) + Math.sin(a) * r + fo[1];
-            if (rot !== 0) { g.save(); g.translate(px, py); g.rotate(-rot); g.drawImage(img, SHEET.drop[0] * TILE_PX, SHEET.drop[1] * TILE_PX, TILE_PX, TILE_PX, -T / 2, -T / 2, T, T); g.restore(); }
-            else g.drawImage(img, SHEET.drop[0] * TILE_PX, SHEET.drop[1] * TILE_PX, TILE_PX, TILE_PX, px - T / 2, py - T / 2, T, T);
+            const fo = [0, -(1 - fall) * T * 2.5], px = rx - dirX * reach * T * (1 - fall) + Math.cos(a) * r + fo[0], py = ry - dirY * reach * T * (1 - fall) + Math.sin(a) * r + fo[1];
+            g.drawImage(img, SHEET.drop[0] * TILE_PX, SHEET.drop[1] * TILE_PX, TILE_PX, TILE_PX, px - T / 2, py - T / 2, T, T);
           }
         }
       }
@@ -1740,9 +1674,9 @@ function WorldView({ id }: { id: string }) {
       }
       if (flameSprites.length) for (const fr of s.eco.fires.values()) {
         const fx = ox + (fr.x + 0.5) * T, fy = oy + (fr.y + 0.9) * T;
-        if (fx < -T * 2 || fy < -T * 2 || fx > VW + T * 2 || fy > VH + T * 3 || !vis(fx, fy, T * 2)) continue;
+        if (fx < -T * 2 || fy < -T * 2 || fx > VW + T * 2 || fy > VH + T * 3) continue;
         const k = Math.min(1, fr.age * 3, 0.35 + fr.fuel * 0.6) * (0.9 + Math.min(0.9, fr.total * 0.09)), w = T * 1.25 * k, h = w * FLAME_ASPECT;
-        g.save(); g.translate(fx, fy); g.rotate(-rot);
+        g.save(); g.translate(fx, fy);
         g.globalAlpha = 0.35; g.fillStyle = '#ff9a28'; g.beginPath(); g.ellipse(0, -T * 0.25, w * 0.9, w * 0.55, 0, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
         g.drawImage(flameSprites[Math.abs(Math.floor(anim * 9) + fr.x * 3 + fr.y * 5) % flameSprites.length], -w / 2, -h, w, h); g.restore();
       }
@@ -1750,7 +1684,7 @@ function WorldView({ id }: { id: string }) {
       if (boltSprite.current) for (const b of s.eco.strikes) {
         if (b.age > 0.12 && Math.floor(b.age * 30) % 2 === 0) continue;
         const bx = ox + b.x * T, by = oy + b.y * T, w = T * 7, h = w * BOLT_ASPECT;
-        g.save(); g.translate(bx, by); g.rotate(-rot); g.drawImage(boltSprite.current, -w * BOLT_TIP, -h, w, h); g.restore();
+        g.save(); g.translate(bx, by); g.drawImage(boltSprite.current, -w * BOLT_TIP, -h, w, h); g.restore();
       }
 
       // the paper plane, always in the middle of the view
@@ -1820,22 +1754,22 @@ function WorldView({ id }: { id: string }) {
       }
 
       // clouds above the plane drift over it, so it reads as flying between them
-      if (L.decoClouds) drawDecoClouds(g, s.world.seed, f.x, f.y, 2 * CX, 2 * CY, T, zoom, anim, skyOff, li => !decoBelow(li), rot);
+      if (L.decoClouds) drawDecoClouds(g, s.world.seed, f.x, f.y, 2 * CX, 2 * CY, T, zoom, anim, skyOff, li => !decoBelow(li));
       drawWater(true);
 
       // small cumulus on top of the strong thermals: look up for them
       for (const th of thermals) {
         if (th.w < 1.6 || th.age < 0.12 || th.age > 0.92) continue;
-        const sz = T * (1.3 + th.w * 0.22), co = scr(0, -(100 * 0.35 + 10) * zoom), cxp = ox + th.x * T + co[0], cyp = oy + th.y * T + co[1];
+        const sz = T * (1.3 + th.w * 0.22), co = [0, -(100 * 0.35 + 10) * zoom], cxp = ox + th.x * T + co[0], cyp = oy + th.y * T + co[1];
         g.globalAlpha = Math.min(0.85, (th.w - 1.4) * 0.35);
-        g.save(); g.translate(cxp, cyp); g.rotate(-rot);                       // facing the screen
+        g.save(); g.translate(cxp, cyp);                       // facing the screen
         if (cloudSprites.length) { const w = sz * 2.2, h = w * CLOUD_ASPECT; g.drawImage(cloudPick(Math.round(th.x * 7 + th.y * 13)), -w / 2, -h / 2, w, h); }
         g.restore();
         g.globalAlpha = 1;
       }
 
       // text and the dial are laid out in the stage's own frame: on the (bigger, maybe turned) canvas that is a translate and a counter-rotation
-      const toStage = (x: number, y: number): [number, number] => { const ex = x - CX, ey = y - CY; return [W / 2 + ex * Math.cos(rot) - ey * Math.sin(rot), H / 2 + ex * Math.sin(rot) + ey * Math.cos(rot)]; };
+      const toStage = (x: number, y: number): [number, number] => [x, y];   // (the canvas is the stage)
       pp = toStage(px, py); pg = toStage(px + alt * 0.12 * zoom, oy + f.y * T);
       for (const hl of hoopLabels) { const [lx, ly] = toStage(hl.x, hl.y); hl.x = lx; hl.y = ly; }
       for (const pl of placeLabels) { const [lx, ly] = toStage(pl.x, pl.y); pl.x = lx; pl.y = ly; }
@@ -1845,7 +1779,7 @@ function WorldView({ id }: { id: string }) {
       if (dark > 0 && !useGL) { ctx.fillStyle = `rgba(6,10,36,${dark})`; ctx.fillRect(0, 0, VW, VH); }
       if (flashK > 0.01) { ctx.fillStyle = `rgba(225,238,255,${(flashK * 0.4).toFixed(3)})`; ctx.fillRect(0, 0, VW, VH); }   // lightning lights the whole view for a moment
 
-      ctx.save(); ctx.translate(CX, CY); ctx.rotate(-rot); ctx.translate(-W / 2, -H / 2);
+      ctx.save();
       // glide messages: stall, lift, landed, and the keys for a few seconds
       if (glide) {
         ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
@@ -1935,7 +1869,7 @@ function WorldView({ id }: { id: string }) {
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke();
       if (L.wind.enabled && L.wind.strength > 0.05) {
         const len = 5 + L.wind.strength * 1.1;
-        ctx.rotate(-L.wind.dir + rot); ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len, 0); ctx.lineTo(len - 5, -4); ctx.moveTo(len, 0); ctx.lineTo(len - 5, 4); ctx.stroke();
+        ctx.rotate(-L.wind.dir); ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len, 0); ctx.lineTo(len - 5, -4); ctx.moveTo(len, 0); ctx.lineTo(len - 5, 4); ctx.stroke();
       }
       ctx.restore();
       } else if (glide && !gl.landed) {                                                  // the controls are hidden: your height still shows, at the top of the screen
@@ -2180,7 +2114,7 @@ function WorldView({ id }: { id: string }) {
         {mode === 'glide' && !onFoot && <PixelFrame as="button" theme="bronze" scale={1} className="wui-btn wui-lookbtn" aria-pressed={camMode !== 'chase'} aria-label={t('worldCamTip')} title={t('worldCamTip')} onClick={cycleCam}><span>{t(camMode === 'chase' ? 'worldCamChase' : camMode === 'free' ? 'worldCamFree' : camMode === 'duel' ? 'worldCamDuel' : camMode === 'fpv' ? 'worldCamFpv' : 'worldCamFlyby')}</span></PixelFrame>}
         <div className="wui-camsl">
           {camMode !== 'fpv' && <PolledSlider cls="wui-zoom" color="red" label={t('worldCamZoom')} read={zoomNow} write={setZoomTo} />}
-          {mode === 'glide' && !onFoot && camMode !== 'flyby' && camMode !== 'fpv' && <PolledSlider cls="wui-zoom wui-tiltsl" color="green" label={t('worldTilt')} read={tiltPosNow} write={setTiltTo} />}
+          {mode === 'glide' && !onFoot && (gl3d || camMode !== 'chase') && camMode !== 'flyby' && camMode !== 'fpv' && <PolledSlider cls="wui-zoom wui-tiltsl" color="green" label={t('worldTilt')} read={tiltPosNow} write={setTiltTo} />}
         </div></div>
 
       {/* top left: close */}
@@ -2361,7 +2295,7 @@ function WorldView({ id }: { id: string }) {
               <div className="row">{(['chase', 'free', 'fpv', 'flyby', 'duel'] as const).map(m => <PixelButton key={m} size="compact" scale={1} variant={camMode === m ? 'green' : 'red'} aria-pressed={camMode === m} onClick={() => setCamMode(m)}>{t(m === 'chase' ? 'worldCamChase' : m === 'free' ? 'worldCamFree' : m === 'duel' ? 'worldCamDuel' : m === 'fpv' ? 'worldCamFpv' : 'worldCamFlyby')}</PixelButton>)}</div>
               <div className="world-slider"><span>{t('worldPlaneSize')}</span><PixelSlider min={0} max={PLANE_SIZES.length - 1} step={1} value={planeSizeI} onChange={v => { setPlaneSizeI(v); try { localStorage.setItem('scrypture.planeSize', String(v)); } catch { /* private window: the choice just is not kept */ } }} label={t('worldPlaneSize')} valueText={`${PLANE_SIZES[planeSizeI]} m`} /><b>{PLANE_SIZES[planeSizeI]} m</b></div>
               {initial.kind === 'lakedistrict' && <div className="world-slider"><span>{t('worldWalkDist')}</span><PixelSlider min={25} max={200} step={25} value={walkDist} onChange={setWalkDist} label={t('worldWalkDist')} valueText={`${walkDist}%`} /><b>{walkDist}</b></div>}
-              <div className="world-slider"><span>{t('worldTilt')}</span><PixelSlider min={0} max={16} step={1} value={tilt} onChange={v => { tiltPin.current = null; setTilt(v); }} label={t('worldTilt')} valueText={String(tilt)} /><b>{tilt}</b></div>
+              {(gl3d || camMode !== 'chase') && <div className="world-slider"><span>{t('worldTilt')}</span><PixelSlider min={0} max={16} step={1} value={tilt} onChange={v => { tiltPin.current = null; setTilt(v); }} label={t('worldTilt')} valueText={String(tilt)} /><b>{tilt}</b></div>}
               {showInfo && <div className="muted small">{t('worldCamTip')}</div>}
             </Sec>
             <Sec id="graphics" title={t('worldSecGraphics')} open={!!secs["graphics"]} onToggle={toggleSec}>
@@ -2953,7 +2887,7 @@ function emitSkyClouds(emit: (x: number, y: number, z: number, w: number, sprite
 }
 
 /** The decorative sky on the flat canvas. */
-function drawDecoClouds(ctx: CanvasRenderingContext2D, seed: number, fx: number, fy: number, W: number, H: number, T: number, zoom: number, anim: number, skyOff: { x: number; y: number }[], include: (li: number) => boolean, rot = 0) {
+function drawDecoClouds(ctx: CanvasRenderingContext2D, seed: number, fx: number, fy: number, W: number, H: number, T: number, zoom: number, anim: number, skyOff: { x: number; y: number }[], include: (li: number) => boolean) {
   if (!cloudSprites.length) return;
   const CELL = T * 3;                                                            // one cell = 3 ground tiles
   DECO_LAYERS.forEach((cfg, li) => {
@@ -2972,11 +2906,10 @@ function drawDecoClouds(ctx: CanvasRenderingContext2D, seed: number, fx: number,
       const cx = u * CELL + frac - px + W / 2 + CELL / 2;
       const sway = Math.sin(anim * (0.05 + li * 0.02) * 2 * Math.PI + hash01(nu, nv, li, 9) * 10) * cfg.sway * 0.12 * zoom;
       const cy = v * CELL + fracY - py + H / 2 + CELL / 2 + sway;
-      if (rot === 0 ? cx < -reach || cx > W + reach || cy < -reach || cy > H + reach : Math.hypot(cx - W / 2, cy - H / 2) > Math.hypot(W, H) / 2 + reach) continue;   // a cloud wholly off the screen is never drawn (a turned view: outside the circle round it)
+      if (cx < -reach || cx > W + reach || cy < -reach || cy > H + reach) continue;   // a cloud wholly off the screen is never drawn
       const w = T * cfg.size * (DECO_W0 + mass * DECO_W1), h = w * CLOUD_ASPECT, sp = cloudPick(hash01(nu, nv, li, 91) * 1000);
       ctx.globalAlpha = cfg.opacity;
-      if (rot !== 0) { ctx.save(); ctx.translate(cx, cy); ctx.rotate(-rot); ctx.drawImage(sp, -w / 2, -h / 2, w, h); ctx.restore(); }   // clouds face the screen
-      else ctx.drawImage(sp, cx - w / 2, cy - h / 2, w, h);
+      ctx.drawImage(sp, cx - w / 2, cy - h / 2, w, h);
     }
   });
   ctx.globalAlpha = 1;

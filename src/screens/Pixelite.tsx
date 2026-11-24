@@ -8,7 +8,7 @@ import { PixelCheckbox } from '../ui/misc';
 import { setPendingFrameFile } from './FrameEditor';
 import { FRAME_THEMES } from '../ui/themes';
 import {
-  MAX_GRID, MAX_OUTPUT, OUTPUT_SIZES, ZOOM_MAX, ZOOM_MIN, clampOutput, detectGridSize, detectOutputSize, exportName, extractPalette,
+  MAX_GRID, MAX_OUTPUT, OUTPUT_SIZES, ZOOM_MAX, ZOOM_MIN, clampOutput, detectGridSize, detectOutputSize, extractPalette,
   outputDims, rgbCss, sampleGrid, shadeWithPalette, snapOutput, defaultCuts, detectContentBounds, sliceFrame, type Bounds, type OutputSize, type Rgb,
   SAMPLE_MODES, alphaCleanup, cleanStray, medianDenoise, sharpen, type SampleMode,
   EXPORT_FORMATS, EXPORT_MIME, borderColor, frameFileNames, exportFileName, removeBackground, sheetFrames, type ExportFormat,

@@ -1,6 +1,6 @@
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { PixelFrame } from '../ui/PixelFrame';
-import { Chip, Icon, PixelCheckbox } from '../ui/misc';
+import { Chip, PixelCheckbox } from '../ui/misc';
 import { LifeFx } from '../ui/LifeFx';
 import { CATEGORY_TINT, difficultyTint } from '../ui/colors';
 import { useTintedFrame } from '../ui/tintFrame';

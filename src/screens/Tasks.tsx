@@ -14,7 +14,7 @@ import { FirstTaskTutorial } from '../ui/FirstTaskTutorial';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
 import { PRIORITY_KEY, type Key } from '../i18n';
-import { frameOr, resolveFrame, splitFrame } from '../ui/themes';
+import { frameOr, resolveFrame } from '../ui/themes';
 import { CATEGORY_TINT, URGENCY_TINT, difficultyTint } from '../ui/colors';
 import { useTintedFrame } from '../ui/tintFrame';
 import { Dropdown } from '../ui/Dropdown';

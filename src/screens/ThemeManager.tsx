@@ -6,7 +6,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { ButtonLook, PixelButton } from '../ui/PixelButton';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { BAR_IDS, BAR_LABELS } from '../ui/bars';
-import { BUTTON_STYLES, CHIP_SCALES, FRAME_HUES, FRAME_SCALES, FRAME_THEMES, backdropFrame, buildFrame, frameOr, resolveFrame, splitFrame, withHue, type FrameTheme } from '../ui/themes';
+import { BUTTON_STYLES, CHIP_SCALES, FRAME_HUES, FRAME_SCALES, FRAME_THEMES, backdropFrame, buildFrame, frameOr, resolveFrame, splitFrame, type FrameTheme } from '../ui/themes';
 import { BUTTON_SIZES, CHIP_EDGES, CRT_LEVELS, DEFAULT_APPEARANCE, BUILTIN_PRESETS, MAX_PRESETS, appearanceOf, type Preset, FRAME_CENTERS, FRAME_EDGES, NAV_ACTIVE, NAV_LABELS, sanitizeNavItems, moveInList } from '../domain';
 import type { Key } from '../i18n';
 import { CHIP_IDS, ChipLook, useCatChipStyle } from '../ui/chips';
