@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CURRENT_VERSION } from './state';
-import { STORAGE_KEY, backupKey, migrate, migrations, normalize, readSaved, saveState, type KV } from './storage';
+import { CHAT_KEEP, STORAGE_KEY, backupKey, migrate, migrations, normalize, readSaved, sanitizeChat, saveState, type KV } from './storage';
 import { createStore } from './store';
 
 const files = import.meta.glob('./fixtures/*.json', { eager: true, import: 'default' }) as Record<string, unknown>;
@@ -79,5 +79,17 @@ describe('migrations and saves the app cannot read', () => {
     expect(readSaved(kv)).toMatchObject({ problem: null, state: { user: { name: 'Now' } } });
     expect(Object.keys(kv.data).filter(k => k.startsWith(`${STORAGE_KEY}:v`))).toEqual([]);
     expect(backupKey(1)).toBe(`${STORAGE_KEY}:v1`);
+  });
+});
+
+describe('the saved chat', () => {
+  it('keeps valid messages, the newest CHAT_KEEP, and drops junk', () => {
+    const many = Array.from({ length: CHAT_KEEP + 5 }, (_, i) => ({ id: `m${i}`, type: 'NORMAL', fromBobr: i % 2 === 0, text: `hi ${i}`, at: i }));
+    const kept = sanitizeChat([...many, { id: 7 }, 'x', { id: 'z', text: 'no time' }]);
+    expect(kept).toHaveLength(CHAT_KEEP);
+    expect(kept[0].id).toBe('m5');
+    expect(sanitizeChat([{ id: 'a', type: 'WEIRD', text: 'x'.repeat(5000), at: 1 }])[0]).toMatchObject({ type: 'NORMAL', fromBobr: false });
+    expect(sanitizeChat([{ id: 'a', text: 'x'.repeat(5000), at: 1 }])[0].text).toHaveLength(2000);
+    expect(normalize({ version: 1, chat: many.slice(0, 2) }).chat.map(m => m.text)).toEqual(['hi 0', 'hi 1']);
   });
 });

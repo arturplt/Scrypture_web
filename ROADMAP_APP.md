@@ -13,7 +13,7 @@ Update the status table when a phase moves.
 |---|---|---|---|
 | 1 | Safety net and first release | M | Built but for one check: committed; CI type-checks, tests, builds, runs the end-to-end test and deploys to scrypture.app; old saves are tested; error and update toasts. Open: a Lighthouse check and an install hint |
 | 2 | Real-device pass | M | Not started |
-| 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Open: calendar sprite, chat history, typing animation |
+| 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Chat history, typing animation and the chat sparkle built 2026-11-24. Open: calendar sprite, a targeted habit on N planner days |
 | 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
 | 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. 2026-11-24: speech bubble, XP stars, stone hold, feeding count. Open: sad+hungry animation, extra items, ancient sprite (all need art or design) |
 | 6 | Mind map, second round | M | Mostly built: tidy, collapse, link direction and flip, copy, picture (2026-11-24). Open: undo after closing, user frames for boxes |
@@ -72,9 +72,9 @@ Why: the planner is new and is the part meant to tie the app together; the first
 - ~~Bóbr speaks first on Home~~ (built 2026-11-17).
 - ~~Shortlist: reorder by dragging~~ (built; the shortlist holds 12).
 - ~~Turn a mind-map box into a task or an activity~~ (built 2026-11-17); showing a ticked task on its box is open.
-- The completion sparkle: built for the Planner 2026-11-17; "What now?" in the chat is open.
+- ~~The completion sparkle~~: built for the Planner 2026-11-17 and for "What now?" in the chat 2026-11-24.
 - A calendar sprite for the tile and the bar (needs art).
-- Chat leftovers that fit here: saved chat history, a typing animation. (The "favourite task" reply was built 2026-11-17.)
+- ~~Chat leftovers that fit here: saved chat history, a typing animation~~ (built 2026-11-24). (The "favourite task" reply was built 2026-11-17.)
 - Done when: a week can be planned ahead, Bóbr reminds you without being asked, and a mind map can feed the plan.
 
 ## Phase 4: tasks and habits depth
@@ -85,7 +85,7 @@ Why: these are the screens used every day, and several Android features are stil
 - ~~Task form: several core attributes at once~~ (built 2026-11-17). Quick-create with presets is open.
 - Tags: manage them and filter by them. (Sort options "No sort" and "Created date" were built 2026-11-17.)
 - Task detail screen (full description, "Done N times", previous and next).
-- ~~Habits: real weekly and monthly rules~~ (built 2026-11-17: once per week or month, streak counts periods; "N times a week" targets are open). (The reward, streak multiplier, quick start and the 10-second undo were built 2026-11-17.)
+- ~~Habits: real weekly and monthly rules~~ (built 2026-11-17: once per week or month, streak counts periods; "N times a week" targets built 2026-11-24). (The reward, streak multiplier, quick start and the 10-second undo were built 2026-11-17.)
 - Start Here: topic filter, hide what is too hard for a beginner, "add all easy ones".
 - Done when: the Android task and habit features are matched or deliberately dropped, each noted in `BACKLOG.md`.
 

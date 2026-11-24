@@ -1,10 +1,10 @@
 import {
-  addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
+  addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule, cleanTarget, effectiveStreak,
   MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
-import { STORAGE_KEY, browserKV, exportJSON, importJSON, readSaved, saveState, type KV } from './storage';
+import { STORAGE_KEY, browserKV, exportJSON, importJSON, readSaved, sanitizeChat, saveState, type KV } from './storage';
 
 export interface NewTask {
   title: string; category: Category; priority: Priority; difficulty: number;
@@ -18,7 +18,7 @@ export interface NewTask {
   /** id of the Start Here suggestion it came from */
   origin?: string;
 }
-export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** ids of its custom categories */ groups?: string[] }
+export interface NewHabit { title: string; category: Category; frequency: Frequency; description?: string; origin?: string; /** ids of its custom categories */ groups?: string[]; /** weekly or monthly: on how many days of the period (unset = 1) */ target?: number }
 
 export function createStore(kv: KV | null = browserKV(), clock: () => number = Date.now, genId: () => string = newId) {
   const first = readSaved(kv, clock());
@@ -146,12 +146,18 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     // ---- habits
     addHabit(input: NewHabit): Habit {
       const now = clock();
-      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, groups: input.groups?.length ? input.groups : undefined, createdAt: now, updatedAt: now };
+      const habit: Habit = { id: genId(), title: input.title.trim(), category: input.category, frequency: input.frequency, description: input.description?.trim() || undefined, streak: 0, bestStreak: 0, lastCompleted: null, origin: input.origin, groups: input.groups?.length ? input.groups : undefined, ...(cleanTarget(input.frequency, input.target) ? { target: cleanTarget(input.frequency, input.target) } : {}), createdAt: now, updatedAt: now };
       set({ ...state, habits: [habit, ...state.habits] });
       return habit;
     },
     updateHabit(id: string, patch: Partial<NewHabit>) {
-      set({ ...state, habits: state.habits.map(h => (h.id === id ? { ...h, ...patch, updatedAt: clock() } : h)) });
+      set({ ...state, habits: state.habits.map(h => {
+        if (h.id !== id) return h;
+        const { target: _t, ...next } = { ...h, ...patch, updatedAt: clock() }, target = cleanTarget(next.frequency, 'target' in patch ? patch.target : h.target);
+        const out: Habit = target ? { ...next, target } : next;
+        // a new target (or period) changes what the streak counts: work it out again from the days done
+        return target !== h.target || next.frequency !== h.frequency ? { ...out, streak: effectiveStreak(out, clock()) } : out;
+      }) });
     },
     deleteHabit(id: string) { set({ ...state, habits: state.habits.filter(h => h.id !== id) }); },
     completeHabit(id: string) {
@@ -178,6 +184,8 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     },
 
     // ---- stats / inventory / chat / user
+    /** Keep the conversation with Bóbr for the next visit (the newest CHAT_KEEP messages). */
+    setChat(messages: ChatMessage[]) { set({ ...state, chat: sanitizeChat(messages) }); },
     addXP(xp: number) {
       const r = addXP(state.stats, xp);
       if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });

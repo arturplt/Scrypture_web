@@ -135,6 +135,15 @@ textarea { resize: vertical; }
 .msg.bobr { justify-self: start; } .msg.me { justify-self: end; text-align: right; }
 .options { display: flex; flex-wrap: wrap; gap: calc(8 * var(--u)); }
 .msg { scroll-margin-top: calc(16 * var(--u)); }
+/* Bóbr typing: three dots that rise in turn (still dots when motion is reduced) */
+.msg.typing { display: flex; gap: calc(4 * var(--u)); align-items: center; min-height: calc(20 * var(--u)); }
+.msg.typing i { width: calc(4 * var(--u)); height: calc(4 * var(--u)); background: currentColor; opacity: 0.7; animation: chat-dot 0.9s steps(3) infinite; }
+.msg.typing i:nth-child(2) { animation-delay: 0.15s; } .msg.typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(calc(-3 * var(--u))); } }
+@media (prefers-reduced-motion: reduce) { .msg.typing i { animation: none; } }
+/* the burst on a reply that ticked something off sits on its top left corner */
+.msg { position: relative; }
+.msg .msg-fx { position: absolute; left: calc(12 * var(--u)); top: calc(10 * var(--u)); width: 0; height: 0; }
 
 /* settings */
 .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(100 * var(--u)), 1fr)); gap: calc(8 * var(--u)); }
@@ -369,7 +378,7 @@ textarea { resize: vertical; }
 @keyframes urg-blink { 0% { opacity: 1; } 50% { opacity: .25; } }
 
 /* completion: glow in the type colour (size grows with XP), the finished card flings away, four-point stars burst from the tick */
-.task.fx-glow { animation: fx-glow .9s; }
+.task.fx-glow, .msg.fx-glow { animation: fx-glow .9s; }
 .task.fx-leave { animation: fx-glow .9s, fx-exit .55s cubic-bezier(.5, -.4, .8, .5) var(--fx-ex) forwards; }
 .task.fx-leave .task-title { text-decoration: line-through; opacity: .6; }
 @keyframes fx-glow { 0%, 100% { filter: none; } 35% { filter: drop-shadow(0 0 calc(var(--fx-gl) * var(--u)) var(--fx-main)) brightness(1.25); } }

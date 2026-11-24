@@ -8,7 +8,7 @@
  * list the completed habits. Pure functions only.
  */
 import type { Frequency, Habit } from './types';
-import { dayDiff } from './habits';
+import { cleanTarget, dayDiff } from './habits';
 import { startOfDay } from './tasks';
 
 export interface HabitPlan {
@@ -132,9 +132,11 @@ export function habitHistory(habits: readonly Habit[], now: number, days: number
 }
 
 /** Keep only a valid plan and log from anything (an old save or an import). */
-export function sanitizeHabitExtras(h: { plan?: unknown; log?: unknown }): { plan?: HabitPlan; log?: number[] } {
+export function sanitizeHabitExtras(h: { plan?: unknown; log?: unknown; target?: unknown; frequency?: unknown }): { plan?: HabitPlan; log?: number[]; target?: number } {
   const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-  const out: { plan?: HabitPlan; log?: number[] } = {};
+  const out: { plan?: HabitPlan; log?: number[]; target?: number } = {};
+  const target = h.frequency === 'WEEKLY' || h.frequency === 'MONTHLY' ? cleanTarget(h.frequency, h.target) : undefined;
+  if (target) out.target = target;
   if (Array.isArray(h.log)) out.log = [...new Set(h.log.filter(num).map(startOfDay))].sort((a, b) => a - b).slice(-HABIT_LOG_MAX);
   const p = h.plan as Record<string, unknown> | undefined;
   if (p && typeof p === 'object' && num(p.start)) {

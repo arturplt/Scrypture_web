@@ -1,5 +1,5 @@
 import type { Frequency, Habit, StatRewards } from './types';
-import { logWith } from './habitplan';
+import { habitLog, logWith } from './habitplan';
 import { statRewards } from './xp';
 
 export const HABIT_BASE_XP = 5;
@@ -34,6 +34,34 @@ export function periodIndex(frequency: Frequency, ms: number): number {
 }
 export const periodDiff = (frequency: Frequency, fromMs: number, toMs: number) => periodIndex(frequency, toMs) - periodIndex(frequency, fromMs);
 
+// ---- targets: "3 times a week" -----------------------------------------------------------------------------------------
+
+/** The most days a period can ask for: every day of a week; for a month, 28 (so every month can meet it). */
+export const TARGET_MAX: Record<Frequency, number> = { DAILY: 1, WEEKLY: 7, MONTHLY: 28 };
+type Targeted = Pick<Habit, 'lastCompleted' | 'frequency'> & Partial<Pick<Habit, 'target' | 'log'>>;
+/** How many different days of its period a habit wants (1 for daily habits and for those without a target). */
+export const habitTarget = (h: Pick<Habit, 'frequency'> & { target?: number }) => (h.target && h.target > 1 ? Math.min(TARGET_MAX[h.frequency], Math.round(h.target)) : 1);
+/** A target as it may be saved: a whole number from 2 to the period's maximum, else none. */
+export const cleanTarget = (frequency: Frequency, target: unknown): number | undefined =>
+  typeof target === 'number' && Number.isFinite(target) && Math.round(target) > 1 && frequency !== 'DAILY' ? Math.min(TARGET_MAX[frequency], Math.round(target)) : undefined;
+/** On how many different days of the period of `now` the habit was done. */
+export function doneInPeriod(h: Targeted, now: number): number {
+  const p = periodIndex(h.frequency, now);
+  return habitLog({ log: h.log, lastCompleted: h.lastCompleted }).filter(d => periodIndex(h.frequency, d) === p).length;
+}
+/**
+ * A habit with a target: periods in a row that met it, ending with the period of `now` when that one is met already, otherwise with the one before
+ * (a week still under way does not break the streak). Read from the log of days done.
+ */
+export function targetStreak(h: Targeted, now: number): number {
+  const target = habitTarget(h), counts = new Map<number, number>();
+  for (const d of habitLog({ log: h.log, lastCompleted: h.lastCompleted })) { const p = periodIndex(h.frequency, d); counts.set(p, (counts.get(p) ?? 0) + 1); }
+  let p = periodIndex(h.frequency, now), n = 0;
+  if ((counts.get(p) ?? 0) < target) p--;
+  while ((counts.get(p) ?? 0) >= target) { n++; p--; }
+  return n;
+}
+
 export function nextStreak(streak: number, lastCompleted: number | null, now: number, frequency: Frequency = 'DAILY'): number {
   if (lastCompleted == null) return 1;
   const d = periodDiff(frequency, lastCompleted, now);
@@ -44,17 +72,28 @@ export function nextStreak(streak: number, lastCompleted: number | null, now: nu
 
 /** Android counts calendar days whatever the frequency; here a weekly habit counts weeks and a monthly one months. */
 export function completeHabit(habit: Habit, now: number): Habit {
-  const streak = nextStreak(habit.streak, habit.lastCompleted, now, habit.frequency);
-  return { ...habit, streak, bestStreak: Math.max(habit.bestStreak, streak), lastCompleted: now, log: logWith(habit, now), updatedAt: now };
+  const log = logWith(habit, now);
+  // with a target the streak counts periods that met it, read from the log; otherwise each period done once
+  const streak = habitTarget(habit) > 1 ? targetStreak({ ...habit, log }, now) : nextStreak(habit.streak, habit.lastCompleted, now, habit.frequency);
+  return { ...habit, streak, bestStreak: Math.max(habit.bestStreak, streak), lastCompleted: now, log, updatedAt: now };
 }
 
-/** Done for the current period: today for a daily habit, this week or month for the others. */
-export const completedToday = (h: Pick<Habit, 'lastCompleted' | 'frequency'>, now: number) => h.lastCompleted != null && periodDiff(h.frequency, h.lastCompleted, now) === 0;
+/**
+ * Nothing to do on it now: for a daily habit, done today; for the others, done this week or month, or (with a target) done on enough days of it,
+ * or done today already (a target counts different days).
+ */
+export const completedToday = (h: Targeted, now: number) => {
+  if (h.lastCompleted == null) return false;
+  if (habitTarget(h) === 1) return periodDiff(h.frequency, h.lastCompleted, now) === 0;
+  return periodDiff('DAILY', h.lastCompleted, now) === 0 || doneInPeriod(h, now) >= habitTarget(h);
+};
 
 /** Streak as it should be shown now: a streak not continued yesterday or today is already lost. */
-export function effectiveStreak(h: Pick<Habit, 'streak' | 'lastCompleted'> & { frequency?: Frequency }, now: number): number {
+export function effectiveStreak(h: Pick<Habit, 'streak' | 'lastCompleted'> & { frequency?: Frequency; target?: number; log?: number[] }, now: number): number {
   if (h.lastCompleted == null) return 0;
-  return periodDiff(h.frequency ?? 'DAILY', h.lastCompleted, now) > 1 ? 0 : h.streak;
+  const frequency = h.frequency ?? 'DAILY';
+  if (habitTarget({ frequency, target: h.target }) > 1) return targetStreak({ ...h, frequency }, now);
+  return periodDiff(frequency, h.lastCompleted, now) > 1 ? 0 : h.streak;
 }
 
 /** How the habit list can be ordered: newest first, longest streak, still-to-do-today first, or A-Z. */

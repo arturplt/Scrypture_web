@@ -2,6 +2,7 @@ import type { Achievement, Habit, Task, UserStats } from './types';
 import { achievementProgress } from './achievements';
 import { bobrStage, xpForNextLevel } from './levels';
 import { isOverdue } from './tasks';
+import { doneInPeriod, habitTarget } from './habits';
 import { fmtClock, nextSteps, shortlistTasks, todaySummary, dayPlan, type NextStep, type PlanData, type PlanEvent } from './planner';
 import { emotionNow, hungerAt, happinessNow, type BobrVitals, type Emotion } from './bobr';
 import { STARTER_TASKS, STAT_ORDER, benchmarkFor, benchmarkXP, fmtMinutes, isTaskAdded, type StarterTask } from './starter';
@@ -278,7 +279,11 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
       const step = nextSteps(planOf(c), c.now).find(s => s.id === f.nextId);
       if (!step) return offerNext(c, f);
       if (step.kind === 'task') return { ...offerNext(c, f, `${t('chatTaskCompleted')}\n${t('taskDoneXp', { xp: step.task.experienceReward })}`), completeTaskId: step.id };
-      if (step.kind === 'habit') return { ...offerNext(c, f, t('chatNextHabitDone')), completeHabitId: step.id };
+      if (step.kind === 'habit') {   // a habit with a target says how far the week (or month) has got instead, until the target is met
+        const target = habitTarget(step.habit), n = doneInPeriod(step.habit, c.now) + 1;
+        const said = target > 1 && n < target ? t(step.habit.frequency === 'WEEKLY' ? 'chatHabitWeekSoFar' : 'chatHabitMonthSoFar', { n, target }) : t('chatNextHabitDone');
+        return { ...offerNext(c, f, said), completeHabitId: step.id };
+      }
       return { ...offerNext(c, f, t('chatNextEventDone')), doneEventId: step.id };
     }
     case 'stats_ask': {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { completedToday, effectiveStreak, sortHabits, type Category, type Habit, type HabitSort } from '../domain';
+import { completedToday, doneInPeriod, habitTarget, effectiveStreak, sortHabits, type Category, type Habit, type HabitSort } from '../domain';
 import type { Key } from '../i18n';
 import { actions, useAppState, useUndo } from '../data/hooks';
 import { useNow } from '../hooks';
@@ -64,6 +64,7 @@ function HabitCard({ habit, now, beforeTick, onEdit }: { habit: Habit; now: numb
       </div>
       <div className="row wrap chips">
         <Chip>{t(habit.frequency.toLowerCase() as 'daily' | 'weekly' | 'monthly').toUpperCase()}</Chip>
+        {habitTarget(habit) > 1 && <Chip color={doneInPeriod(habit, now) >= habitTarget(habit) ? 'var(--success)' : undefined}>{t(habit.frequency === 'WEEKLY' ? 'habitThisWeek' : 'habitThisMonth', { n: doneInPeriod(habit, now), target: habitTarget(habit) })}</Chip>}
         <Chip color={streak > 0 ? 'var(--success)' : 'var(--bg-3)'}>{t('streak').toUpperCase()} {streak}</Chip>
         <Chip color="var(--bg-3)">{t('best').toUpperCase()} {habit.bestStreak}</Chip>
         {groups.map(g => <CategoryChip key={g.id} category={g} />)}

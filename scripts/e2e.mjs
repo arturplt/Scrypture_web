@@ -116,7 +116,7 @@ const STEPS = [
     await waitFor(() => st().habits?.some(h => h.title === 'Stretch'), 'the habit to be saved');`],
   ['chat with Bóbr', `
     await go('#/chat');
-    const said = () => [...document.querySelectorAll('main .msg.bobr')];
+    const said = () => [...document.querySelectorAll('main .msg.bobr:not(.typing)')];
     await waitFor(() => said().length, 'the greeting');
     const before = said().length;
     click(/^My Stats$/);

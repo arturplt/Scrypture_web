@@ -1,4 +1,4 @@
-import { CURRENT_VERSION, defaultState, type AppState } from './state';
+import { CURRENT_VERSION, defaultState, type AppState, type ChatMessage } from './state';
 import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeNotes, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
 /** Older saves kept one `group` per task or habit; now it is a list `groups` (left out when empty). */
@@ -41,6 +41,18 @@ export function migrate(raw: any, to = CURRENT_VERSION, steps = migrations): any
 
 const isObj = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
+/** How many chat messages are kept between visits (the newest), and how long one may be. */
+export const CHAT_KEEP = 100, CHAT_TEXT_MAX = 2000;
+/** The saved conversation with Bóbr: valid messages only, the newest CHAT_KEEP. */
+export function sanitizeChat(raw: unknown): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const m of Array.isArray(raw) ? raw : []) {
+    if (!isObj(m) || typeof m.id !== 'string' || typeof m.text !== 'string' || typeof m.at !== 'number' || !Number.isFinite(m.at)) continue;
+    out.push({ id: m.id, type: m.type === 'QUICK_ACTION' || m.type === 'SYSTEM' ? m.type : 'NORMAL', fromBobr: m.fromBobr === true, text: m.text.slice(0, CHAT_TEXT_MAX), at: m.at });
+  }
+  return out.slice(-CHAT_KEEP);
+}
+
 /** Validate + merge onto defaults so missing/new fields never crash the app. Throws on garbage. */
 export function normalize(raw: unknown, now = Date.now()): AppState {
   if (!isObj(raw)) throw new Error('State must be an object');
@@ -82,7 +94,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     worlds,
     orbitsReached,
     tasks: (s.tasks ?? []).map((t: any) => (t && typeof t === 'object' ? { ...withGroups(t), completionCount: t.completionCount ?? (t.completed ? 1 : 0), lastCompletedAt: t.lastCompletedAt ?? (t.completed ? t.updatedAt : undefined) } : t)),
-    habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, ...rest } = withGroups(h); return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: s.chat ?? [], achievements,
+    habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, target: _t, ...rest } = withGroups(h); return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: sanitizeChat(s.chat), achievements,
     version: CURRENT_VERSION,
   };
 }

@@ -7,6 +7,9 @@ import { Icon, Modal } from '../ui/misc';
 import { PixelButton } from '../ui/PixelButton';
 import { useT } from '../i18n/useT';
 
+/** The targets offered: any number of days a week; a choice of them a month (up to 28, so every month can meet it). */
+const TIMES: Record<'WEEKLY' | 'MONTHLY', number[]> = { WEEKLY: [1, 2, 3, 4, 5, 6, 7], MONTHLY: [1, 2, 3, 4, 6, 8, 10, 12, 15, 20] };
+
 const CATS: Category[] = ['BODY', 'MIND', 'SOUL'];
 const FREQS: Frequency[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 
@@ -17,6 +20,7 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
   const [category, setCategory] = useState<Category>(habit?.category ?? 'BODY');
   const [frequency, setFrequency] = useState<Frequency>(habit?.frequency ?? 'DAILY');
   const [description, setDescription] = useState(habit?.description ?? '');
+  const [target, setTarget] = useState(habit?.target ?? 1);   // weekly or monthly: on how many days of the period
   const cats = useAppState(s => s.categories);
   const [group, setGroup] = useState<string[]>(habit?.groups ?? []);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -25,8 +29,9 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
   function save() {
     if (!valid) return;
     const groupIds = group.filter(g => cats.some(c => c.id === g));
-    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined, groups: groupIds });
-    else actions.addHabit({ title, category, frequency, description, groups: groupIds });
+    const times = frequency === 'DAILY' || target <= 1 ? undefined : target;
+    if (habit) actions.updateHabit(habit.id, { title: title.trim(), category, frequency, description: description.trim() || undefined, groups: groupIds, target: times });
+    else actions.addHabit({ title, category, frequency, description, groups: groupIds, target: times });
     onClose();
   }
 
@@ -53,6 +58,14 @@ export function HabitForm({ habit, onClose, onDeleted }: { habit?: Habit; onClos
               ))}
             </div>
           </div>
+          {frequency !== 'DAILY' && (
+            <div className="field">{t(frequency === 'WEEKLY' ? 'habitTimesWeek' : 'habitTimesMonth')}
+              <div className="row wrap" role="group" aria-label={t(frequency === 'WEEKLY' ? 'habitTimesWeek' : 'habitTimesMonth')}>
+                {TIMES[frequency].map(n => <button type="button" key={n} className={`seg ${target === n ? 'on' : ''}`} aria-pressed={target === n} onClick={() => setTarget(n)}>{n}</button>)}
+              </div>
+              {target > 1 && <div className="muted small">{t('habitTimesHint')}</div>}
+            </div>
+          )}
           <CategoryPicker value={group} onChange={setGroup} />
           <label className="field">{t('description')}
             <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} />

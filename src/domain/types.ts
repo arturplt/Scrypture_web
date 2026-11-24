@@ -52,6 +52,8 @@ export interface Habit {
   plan?: import('./habitplan').HabitPlan;
   /** the days it was completed on (local midnights), oldest first */
   log?: number[];
+  /** a weekly or monthly habit: how many different days of the period it is wanted on (unset = 1) */
+  target?: number;
   createdAt: number;
   updatedAt: number;
 }
