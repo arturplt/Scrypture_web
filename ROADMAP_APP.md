@@ -15,7 +15,7 @@ Update the status table when a phase moves.
 | 2 | Real-device pass | M | Not started |
 | 3 | Planner and Bóbr, second round | M-L | First version built 2026-11-16; activities pay XP and stats (2026-11-17) |
 | 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
-| 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. Rest open |
+| 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. 2026-11-24: speech bubble, XP stars, stone hold. Open: sad+hungry animation, extra items, ancient sprite, feeding count |
 | 6 | Mind map, second round | M | First and second versions built 2026-11-16 |
 | 7 | Exercise tracker | L | First version built 2026-11-17 (see below) |
 | 8 | Sound and haptics | M | Mostly built 2026-11-17: UI sounds, volume setting, rock game sounds. Haptics open |
@@ -96,8 +96,8 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 - Mood as a state machine: the EXCITED and MISCHIEVOUS moods and the mixed sad-and-hungry animation are missing.
 - ~~Items from play~~ (built 2026-11-17): the rock game drops coin (score 1000, level 10), stone (level 5), hay (level 3), a stick (15 hits) and, in Time Trial, a berry (level 4). Drop levels are untuned; the other minigames have no scored result to hang drops on.
 - The extra items (acorn, feather, honey and others): sprites are in the atlas but have no slots or use.
-- Stone cost on Home (long-press shows the price, "not enough stone").
-- Home: XP particles, ambient particles, rotating motivational messages.
+- ~~Stone cost on Home (long-press shows the price, "not enough stone")~~ (built 2026-11-24).
+- ~~Home: XP particles, ambient particles, rotating motivational messages~~ (built 2026-11-24: XP stars fly into the level bar, Bóbr's speech bubble every 30 s; the ambient pollen and leaves were already there).
 - Wandering animation with a facing direction, the ancient-stage sprite, the feeding count.
 - Done when: Bóbr's mood changes visibly with what you do, and playing a game earns something he can use.
 

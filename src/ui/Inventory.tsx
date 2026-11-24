@@ -5,6 +5,8 @@ import { PixelButton } from './PixelButton';
 import { useT } from '../i18n/useT';
 import { useUi } from './useUi';
 import { backdropFrame, frameOr } from './themes';
+import { useLongPress } from './misc';
+import { useState } from 'react';
 
 /** One inventory slot: the Android slot sprite with the item in it and its count in the corner. Empty slots show the item dimmed. */
 export function Slot({ id, n, as: Tag = 'span', glow = Tag === 'button', ...rest }: { id: ItemId; n: number; as?: 'span' | 'button'; /** bob and glow: "tap me now" */ glow?: boolean } & React.HTMLAttributes<HTMLElement>) {
@@ -20,10 +22,13 @@ export function Slot({ id, n, as: Tag = 'span', glow = Tag === 'button', ...rest
   );
 }
 
-/** The whole inventory: all item slots (tap hay or a berry to feed him) and the hunger hint. */
-export function Inventory({ emotion, frame = 'app' }: { emotion: Emotion; frame?: string }) {
+/** The whole inventory: all item slots (tap hay or a berry to feed him) and the hunger hint. `onStoneHold`: press and hold the stone to start a rock game; `paidAt`: when stone was last paid for one (a "-n" floats off the slot). */
+export function Inventory({ emotion, frame = 'app', onStoneHold, stoneCost = 0, paidAt = 0 }: { emotion: Emotion; frame?: string; onStoneHold?: () => void; stoneCost?: number; paidAt?: number }) {
   const t = useT();
   const inv = useAppState(s => s.inventory);
+  const [gone, setGone] = useState(0);   // the "-n" float that has finished (so it is not drawn again)
+  const stoneHold = useLongPress(onStoneHold);
+  const paid = paidAt > gone ? paidAt : 0;
   const hungry = emotion === 'HUNGRY';
   const hay = inv.hay ?? 0, berry = inv.berry ?? 0;
   return (
@@ -33,6 +38,8 @@ export function Inventory({ emotion, frame = 'app' }: { emotion: Emotion; frame?
           ? <Slot key={id} id={id} n={hay} as="button" onClick={() => actions.feedBobr()} aria-label={t('feedAria')} />
           : id === 'berry' && berry > 0   // a berry is a treat: he takes one any time
           ? <Slot key={id} id={id} n={berry} as="button" glow={hungry} onClick={() => actions.feedBerry()} aria-label={t('feedBerryAria')} title={t('feedBerryAria')} />
+          : id === 'stone' && onStoneHold
+          ? <span key={id} className="slot-hold" {...stoneHold} title={t('holdStoneAria')} aria-label={t('holdStoneAria')}><Slot id={id} n={inv[id] ?? 0} />{paid > 0 && <b key={paid} className="slot-cost" aria-hidden onAnimationEnd={() => setGone(paidAt)}>-{stoneCost}</b>}</span>
           : <Slot key={id} id={id} n={inv[id] ?? 0} />)}
       </div>
       {hungry && <div className="small" style={{ color: 'var(--body)' }}>{hay > 0 ? t('hungryTapHay') : berry > 0 ? t('hungryTapBerry') : t('hungryCollectHay')}</div>}

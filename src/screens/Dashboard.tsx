@@ -1,9 +1,10 @@
-import { bobrNudge, todaySummary, nextSteps, fmtClock, minutesOfDay, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, MAX_LEVEL } from '../domain';
+import { bobrNudge, todaySummary, nextSteps, fmtClock, minutesOfDay, bobrStage, completedToday, emotionNow, happinessNow, hungerAt, progressToNextLevel, xpForNextLevel, calculateLevel, startOfDay, bobrSays, saysSlot, PLAY_COST_STONE, MAX_LEVEL } from '../domain';
+import { BobrBubble, XpStars, useXpRush } from '../ui/HomeFx';
 import { PenGame } from '../ui/PenGame';
 import { preloadWorld } from './WorldMap';
 import { flyIntoWorld } from '../ui/worldPortal';
 import { enterWorldFromHome } from './worldEntry';
-import { useAppState, actions } from '../data/hooks';
+import { useAppState, useEvents, actions } from '../data/hooks';
 import { useNow } from '../hooks';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tradeFor, willTrade, type GameMode } from '../domain';
@@ -42,10 +43,10 @@ export function Dashboard() {
   const hunger = hungerAt(bobr.lastInteraction, now);
   const happiness = happinessNow(bobr, now);
   const emotion = emotionNow(bobr, now);
-  const left = xpForNextLevel(stats.level, stats.totalExperiencePoints);
+  const userName = useAppState(s => s.user.name);
 
-  const [noMood, setNoMood] = useState(false);   // a pop-up that fades on its own when he refuses
-  useEffect(() => { if (!noMood) return; const id = setTimeout(() => setNoMood(false), 1800); return () => clearTimeout(id); }, [noMood]);
+  const [pop, setPop] = useState<{ text: string; at: number } | null>(null);   // a pop-up over the pen that fades on its own (he refuses to trade, not enough stone)
+  useEffect(() => { if (!pop) return; const id = setTimeout(() => setPop(null), 1800); return () => clearTimeout(id); }, [pop]);
   const [trading, setTrading] = useState(false);   // tapping Bóbr opens / closes the trade (slots, arrow, button)
   const [step, setStep] = useState<null | 'main' | 'mode'>(null);   // tapping Bóbr first offers trade or play, then (play) which game
   const lastStep = useRef<'main' | 'mode'>('main');   // what the choices show while they fade out
@@ -54,6 +55,28 @@ export function Dashboard() {
   const [penCard, setPenCard] = useState<HTMLElement | null>(null);
   const penRowRef = useCallback((el: HTMLElement | null) => setPenCard(el ? el.closest<HTMLElement>('.pen-card') : null), []);
   const deal = tradeFor(now);
+  /** The level card shows the XP the stars have brought so far (see useXpRush): it catches up when they land. */
+  const dialog = useEvents().some(e => e.type !== 'taskComplete');   // (a level-up or achievement dialog: the stars wait until it is closed)
+  const { shown: xpShown, rush } = useXpRush(stats.totalExperiencePoints, !!game || dialog);
+  const lvShown = Math.min(stats.level, calculateLevel(xpShown));
+  const left = xpForNextLevel(lvShown, xpShown);
+  const levelBar = useRef<HTMLDivElement>(null);
+  /** Bóbr says something every half minute (not while the trade, his choices or a game are up). */
+  const [homeSince] = useState(() => Date.now());
+  const say = saysSlot(now, homeSince);
+  const dayStart = startOfDay(now);
+  const doneToday = tasks.filter(x => (x.lastCompletedAt ?? 0) >= dayStart).length + habits.filter(h => completedToday(h, now)).length;
+  const line = say.showing ? bobrSays({ stage: bobrStage(stats.level), emotion, hour: new Date(now).getHours(), doneToday }, say.slot) : null;
+  /** Every rock game in the pen costs stone (the same as playing again), whether it is started from Bóbr's choices or by holding the stone. */
+  const playGame = (mode: GameMode) => {
+    if (game) return false;
+    setStep(null);
+    if (!actions.spendStone(PLAY_COST_STONE)) { setPop({ text: t('stoneNotEnough', { n: PLAY_COST_STONE }), at: Date.now() }); return false; }
+    setTrading(false); setGame(mode); setPaidAt(Date.now());
+    return true;
+  };
+  const [paidAt, setPaidAt] = useState(0);   // the stone slot shows "-5" when a game is paid for
+  const playStone = () => { playGame('ARCADE'); };   // press and hold the stone: straight into Arcade
   const worlds = useAppState(s => s.worlds.list);
   const flyNow = (btn: HTMLElement) => {   // the world played last, else the list of worlds
     const last = worlds.reduce<(typeof worlds)[number] | null>((b, w) => (!b || w.playedAt > b.playedAt ? w : b), null);
@@ -101,11 +124,14 @@ export function Dashboard() {
         <PixelFrame theme={fr(el.dashLevel)} scale={1} className="card level-card">
           <div className="level-main">
             <div className="row between">
-              <span>{t('level').toUpperCase()} {stats.level}</span>
-              <span className="muted">{stats.level >= MAX_LEVEL ? t('max') : t('xpToGo', { n: left })}</span>
+              <span>{t('level').toUpperCase()} {lvShown}</span>
+              <span className="muted">{lvShown >= MAX_LEVEL ? t('max') : t('xpToGo', { n: left })}</span>
             </div>
-            <PixelProgressBar value={progressToNextLevel(stats.level, stats.totalExperiencePoints)} max={1} look={bars.xp} label={t('experiencePoints')} />
-            <div className="muted small xp-total">{t('xpTotal', { n: stats.totalExperiencePoints })}</div>
+            <div ref={levelBar} className="level-bar">
+              <PixelProgressBar value={progressToNextLevel(lvShown, xpShown)} max={1} look={bars.xp} label={t('experiencePoints')} />
+              {rush && <b key={rush.key} className="xp-gain" aria-hidden>+{rush.gain} XP</b>}
+            </div>
+            <div className="muted small xp-total">{t('xpTotal', { n: xpShown })}</div>
           </div>
           <button type="button" className="cal-tile level-trophy" onClick={() => navigate('/achievements')} aria-label={t('trophies')}>
             <Icon name="thropy" size={48} />
@@ -125,16 +151,18 @@ export function Dashboard() {
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="left" /> : <div className="pen-slots" />}
             <BobrPen stage={bobrStage(stats.level)} emotion={emotion} onBobr={() => { if (trading) setTrading(false); else setStep(v => (v ? null : 'main')); }} bobrLabel={t('trade')} bobrOn={trading || !!step} onChat={() => navigate('/chat')} chatLabel={t('chatButton')} choice={{ open: !!step && !trading && !game,
               left: (step ?? lastStep.current) === 'main'
-                ? { icon: 'trade', wide: true, label: t('trade'), onClick: () => { setStep(null); if (willTrade(emotion)) setTrading(true); else setNoMood(true); } }
-                : { icon: 'arcade', label: t('arcadeMode'), text: t('arcadeMode'), onClick: () => { setStep(null); setGame('ARCADE'); } },
+                ? { icon: 'trade', wide: true, label: t('trade'), onClick: () => { setStep(null); if (willTrade(emotion)) setTrading(true); else setPop({ text: t('noTradeMoodPop'), at: Date.now() }); } }
+                : { icon: 'arcade', label: t('arcadeMode'), text: t('arcadeMode'), onClick: () => { playGame('ARCADE'); } },
               right: (step ?? lastStep.current) === 'main'
                 ? { icon: 'joystick', label: t('games'), onClick: () => setStep('mode'), onHold: () => { setStep(null); navigate('/games'); } }
-                : { icon: 'timetrial', label: t('timeTrialMode'), text: t('timeTrialMode'), onClick: () => { setStep(null); setGame('TIMETRIAL'); } } }} onSign={() => navigate('/start')} signLabel={t('startHere')} onFly={flyNow} onFlyHold={flyLake} flyLabel={t('world')} />
+                : { icon: 'timetrial', label: t('timeTrialMode'), text: t('timeTrialMode'), onClick: () => { playGame('TIMETRIAL'); } } }} onSign={() => navigate('/start')} signLabel={t('startHere')} onFly={flyNow} onFlyHold={flyLake} flyLabel={t('world')} />
             {trading ? <TradeSlot emotion={emotion} deal={deal} side="right" /> : <div className="pen-slots" />}
           </div>
           {trading && willTrade(emotion) && <TradeBar deal={deal} />}
           {game && penCard && <PenGame card={penCard} mode={game} onClose={() => setGame(null)} />}
-          {noMood && <div className="mood-pop" role="status">{t('noTradeMoodPop')}</div>}
+          {pop && <div key={pop.at} className="mood-pop" role="status">{pop.text}</div>}
+          {line && !pop && !trading && !step && !game && <BobrBubble key={say.slot} text={t(line.key as Parameters<typeof t>[0], { name: userName || t('saysFriend'), n: line.n ?? 0 })} label={t('chatButton')} onClick={() => navigate('/chat')} />}
+          {rush && <XpStars key={rush.key} gain={rush.gain} from={penCard} to={levelBar.current} />}
         </PixelFrame>
         <PixelFrame as="button" theme={fr(el.dashNudge)} scale={1} className="card nudge" onClick={() => navigate('/plan')} aria-label={t('planner')}>
           <Icon name="calendar" size={54} />
@@ -146,7 +174,7 @@ export function Dashboard() {
           <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span>{t('hunger').toUpperCase()}</span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>
           <PixelFrame theme={fr(el.dashHappiness)} scale={1} className="card"><div className="meter"><span>{t('happiness').toUpperCase()}</span><PixelProgressBar value={happiness} max={1} look={bars.happiness} scale={1} label={t('happiness')} /></div></PixelFrame>
         </div>
-        <Inventory emotion={emotion} frame={el.dashInventory} />
+        <Inventory emotion={emotion} frame={el.dashInventory} onStoneHold={playStone} stoneCost={PLAY_COST_STONE} paidAt={paidAt} />
       </div>
 
       <div className="col col-b">

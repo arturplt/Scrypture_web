@@ -762,3 +762,32 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 @keyframes nav-bob-up { 50% { transform: translateY(calc(-2 * var(--u))); } }
 :root[data-motion='reduce'] .nav-toggle img { animation: none; }
 :root[data-motion='reduce'] .nav-frame { transition: none; }
+
+/* Home: Bóbr's speech bubble (a line every half minute, under his emoticon; tap it for the chat) */
+.bobr-say { position: absolute; z-index: 4; left: 50%; top: calc(22 * var(--u)); transform: translateX(-50%); width: max-content; max-width: min(calc(100% - 96 * var(--u)), calc(220 * var(--u))); box-sizing: border-box;
+  padding: calc(5 * var(--u)) calc(7 * var(--u)); background: var(--bg-3); color: var(--text); border: calc(2 * var(--u)) solid var(--gold); font: inherit; font-size: var(--fs-xs); line-height: 1.5; text-align: center; cursor: pointer;
+  box-shadow: calc(2 * var(--u)) calc(2 * var(--u)) 0 #0008; animation: say-life 7s steps(1) forwards; -webkit-tap-highlight-color: transparent; }
+.bobr-say::after { content: ''; position: absolute; left: 50%; top: 100%; width: calc(6 * var(--u)); height: calc(6 * var(--u)); margin-left: calc(-3 * var(--u)); background: var(--gold);
+  box-shadow: 0 calc(4 * var(--u)) 0 calc(-1 * var(--u)) var(--gold); }   /* a two-step pixel tail pointing down at him */
+.bobr-say > span { display: block; animation: say-type 7s steps(20) forwards; clip-path: inset(0 100% 0 0); }
+.bobr-say:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+@keyframes say-life { 0% { opacity: 0; transform: translate(-50%, calc(4 * var(--u))); } 3% { opacity: 1; transform: translate(-50%, 0); } 93% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes say-type { 0% { clip-path: inset(0 100% 0 0); } 12%, 100% { clip-path: inset(0 0 0 0); } }
+
+/* Home: XP stars fly from Bóbr to the level bar; "+n XP" rises off the bar as they land */
+.level-bar { position: relative; }
+.xp-gain { position: absolute; right: 0; bottom: 100%; color: var(--gold); font-size: var(--fs-xs); font-weight: normal; pointer-events: none; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; opacity: 0; animation: xp-gain 1.6s steps(8) .7s forwards; }
+@keyframes xp-gain { 0% { opacity: 1; transform: translateY(calc(4 * var(--u))); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(calc(-8 * var(--u))); } }
+.xp-star { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; width: calc(4 * var(--u)); height: calc(4 * var(--u)); margin: calc(-2 * var(--u)); background: #fff3b0; opacity: 0;
+  box-shadow: calc(4 * var(--u)) 0 #ffd700, calc(-4 * var(--u)) 0 #ffd700, 0 calc(4 * var(--u)) #ffd700, 0 calc(-4 * var(--u)) #ffd700;
+  animation: xp-fly var(--t) steps(12) var(--d) forwards; }
+@keyframes xp-fly {
+  0% { opacity: 1; transform: translate(var(--sx), var(--sy)) scale(.5); }
+  45% { opacity: 1; transform: translate(var(--mx), var(--my)) scale(1.2); }
+  100% { opacity: 1; transform: translate(var(--ex), var(--ey)) scale(.6); } }
+
+/* Home: press and hold the stone slot for a rock game; the price floats up off it */
+.slot-hold { position: relative; display: grid; justify-items: center; width: 100%; -webkit-touch-callout: none; user-select: none; cursor: pointer; }
+.slot-cost { position: absolute; left: 50%; top: 0; z-index: 3; color: var(--body); font-size: var(--fs-xs); font-weight: normal; pointer-events: none; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; animation: slot-cost 1.2s steps(8) forwards; }
+@keyframes slot-cost { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, calc(-20 * var(--u))); } }
+@media (prefers-reduced-motion: reduce) { .bobr-say, .bobr-say > span { animation: none; clip-path: none; } .xp-gain { animation-duration: 1.6s; animation-timing-function: steps(1); } .slot-cost { animation-timing-function: steps(1); } }
