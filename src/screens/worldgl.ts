@@ -39,7 +39,7 @@ const FS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec4 vCol; in vec3 vPos;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -48,8 +48,18 @@ float isWater(vec3 c) { return smoothstep(0.05, 0.10, c.b - c.g) * smoothstep(0.
 ${bandGlsl()}   // (the terraced world's grass tint ramp, written from terrace.ts so the shader, the maps and the far mesh share one table)
 float waterAt(vec2 uv, vec2 dx, vec2 dy) { vec4 s = textureGrad(uTex, uv, dx, dy); return isWater(mix(uBase.rgb, s.rgb, s.a)); }
 void main() {
-  if (uFar > 0.5) { float fd = distance(vPos.xy, uEye.xy); if (fd < uHole || fd > uHoleMax) discard; }
-  else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0 && distance(vPos.xy, uEye.xy) > uHoleMax) discard;   // a chunk ends where the far mesh begins (a chunk past that would poke through it in patches)     // the far meshes: each only in its ring, none where the real chunks are
+  // The rings of detail hand over to each other in a band, not along a line: in the band both layers are drawn, each in the pixels the screen's noise gives it (the two patterns are exact opposites, so there is no gap and no double
+  // pixel), and the share goes from all the finer one to all the coarser one across it. A ring edge, where the coarse ground is a different shape, shade and detail, is then a stipple, not a seam.
+  float dn = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  if (uFar > 0.5) {          // a far level: from uHole (where it starts to show through the finer one) to uHoleMax (where it has given way to the next, coarser, one)
+    float fd = distance(vPos.xy, uEye.xy);
+    if (fd < uHole || fd > uHoleMax) discard;
+    if (dn >= smoothstep(uHole, uHole + uBand, fd)) discard;
+    if (uBandOut > 0.0 && dn < smoothstep(uHoleMax - uBandOut, uHoleMax, fd)) discard;   // (the last level has no coarser one to give way to)
+  } else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0) {   // a real chunk (the ground of the near ring): it gives way to the far mesh across uHole .. uHole + uBand, the first far level's own entry band
+    float fd = distance(vPos.xy, uEye.xy);
+    if (fd > uHole + uBand || dn < smoothstep(uHole, uHole + uBand, fd)) discard;
+  }
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
   vec3 tn = vec3(0.0, 0.0, -1.0);
   float flatK = 1.0;                                                         // how level the ground is here: the water's ripples and glitter only lie on level water, a steep bank is plain colour
@@ -465,6 +475,9 @@ export class WorldGL {
   get eyeHeight() { return Math.max(0, -this.eye[2] - (this.terrain ? this.terrain(this.eye[0], this.eye[1]) : 0)); }
   /** How far from the eye every visible chunk is built (set by the map each frame; Infinity = all of them). The far mesh's hole is never wider than this, so ground whose chunk is still being built is covered by the far mesh instead of left empty. */
   cover = Infinity;
+  /** How far from the eye the nearest chunk is that the GPU cannot draw yet (see `ground`); the far mesh starts no further out than this. */
+  private undrawn = Infinity;
+  private nearBand = 1;   // the width (tiles) of the band where the real chunks hand over to the first far level
   /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
   capD = 1e5;
   private coverSm = Infinity;
@@ -537,7 +550,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -926,10 +939,6 @@ export class WorldGL {
   ground(list: GroundChunk[], chunkTiles: number) {
     const gl = this.gl;
     this.groundFrames++;
-    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHoleMax, this.coverSm * 0.9 + 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
-    gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
-    gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);                // the flat map's water colour, under every ground tile
-    gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0); gl.uniform1f(this.loc.uTerrace, this.terrain ? this.terraceStep : 0);
     const e = 0.03;                                                              // a hair of overlap hides cracks between chunks
     // a new chunk costs a texture (read back, uploaded, mip-mapped) and, on hills, a mesh: far too much for one frame when a lot come in at once (flying fast, a camera jump).
     // So only a few are made each frame, the nearest first (at least one, then while ~3 ms last); the rest are skipped this frame and drawn once their turn comes.
@@ -944,6 +953,19 @@ export class WorldGL {
       for (const c of pending) { if (made > 0 && (made >= this.uploadMax || performance.now() - t0 > 3)) break; made++; const e0 = performance.now(); this.ensureChunk(c, chunkTiles); this.oneMs = Math.max(this.oneMs, performance.now() - e0); }
       this.madeMs = Math.max(this.madeMs, performance.now() - t0); this.madeN += made; this.oneN += made; this.lastMade = made;
     }
+    // The far mesh is drawn after the chunks have had their turn: it fills in for every chunk that is still not on the GPU (texture or mesh not made yet, dropped to keep the pool small, its mesh forgotten),
+    // not only for the ones the map has not built: such a chunk is built but not drawn, and with the far mesh held back inside `cover` that left a hole to the sky's tree line.
+    this.undrawn = Infinity;
+    if (this.terrain) {
+      const ex = this.eye[0], ey = this.eye[1];
+      for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || !ent.vao) this.undrawn = Math.min(this.undrawn, Math.hypot((c.cx + 0.5) * chunkTiles - ex, (c.cy + 0.5) * chunkTiles - ey) - chunkTiles); }
+      this.undrawn = Math.max(0, this.undrawn);
+    }
+    gl.bindVertexArray(null);   // (a chunk made just now has its vertex array bound: the far mesh must not rewrite it)
+    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.coverSm * 0.9); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
+    gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
+    gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);   // the flat map's water colour, under every ground tile
+    gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0); gl.uniform1f(this.loc.uTerrace, this.terrain ? this.terraceStep : 0);
     if (this.terrain) {
       for (const c of list) {
         const ent = this.chunkTex.get(c.key);
@@ -1109,9 +1131,10 @@ export class WorldGL {
   }
   private drawFar() {
     const gl = this.gl, stride = FLOATS * 4;
-    const want = Math.min(this.nearReach, this.cover);
+    const want = Math.min(this.nearReach, this.cover, this.undrawn);
     this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
     const hole = this.coverSm * 0.9;
+    this.nearBand = Math.max(1, Math.min(40, this.coverSm * 0.1));   // (the real chunks are built out to coverSm, so the band between 0.9 and 1.0 of it is ground they can still draw)
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
     gl.uniform1f(this.loc.uFar, 1); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
@@ -1124,9 +1147,10 @@ export class WorldGL {
     this.farMesh!.forEach((f, i) => {
       if (i < lo || !f) return;
       const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = i === n - 1 ? 1e9 : hole + E[Math.min(i, E.length - 1)];
+      const bandIn = prevEnd < 0 ? this.nearBand : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
       prevEnd = e0;
       gl.polygonOffset(1 + i * 1.5, 1 + i * 1.5);                         // (where two levels overlap the finer one wins every pixel, so they never fight; and all of them give way to the real ground in the ring where it overlaps the first: it was pulled in front of it, and its coarse triangles showed through beside the ledges)
-      gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0);
+      gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, i === n - 1 ? 0 : 20 * kk);
       gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
       gl.drawElements(gl.TRIANGLES, f.n, gl.UNSIGNED_INT, 0);
@@ -1136,6 +1160,8 @@ export class WorldGL {
     this.endTerrain();
   }
 
+  /** Is this chunk on the GPU, ready to draw (its texture and, on hills, its mesh)? (the loading screen waits for the ring round the plane) */
+  has(key: number) { const e = this.chunkTex.get(key); return !!e && (!this.terrain || !!e.vao); }
   /** (the ?perf readout) how many chunk textures are held on the GPU */
   get texCount() { return this.chunkTex.size; }
 

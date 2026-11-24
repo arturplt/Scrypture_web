@@ -907,6 +907,8 @@ export const en = {
   "worldTime": "Time",
   "worldPause": "Pause time",
   "worldResume": "Resume time",
+  "worldLoadingGround": "Loading the ground",
+  "worldLoadingHint": "Building the land around you",
   "worldZoom": "Zoom out",
   "worldMapZoomIn": "Minimap zoom in",
   "worldMapZoomOut": "Minimap zoom out",

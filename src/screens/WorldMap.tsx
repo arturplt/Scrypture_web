@@ -224,6 +224,7 @@ function WorldView({ id }: { id: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement>(null);
   const bigMap = useRef<HTMLCanvasElement>(null);   // the full-screen map (minimap zoom 3 to 5): time stops while it is open
+  const loadEl = useRef<HTMLDivElement>(null), loadBar = useRef<HTMLElement>(null), loadPct = useRef<HTMLDivElement>(null);   // the loading screen (written to directly by the frame loop: no re-renders)
   const liftMsg = useRef<HTMLDivElement>(null);   // "+1.8 m/s" above the last instrument while the plane climbs in rising air
   const liftHint = useRef<HTMLDivElement>(null), liftArrow = useRef<HTMLImageElement>(null), liftDist = useRef<HTMLSpanElement>(null);
   const hoopHint = useRef<HTMLDivElement>(null), hoopArrow = useRef<HTMLImageElement>(null), hoopDist = useRef<HTMLSpanElement>(null);   // and to the nearest hoop not yet flown   // the arrow to the nearest air lift
@@ -565,6 +566,8 @@ function WorldView({ id }: { id: string }) {
     const cv = canvas.current!, el = stage.current!, ctx = cv.getContext('2d')!, img = sheet.current!;
     const s = sim.current!;
     const startedAt = performance.now();
+    // The loading screen: the world's clock stands still, and the ground round the plane is built and uploaded at full speed, until it is all there (or 20 s have passed). Opening or refreshing a world used to drop the player into a few chunks and a stuttering flight.
+    let loading = true, loadT0 = 0, loadDone = 0;
     let hop: { t: number; up: boolean } | null = null;   // on foot: the hop over the last ledge (see hopOffset)
     let raf = 0, last = performance.now(), windT = 0, windT0 = Math.floor(Math.random() * 600), windAcc = 0, windSync = 0, windShown = { letter: -1, strength: -9 }, liftAcc = 0, hoopAcc = 0, hoopBest: { x: number; y: number; d: number } | null = null, liftBest: { x: number; y: number; r: number; d: number } | null = null, hudAcc = 0, miniAcc = 99, lastMiniH = 0, saveAcc = 0, frames = 0, fpsAcc = 0, fps = 0, anim = 0, tilt = 0, fpvK = 0, walkPh = 0, lookTrim = 1, lastLayer = 5, skyOff = DECO_LAYERS.map(() => ({ x: 0, y: 0 })), sphOff = SKY_BANDS.map(() => ({ x: 0, y: 0 })), lastMini = { x: 1e9, y: 1e9 };
     let W = 1, H = 1, dpr = 1;
@@ -744,7 +747,7 @@ function WorldView({ id }: { id: string }) {
       syncAcc += 1;
       if (syncAcc >= 20) { syncAcc = 0; const m = measure(); if (m.w !== W || m.h !== H || Math.min(2, window.devicePixelRatio || 1) !== dpr) fit(); }   // belt and braces: a canvas that disagrees with its box is refitted within a third of a second
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const L = live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
+      const L = loading ? { ...live.current, paused: true } : live.current, f = s.flight, decoK = s.world.kind === 'lakedistrict' ? Math.max(LAKE_DECO_MIN, LAKE_DECO_M / (lakeData()?.tileM ?? 50)) : 1, treeTopM = 4 * decoK / 0.18, planeK = f.mode === 'glide' ? planeLenRef.current / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4 : 1, camK = f.mode === 'glide' ? Math.max(planeK, CAM_MIN) : 1, camC = f.mode === 'glide' ? chaseCamScale(planeK, PLANE_SIZES[0] / (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1) / 2.4) : 1;   // camC: the chase camera's own scale (see chaseCamScale): the plane grows and shrinks on screen with the size setting   // (every camera's distances shrink with the plane, but not below LAKE_CAM_MIN: the plane flies a tile a metre, so a camera that close would see the ground rush by)
       hull.k = planeK;
       // the full-screen map (minimap zoom 3 to 5): time stops, nothing is drawn behind it, and the frame goes on filling the map and building the ground round the plane instead
       { const open = bigScaleRef.current > 0 && !!bigMap.current;
@@ -758,6 +761,7 @@ function WorldView({ id }: { id: string }) {
       const wantGL = (L.gl3d || camEff !== 'chase') && !glFailed && L.tool === 'fly';
       if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
+      if (import.meta.env.DEV && glr) (window as unknown as Record<string, unknown>).__wgl = glr;   // (dev builds only: for headless tests that starve the chunk uploads)
       if (glr) { glr.drawK = L.drawDist / 100; glr.walkK = L.walkDist / 100; }
       glCv.style.display = useGL ? 'block' : 'none';
       // the launch camera: runs for LAUNCH_CAM_T seconds after a throw (p = how far it has backed off, 0 at the throw, 1 when it hands over to the normal view)
@@ -1167,10 +1171,31 @@ function WorldView({ id }: { id: string }) {
       }
       const t0 = performance.now();
       let built = 0;
+      if (loading) {
+        loadT0 ||= t0;
+        const R = 5, pcx = chunkOf(camX), pcy = chunkOf(camY), need: [number, number][] = [];
+        if (!lodOnly) for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (Math.hypot(cx - pcx, cy - pcy) <= R + 0.3) need.push([cx, cy]);
+        need.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
+        for (const [cx, cy] of need) { if (performance.now() - t0 >= 30) break; if (!chunks.current.has(tileKey(cx, cy)) && stepChunk(cx, cy, t0 + 30)) built++; }
+        const have: GroundChunk[] = [];
+        for (const [cx, cy] of need) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) have.push({ key: tileKey(cx, cy), cx, cy, src: ch.src }); }
+        if (glr) glr.preload(have, CHUNK, 25);
+        const up = glr ? have.filter(c => glr!.has(c.key)).length : have.length;
+        const farOk = !glr || !s.world.field || farAt[0] !== null || lodOnly;
+        const glOk = !wantGL || !!glr;
+        const pct = need.length ? (have.length * 0.5 + up * 0.4) / need.length + (farOk ? 0.1 : 0) : (farOk ? 1 : 0);
+        const timedOut = performance.now() - loadT0 > 20000;
+        if (loadBar.current) loadBar.current.style.width = `${Math.round(Math.min(1, pct) * 100)}%`;
+        if (loadPct.current) loadPct.current.textContent = `${Math.round(Math.min(1, pct) * 100)}%`;
+        if (timedOut || (glOk && have.length === need.length && up === need.length && farOk)) {
+          loading = false; loadDone = performance.now();
+          const el = loadEl.current; if (el) { el.classList.add('done'); setTimeout(() => { el.style.display = 'none'; }, 500); }
+        }
+      }
       const nearest = (a: [number, number], b: [number, number]) => Math.hypot((a[0] + 0.5) * CHUNK - camX, (a[1] + 0.5) * CHUNK - camY) - Math.hypot((b[0] + 0.5) * CHUNK - camX, (b[1] + 0.5) * CHUNK - camY);
       missing.sort(nearest);                                                         // the ground under you first, the horizon last
       const share = Math.min(20, frameEma * 1000 * 0.2);   // (a fifth of a slow frame: a fixed few ms a frame is a few ms a SECOND at 5 fps, too little for the ground to keep up, and then the coarse far mesh shows close by)
-      const budget = Math.max(warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5, share);   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
+      const budget = loading ? 2 : Math.max(warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5, share);   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
       for (const [cx, cy] of [...missing, ...stale]) {
         if (performance.now() - t0 >= budget) break;
         if (stepChunk(cx, cy, t0 + budget)) built++;
@@ -1208,7 +1233,7 @@ function WorldView({ id }: { id: string }) {
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
           farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped) }; break;
         }
-        const tf = performance.now(), farMs = farLo >= 2 ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
+        const tf = performance.now(), farMs = loading ? 14 : farLo >= 2 ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
           if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
           const r = farJob.gen.next();
@@ -1367,7 +1392,7 @@ function WorldView({ id }: { id: string }) {
         G.fx = L.shaders;
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
-        G.uploadMax = warming || aim.current.on || uploadBoost > 0 ? 6 : Math.max(frameEma < 0.02 ? 2 : 1, Math.min(4, Math.round(frameEma * 40)));   // (slow frames: more a frame, or the ground arrives a few chunks a second)   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
+        G.uploadMax = loading || warming || aim.current.on || uploadBoost > 0 ? 6 : Math.max(frameEma < 0.02 ? 2 : 1, Math.min(4, Math.round(frameEma * 40)));   // (slow frames: more a frame, or the ground arrives a few chunks a second)   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
         { const g0 = performance.now(); G.ground(glChunks, CHUNK); if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
         if (++glFrames % 40 === 0) G.prune(k => chunks.current.has(k));
         if (perf.on) perf.holeMin = Math.min(perf.holeMin, G.holeInfo.hole);   // (?perf: the nearest the far mesh came to the eye: under the chunks' reach, its coarse triangles show up close)
@@ -2129,6 +2154,14 @@ function WorldView({ id }: { id: string }) {
           </div>
         ))}
         {!ready && <div className="world-msg">{failed ? t('worldLoadFail') : '...'}</div>}
+        <div ref={loadEl} className="world-loading" role="status" aria-live="polite">
+          <PixelFrame theme="green_ornate" scale={1} className="world-loading-box">
+            <div className="world-loading-title">{t('worldLoadingGround')}</div>
+            <div className="world-loading-bar"><i ref={loadBar} /></div>
+            <div className="muted small">{t('worldLoadingHint')}</div>
+            <div ref={loadPct} className="world-loading-pct">0%</div>
+          </PixelFrame>
+        </div>
       </div>
 
       {(act.beaver || act.bush || act.dam.stick || act.dam.stone || act.dam.brk) && (

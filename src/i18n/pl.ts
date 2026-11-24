@@ -908,6 +908,8 @@ export const pl: Record<Key, string> = {
   "worldTime": "Czas",
   "worldPause": "Zatrzymaj czas",
   "worldResume": "Wznów czas",
+  "worldLoadingGround": "Wczytywanie terenu",
+  "worldLoadingHint": "Budowanie ziemi wokol ciebie",
   "worldZoom": "Oddal",
   "worldMapZoomIn": "Przybliż mapę",
   "worldMapZoomOut": "Oddal mapę",

@@ -908,6 +908,8 @@ export const la: Record<Key, string> = {
   "worldTime": "Tempus",
   "worldPause": "Tempus siste",
   "worldResume": "Tempus repete",
+  "worldLoadingGround": "Terra oneratur",
+  "worldLoadingHint": "Terra circum te aedificatur",
   "worldZoom": "Remove",
   "worldMapZoomIn": "Mappam adduce",
   "worldMapZoomOut": "Mappam remove",

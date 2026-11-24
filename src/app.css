@@ -8,7 +8,8 @@
 .row { display: flex; gap: calc(8 * var(--u)); align-items: center; } .between { justify-content: space-between; }
 .stats > * { flex: 1; min-width: 0; }
 .card { display: grid; gap: calc(8 * var(--u)); }
-.meter { display: grid; gap: calc(4 * var(--u)); font-size: var(--fs-xs); }
+.meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: calc(4 * var(--u)); font-size: var(--fs-xs); }   /* (the label wraps rather than stretching the column: big text used to make the bar under it wider than its card) */
+.meter > span { min-width: 0; overflow-wrap: anywhere; }
 .bobr { display: grid; justify-items: center; gap: calc(4 * var(--u)); }
 .emoticon { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: calc(48 * var(--u)); min-height: calc(32 * var(--u)); padding: 0 calc(8 * var(--u)); font-size: var(--fs-sm); color: var(--gold); margin: 0 auto; box-sizing: border-box; }   /* the frame is a backdrop; the text overlays it, centred */
 .pf.emoticon-bg { position: absolute; inset: 0; padding: 0; pointer-events: none; }

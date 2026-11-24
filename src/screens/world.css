@@ -519,3 +519,11 @@
 .wui-sculpt { position: relative; }
 .wui-sculpt img { width: calc(24 * var(--u)); height: calc(24 * var(--u)); }
 .wui-sculpt b { position: absolute; right: calc(4 * var(--u)); bottom: calc(2 * var(--u)); font-weight: normal; color: #fff; text-shadow: 0 0 calc(3 * var(--u)) #000, 0 0 calc(3 * var(--u)) #000; font-size: var(--fs-xs); }
+
+/* the loading screen: covers the stage while the ground round the plane is built (the world's clock stands still behind it) */
+.world-loading { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at center, #14231a 0%, #07100a 100%); transition: opacity .4s steps(4); }
+.world-loading.done { opacity: 0; pointer-events: none; }
+.world-loading-box { display: grid; gap: calc(10 * var(--u)); width: min(calc(100% - 48 * var(--u)), calc(260 * var(--u))); padding: calc(14 * var(--u)); text-align: center; }
+.world-loading-title { font-size: var(--fs-md); color: var(--gold); line-height: 1.5; }
+.world-loading-bar { height: calc(12 * var(--u)); background: #0007; border: calc(2 * var(--u)) solid var(--gold); padding: calc(2 * var(--u)); box-sizing: border-box; }
+.world-loading-bar > i { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, #7bbf4a 0 calc(6 * var(--u)), #5f9a38 calc(6 * var(--u)) calc(8 * var(--u))); }
