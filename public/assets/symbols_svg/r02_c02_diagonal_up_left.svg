@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" color="#FFF4DB" role="img" aria-label="diagonal up left">
+  <title>Diagonal Up Left</title>
+  <g transform="translate(13.4247 12.0000) scale(1.424658)" fill="currentColor" fill-rule="evenodd">
+    <path d="M1,0 L0,1 L1,10 L3,11 L3,16 L5,17 L5,21 L7,23 L7,27 L9,30 L9,32 L10,33 L14,33 L14,31 L16,30 L16,28 L20,25 L21,27 L22,27 L26,32 L28,32 L29,35 L30,35 L31,37 L43,48 L43,50 L45,50 L46,52 L48,53 L48,55 L49,55 L50,57 L51,57 L55,62 L56,62 L57,64 L62,68 L64,72 L68,72 L70,70 L70,65 L69,65 L68,63 L67,63 L66,61 L65,61 L64,59 L63,59 L62,57 L61,57 L60,55 L59,55 L58,53 L57,53 L56,51 L55,51 L54,49 L46,42 L46,40 L42,38 L40,34 L35,31 L34,28 L33,28 L32,26 L26,21 L26,19 L28,18 L28,16 L31,15 L32,13 L34,13 L33,8 L27,8 L25,5 L17,5 L16,3 L11,3 L9,1 L6,0Z"/>
+  </g>
+</svg>

@@ -317,7 +317,7 @@ export class World {
     if (!g) {
       g = this.gen(cx, cy);
       this.cache.set(key, g);
-      if (this.cache.size > 400) this.cache.delete(this.cache.keys().next().value!);   // keep memory bounded; rebuilt on demand
+      if (this.cache.size > 2000) this.cache.delete(this.cache.keys().next().value!);   // keep memory bounded (about 1 KB a chunk); rebuilt on demand. (It was 400: fewer than the game reads round a wide view, so chunks on screen were pushed out and generated again, height grids and all, every frame)
     }
     return g;
   }
@@ -377,6 +377,17 @@ export class World {
   biomeOf(x: number, y: number): Biome {
     const cx = chunkOf(x), cy = chunkOf(y);
     return BIOME_LIST[this.base(cx, cy).b[(y - cy * CHUNK + MARGIN) * SIDE + (x - cx * CHUNK + MARGIN)] & ~LEDGE_BIT];
+  }
+  /**
+   * A tile's terrain and biome for a rough answer far off (the thermals' heat): from the chunk when it is cached, otherwise, on the terraced world, a point sample of the noise. Generating a
+   * terraced chunk works out its height grids and its neighbours' (milliseconds each on a phone), and the thermals ask about points scattered over hundreds of tiles.
+   */
+  roughAt(x: number, y: number): { t: Terrain; b: Biome } {
+    if (this.field && !this.cache.has(tileKey(chunkOf(x), chunkOf(y)))) {
+      const l = this.field.layerDirect(x, y), c = this.changes.get(tileKey(x, y));
+      return { t: c ? c.t : this.mapSample(x, y, l), b: BIOME_LIST[terraceBiome(l, terraceMoist(x, y, this.seed))] };
+    }
+    return { t: this.terrainAt(x, y), b: this.biomeOf(x, y) };
   }
   /** Is a tile on a terrace ledge (never on the other kinds)? */
   private ledgeOf(x: number, y: number): boolean {

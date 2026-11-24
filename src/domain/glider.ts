@@ -183,7 +183,14 @@ export function stepGlider(g: Glider, ctl: GlideControls, env: GlideEnv, dt: num
  * `blocked` says it has hit something, a tree) or `maxT` seconds are up. Returns where it ended, how long that took and what stopped it
  * ('ground', 'blocked', or 'time' when it is still flying at the end). The real plane is untouched.
  */
-export function projectLanding(g: Glider, ctl: GlideControls, env: GlideEnv, opt: { maxT?: number; dt?: number; blocked?: (x: number, y: number, z: number) => boolean } = {}): { x: number; y: number; t: number; end: 'ground' | 'blocked' | 'time'; impact: { sink: number; speed: number; bank: number } | null } {
+export type LandingProjection = { x: number; y: number; t: number; end: 'ground' | 'blocked' | 'time'; impact: { sink: number; speed: number; bank: number } | null };
+export function projectLanding(g: Glider, ctl: GlideControls, env: GlideEnv, opt: { maxT?: number; dt?: number; blocked?: (x: number, y: number, z: number) => boolean } = {}): LandingProjection {
+  const it = projectLandingSteps(g, ctl, env, opt);
+  let r = it.next(); while (!r.done) r = it.next();
+  return r.value;
+}
+/** `projectLanding` a step of `dt` at a time (a generator): the game runs it a millisecond or two a frame, since the whole flight is thousands of the physics' small steps. The copy is taken at the start. */
+export function* projectLandingSteps(g: Glider, ctl: GlideControls, env: GlideEnv, opt: { maxT?: number; dt?: number; blocked?: (x: number, y: number, z: number) => boolean } = {}): Generator<void, LandingProjection, void> {
   const c = structuredClone(g), dt = opt.dt ?? 0.2, maxT = opt.maxT ?? 60;
   c.impact = null;
   let t = 0;
@@ -191,6 +198,7 @@ export function projectLanding(g: Glider, ctl: GlideControls, env: GlideEnv, opt
     stepGlider(c, ctl, env, dt); t += dt;
     if (c.landed) return { x: c.x, y: c.y, t, end: 'ground', impact: c.impact };
     if (opt.blocked && opt.blocked(c.x, c.y, c.z)) return { x: c.x, y: c.y, t, end: 'blocked', impact: null };
+    yield;
   }
   return { x: c.x, y: c.y, t, end: 'time', impact: null };
 }
@@ -390,7 +398,15 @@ export interface ThermalEnv {
   hour: number;
   warm: number;                               // 0.4..1.4: cold snaps weaken, heat waves strengthen
   heatAt: (x: number, y: number) => number;   // 0 (water, forest) .. 1 (bare sand), y south like the world
+  /**
+   * Optional: where a thermal's place, size and ground heat are kept once worked out (they change only with its cell's epoch, every minute or two). Every lookup of the rising air
+   * reads nine cells and each cell's heat reads the ground six times, so without it the flight (and the landing prediction, ninety steps at a time) asks for the terrain hundreds of times a step.
+   * The owner clears it when the ground changes.
+   */
+  memo?: Map<number, ThermalSite>;
 }
+/** A thermal's fixed part for one epoch of its cell (see `ThermalEnv.memo`). */
+export interface ThermalSite { epoch: number; x: number; y: number; r: number; heat: number; wb: number }
 export interface Thermal { x: number; y: number; r: number; w: number; heat: number; age: number }   // y south; w = peak updraft in m/s right now
 
 /** The thermal rising from cell (i, j) at time t, or null while there is none. Anchored to the ground, born and fading with a 90..170 s life. */
@@ -399,14 +415,23 @@ export function thermalInCell(env: ThermalEnv, i: number, j: number, t: number):
   const s = env.seed & 0xffff;
   const period = 90 + 80 * hash01(i, j, s, 1), phase = period * hash01(i, j, s, 2);
   const epoch = Math.floor((t + phase) / period), age = ((t + phase) % period) / period;
-  if (hash01(i, j, s * 31 + epoch, 3) > 0.85) return null;
-  const x = (i + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 5)) * THERMAL_CELL;
-  const r = 15 + 10 * hash01(i, j, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
-  const heat = (env.heatAt(x, y) * 2 + env.heatAt(x + r, y) + env.heatAt(x - r, y) + env.heatAt(x, y + r) + env.heatAt(x, y - r)) / 6;
+  const memo = env.memo, mk = memo ? (((i + 32768) * 65536 + (j + 32768)) * 4 + (epoch & 3)) : 0;   // (two slots a cell would do, epochs only move on; four leave room for a prediction running ahead of the flight)
+  let site = memo?.get(mk);
+  if (!site || site.epoch !== epoch) {
+    if (hash01(i, j, s * 31 + epoch, 3) > 0.85) site = { epoch, x: 0, y: 0, r: 0, heat: 0, wb: 0 };   // (no thermal in this cell this time)
+    else {
+      const x = (i + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 5)) * THERMAL_CELL;
+      const r = 15 + 10 * hash01(i, j, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
+      const heat = (env.heatAt(x, y) * 2 + env.heatAt(x + r, y) + env.heatAt(x - r, y) + env.heatAt(x, y + r) + env.heatAt(x, y - r)) / 6;
+      site = { epoch, x, y, r, heat, wb: 6.0 + 6.8 * hash01(i, j, s * 31 + epoch, 7) };
+    }
+    if (memo) { if (memo.size > 4096) memo.clear(); memo.set(mk, site); }
+  }
+  if (site.wb === 0) return null;
   const life = Math.min(1, age / 0.2, (1 - age) / 0.2);
-  const w = Math.min(14, (6.0 + 6.8 * hash01(i, j, s * 31 + epoch, 7)) * heat * sun * env.warm * Math.max(0, life));   // up to 14 m/s: strong enough to climb while banking round in it
+  const w = Math.min(14, site.wb * site.heat * sun * env.warm * Math.max(0, life));   // up to 14 m/s: strong enough to climb while banking round in it
   if (w < 0.15) return null;
-  return { x, y, r, w, heat, age };
+  return { x: site.x, y: site.y, r: site.r, w, heat: site.heat, age };
 }
 
 /** All thermals touching a rectangle (world tiles, y south). */

@@ -42,10 +42,10 @@ const smooth = (a: number, b: number, t: number) => { const k = Math.max(0, Math
  * coast and the open sea; hills (with a ridged octave for crests) stand on the land, more of them further inland. Small and wiggly
  * detail keeps the terrace edges from tracing the noise's lattice.
  */
-export function elevation(x: number, y: number, seed: number): number {
+export function elevation(x: number, y: number, seed: number, lakes = LAKE_ALL): number {
   const s = (seed ^ 0x7e77ace) | 0;
   lowAt(x, y, s, LOW_TMP, 0);
-  return detailAt(x, y, s, LOW_TMP, 0);
+  return detailAt(x, y, s, LOW_TMP, 0, lakes);
 }
 /** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2), the continent, the big hills, the big rolls. */
 const LOW_N = 5, LOW_TMP = new Float64Array(LOW_N);
@@ -57,9 +57,9 @@ function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array
   out[o + 4] = noise(wx * 0.022, wy * 0.022, s + 51);
 }
 /** The elevation from the slow parts and the quick ones, with the inland lakes laid in: a lake is a level shelf (half a layer above its whole number) with a shore of level ground round it, and its water inset one step below that shore, which then blends into the land over a stretch, so it stands in a basin and the ground falls away in steps, not in a sheer drop. */
-function detailAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
+function detailAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes = LAKE_ALL): number {
   const base = baseAt(x, y, s, lo, o);
-  lakeProbe(x, y, s);
+  lakeProbe(x, y, s, lakes);
   if (lkW <= 0) return base;
   const w = lkW, level = lkLevel, depthIn = lkDepth, deep = lkDeep, sw = lkSw;
   // The edge of the water is a smooth curve: the ground eases from the shore (half a layer over the lake's layer) down to the bed (half under) across a tile's width, centred on the rim, so the
@@ -89,12 +89,27 @@ const LAKE_SCALES = [
 ] as const;
 /** How far, as a multiple of its radius, a lake's odd shape (stretched, and lobed) can reach from its centre. */
 const LAKE_REACH = 1.9;
+/** How many of the lake scales (biggest first) a point looks at: all of them, normally. */
+const LAKE_ALL = 3;
+/**
+ * The lake scales worth looking at for samples `step` tiles apart (the far meshes): a lake much smaller than the step is a vertex or nothing, hit or missed at random, so it is left out.
+ * It matters for speed more than looks: every new cell of a scale costs dozens of noise samples to place its lake, and a coarse far level spans hundreds of thousands of the small cells
+ * (and they would push the cells the near ground needs out of the cache).
+ */
+export const lakeScalesFor = (step: number): number => { let n = 0; for (const sc of LAKE_SCALES) if ((sc.rMin + sc.rSpan) * 2 >= step * 0.6) n++; else break; return n; };
 const LAKE_MIN_LEVEL = 3, LAKE_SHORE = 2.6, LAKE_MAX_SPREAD = 6;
 interface Lake { x: number; y: number; r: number; level: number; blend: number; deep: number; sw: number; phi: number; sa: number; p2: number; p3: number; p5: number; a2: number; a3: number; a5: number }
 const LAKE_TMP = new Float64Array(LOW_N), lakeCaches = new Map<number, Map<number, Lake | null>>();
 const baseDirect = (x: number, y: number, s: number): number => { lowAt(x, y, s, LAKE_TMP, 0); return baseAt(x, y, s, LAKE_TMP, 0); };
 /** The lake of a cell of one scale: whether there is one (odds raised or lowered by the region's wetness), its place and radius from hashes, and its level and blend. Remembered per seed and scale. */
+const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null];   // (each scale's last cell: neighbouring points nearly always fall in the same one)
 function lakeOfCell(si: number, cx: number, cy: number, s: number): Lake | null {
+  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si]) return lastLake[si];
+  const l = lakeOfCellSlow(si, cx, cy, s);
+  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastLake[si] = l;
+  return l;
+}
+function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | null {
   const ck = (s + si * 1000003) | 0;
   let cache = lakeCaches.get(ck); if (!cache) { if (lakeCaches.size > 24) lakeCaches.clear(); cache = new Map(); lakeCaches.set(ck, cache); }
   const key = (cx + 32768) * 65536 + (cy + 32768); let l = cache.get(key);
@@ -115,15 +130,15 @@ function lakeOfCell(si: number, cx: number, cy: number, s: number): Lake | null 
       }
     }
   }
-  if (cache.size > 4096) cache.clear();
+  if (cache.size > 32768) cache.clear();   // (roomy: a far level spans thousands of cells, and a smaller cap would throw out the cells the near ground is built from, each dozens of noise samples to place again)
   cache.set(key, l);
   return l;
 }
 /** What the last `lakeProbe` found: how much the lake's shelf replaces the ground here (1 on the water and its shore, easing to 0 across the blend), the shelf's layer, and whether this is water or shore. */
 let lkW = 0, lkLevel = 0, lkWater = false, lkShore = false, lkDepth = -1e9, lkDeep = 1, lkSw = 3;
-function lakeProbe(x: number, y: number, s: number) {
+function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
   lkW = 0; lkWater = false; lkShore = false; lkDepth = -1e9;
-  for (let si = 0; si < LAKE_SCALES.length; si++) {
+  for (let si = 0; si < lakes; si++) {
     const c = LAKE_SCALES[si].cell, l = lakeOfCell(si, Math.floor(x / c), Math.floor(y / c), s); if (!l) continue;
     const dx = x - l.x, dy = y - l.y, far = l.r * LAKE_REACH + LAKE_SHORE + l.blend + 4;
     if (dx * dx + dy * dy > far * far) continue;
@@ -143,7 +158,7 @@ export const terraceLakeTopAt = (x: number, y: number, seed: number): number => 
 /** The layer of the surface of the inland lake over a point if the point is over the lake's water or the first half tile of its rim (so a sheet piece cut along the rim is counted), or -1. */
 export const terraceLakeSheetAt = (x: number, y: number, seed: number): number => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkW >= 1 && lkDepth > -0.5 ? lkLevel : -1; };
 /** Is the point (a tile's centre, say) in an inland lake's water? */
-export const terraceLakeAt = (x: number, y: number, seed: number): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkWater; };
+export const terraceLakeAt = (x: number, y: number, seed: number, lakes = LAKE_ALL): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0, lakes); return lkWater; };
 /** Is the point on the sand shore of an inland lake (the first tile or two beside its water)? */
 export const terraceLakeShoreAt = (x: number, y: number, seed: number): boolean => { lakeProbe(x, y, (seed ^ 0x7e77ace) | 0); return lkShore; };
 
@@ -592,9 +607,9 @@ export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: 
  */
 export function* terraceFarMesh(seed: number, cx: number, cy: number, step: number, half: number, stepped = false): Generator<null, TerraceFarMesh, void> {
   const cols = Math.floor((half * 2) / step) + 1, rows = cols, n = cols * rows, x0 = cx - half, y0 = cy - half;
-  const ev = new Float32Array(n);
+  const ev = new Float32Array(n), lakes = lakeScalesFor(step);
   for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) ev[j * cols + i] = elevation(x0 + i * step, y0 + j * step, seed);
+    for (let i = 0; i < cols; i++) ev[j * cols + i] = elevation(x0 + i * step, y0 + j * step, seed, lakes);
     if ((j & 1) === 1) yield null;
   }
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
@@ -605,7 +620,7 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
       const k = j * cols + i, e = ev[k], h = H(i, j);
       pos[k * 3] = x0 + i * step; pos[k * 3 + 1] = y0 + j * step; pos[k * 3 + 2] = -h;
       let r: number, g: number, b: number;
-      if (e < 0 || terraceLakeAt(x0 + i * step, y0 + j * step, seed)) { r = 0.06; g = 0.42; b = 0.55; }
+      if (e < 0 || lakes > 0 && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
       else {
         const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
         if (lay === 0 || bio === 3) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }
@@ -616,7 +631,7 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
       }
       col[k * 3] = Math.min(1, r); col[k * 3 + 1] = Math.min(1, g); col[k * 3 + 2] = Math.min(1, b);
     }
-    if ((j & 3) === 3) yield null;
+    yield null;   // (a row a slice: the colouring reads the lakes and the moisture, several times the cost of the heights)
   }
   return { cols, rows, step, cx, cy, pos, col, idx: farIndices(cols) };
 }
@@ -626,7 +641,7 @@ function farIndices(cols: number): Uint32Array {
   let idx = IDX_CACHE.get(cols);
   if (!idx) {
     idx = new Uint32Array((cols - 1) * (cols - 1) * 6);
-    for (let j = 0; j < cols - 1; j++) for (let i = 0; i < cols - 1; i++) { const a = j * cols + i, b2 = a + 1, c = a + cols, e = c + 1; idx.set([a, b2, e, a, e, c], (j * (cols - 1) + i) * 6); }
+    for (let j = 0, o = 0; j < cols - 1; j++) for (let i = 0; i < cols - 1; i++, o += 6) { const a = j * cols + i, c = a + cols; idx[o] = a; idx[o + 1] = a + 1; idx[o + 2] = c + 1; idx[o + 3] = a; idx[o + 4] = c + 1; idx[o + 5] = c; }
     IDX_CACHE.set(cols, idx);
   }
   return idx;

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" color="#FFF4DB" role="img" aria-label="square down right">
+  <title>Square Down Right</title>
+  <g transform="translate(12.0000 22.0000) scale(1.333333)" fill="currentColor" fill-rule="evenodd">
+    <path d="M3,0 L1,2 L1,35 L0,36 L1,38 L1,43 L3,45 L7,45 L9,43 L9,10 L11,8 L12,9 L14,8 L51,8 L52,9 L53,8 L55,10 L55,34 L54,35 L43,35 L42,36 L42,39 L45,41 L46,45 L47,45 L48,48 L50,49 L51,54 L53,55 L57,62 L61,62 L61,61 L64,59 L63,58 L65,55 L67,54 L68,50 L77,39 L77,35 L65,35 L64,34 L64,2 L62,2 L61,0Z"/>
+  </g>
+</svg>

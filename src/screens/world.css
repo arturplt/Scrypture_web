@@ -473,3 +473,25 @@
 .wui-autobtn { width: calc(64 * var(--u)); height: calc(24 * var(--u)); box-sizing: border-box; padding: 0; font: inherit; font-size: calc(7 * var(--u)); color: #fff; background: #123a4a; border: calc(2 * var(--u)) solid #6fd3ff; cursor: pointer; touch-action: none; user-select: none; }
 .wui-autobtn[aria-pressed='true'] { background: #1f7aa0; box-shadow: 0 0 0 calc(2 * var(--u)) #bfeaff inset; }
 .wui-orbitauto { color: #6fd3ff; }
+
+/* The pattern keyboard: the 21 flight-pattern symbols as keys, in the reference layout (1, 5, 9, 3, 3). Centred over the view; the keys shrink to fit a short or narrow screen. */
+.wui-kb { z-index: 8; left: calc(66 * var(--u)); top: calc(40 * var(--u) + env(safe-area-inset-top, 0px)); --is: 0.5; --kw: clamp(24px, min(34px, calc((100vh - 280px * var(--is) - 140px) / 6.2), calc((100vw - 120px) / 9.8)), 34px); }   /* (top left, under the HUD banner and beside the menu buttons: clear of the instrument at the bottom, whose size (--is) it is fitted to; the top strip drags it elsewhere) */
+.wui-kbtape { cursor: move; touch-action: none; }
+.wui-kbpanel { box-sizing: border-box; width: calc(9 * var(--kw) + 8 * 4px + 2 * 13px); display: grid; gap: 4px; padding: 8px; opacity: 0.92; pointer-events: auto; touch-action: none; }
+.wui-kbtop { display: flex; align-items: center; gap: 4px; min-height: calc(var(--kw) * 0.8); }
+.wui-kbtape { flex: 1 1 0; min-width: 0; height: calc(var(--kw) * 0.8); display: flex; align-items: center; gap: 3px; overflow: hidden; padding: 0 4px; background: rgba(0, 0, 0, 0.35); }
+.wui-kbtape img { flex: 0 0 auto; height: 70%; aspect-ratio: 1; image-rendering: pixelated; pointer-events: none; }
+.wui-kbtape img[data-st='done'] { opacity: 0.3; }
+.wui-kbtape img[data-st='next'] { opacity: 0.75; }
+.wui-kbtape img[data-st='now'] { filter: drop-shadow(0 0 3px #ffd54f) sepia(1) saturate(4) hue-rotate(-10deg); }
+.wui-kbhint { font-size: 5px; line-height: 1.35; color: #cfd8dc; white-space: normal; overflow: hidden; max-height: 100%; }
+.wui-kbsmall { position: relative; box-sizing: border-box; flex: 0 0 auto; height: calc(var(--kw) * 0.8); min-width: calc(var(--kw) * 0.8); padding: 0 6px; display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr); color: #fff; font: inherit; font-size: 7px; cursor: pointer; touch-action: none; }
+.wui-kbsmall[aria-disabled='true'] { opacity: 0.4; cursor: default; }
+.wui-kbsmall > span { display: block; text-align: center; white-space: nowrap; line-height: 1; }
+.wui-kbrow { display: flex; justify-content: center; gap: 4px; }
+.wui-kbkey { position: relative; box-sizing: border-box; flex: 0 0 auto; width: var(--kw); height: var(--kw); padding: 0; display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr); cursor: pointer; touch-action: none; font: inherit; color: #fff; }
+.wui-kbkey img { grid-area: 1 / 1; width: 74%; height: 74%; image-rendering: pixelated; pointer-events: none; }
+.wui-kbkey kbd { position: absolute; right: 3px; bottom: 2px; font: inherit; font-size: 5px; line-height: 1; text-transform: uppercase; color: #ffd9a0; opacity: 0.7; pointer-events: none; }
+.wui-kbkey:active, .wui-kbkey[data-lit='true'] { filter: brightness(1.35) saturate(1.2); }
+.wui-kbkey:active img { transform: translateY(1px); }
+.wui-keysbtn { position: absolute; right: 100%; bottom: calc(6 * var(--u) + 174px); margin-right: calc(10 * var(--u)); pointer-events: auto; }

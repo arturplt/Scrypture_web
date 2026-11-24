@@ -1071,20 +1071,22 @@ export class WorldGL {
    * level already has. The old level keeps drawing until the swap.
    */
   *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
-    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2, n = m.pos.length / 3, len = n * FLOATS;
+    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
     if (this.farStage.length !== len) this.farStage = new Float32Array(len);
     const v = this.farStage;
-    for (let a = 0; a < n; a += 24000) {
-      for (let k = a, e = Math.min(n, a + 24000); k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = 1; }
+    // a new buffer, filled a slice a frame and swapped in at the end: one upload of the whole level is several MB, a long stall on a phone, and writing into the buffer being drawn would show half a level
+    const vbo = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v.byteLength, gl.STATIC_DRAW); this.endTerrain();
+    for (let a = 0; a < n; a += SLICE) {
+      const e = Math.min(n, a + SLICE);
+      for (let k = a; k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = 1; }
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, a * FLOATS * 4, v, a * FLOATS, (e - a) * FLOATS); this.endTerrain();   // (the usual buffers bound again for whatever draws next)
       yield;
     }
     this.farMesh ??= [];
     const old = this.farMesh[i];
     let ibo = this.farIbos.get(m.idx);
     if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
-    let vbo: WebGLBuffer;
-    if (old && old.bytes === v.byteLength) { vbo = old.vbo; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, 0, v); }
-    else { if (old) gl.deleteBuffer(old.vbo); vbo = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW); }
+    if (old) gl.deleteBuffer(old.vbo);
     this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true };
     this.endTerrain();
   }
