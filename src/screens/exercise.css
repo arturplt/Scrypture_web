@@ -73,3 +73,16 @@
 .ex-lib { display: grid; gap: calc(6 * var(--u)); padding-left: calc(8 * var(--u)); border-left: calc(3 * var(--u)) solid var(--c); }
 
 @media (prefers-reduced-motion: reduce) { .ex-clock.paused .ex-time { animation: none; } }
+/* the tracker's settings: unit and rest length, each a label then its choices */
+.ex-prefs { display: grid; gap: calc(6 * var(--u)); }
+.ex-prefs .ex-types { display: flex; flex-wrap: wrap; align-items: center; }
+.ex-prefs .ex-types > .muted { min-width: calc(72 * var(--u)); }
+.ex-link { all: unset; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.ex-link:focus-visible, .ex-chipbtn:focus-visible { outline: 2px solid var(--gold); }
+.ex-chipbtn { all: unset; cursor: pointer; }
+.ex-sets-small { grid-template-columns: repeat(auto-fill, minmax(calc(48 * var(--u)), 1fr)); }
+.ex-pravg:has(> div:nth-child(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ex-chart { width: 100%; height: auto; background: #0005; }
+.ex-chart-axis { stroke: #fff3; stroke-width: 1; }
+.ex-chart-line { fill: none; stroke: var(--gold); stroke-width: 1.5; stroke-linejoin: round; }
+.ex-chart-dot { fill: #f4f1dc; }

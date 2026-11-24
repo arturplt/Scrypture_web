@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boardDays, boardHours, eventLength, layoutDay, placeEvent, resizeEvent, snapMinutes,
   MAX_EVENTS, SHORTLIST_MAX, addDays, chatGreeting, chatOptions, chatReply, cleanEvent, dayPlan, eventsOn, fmtClock, initialFlow, initialStats, minutesOfDay, monthGrid, monthMarks,
-  bobrNudge, nextSteps, placeInList, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
+  bobrNudge, nextSteps, dueReminders, reminderKey, placeInList, parseClock, pruneShortlist, sanitizePlanner, seedAchievements, shortlistTasks, shortlistWith, sortEvents, todaySummary,
   type ChatContext, type ChatFlow, type Habit, type PlanData, type PlanEvent, type Task,
 } from './index';
 import { makeT } from '../i18n';
@@ -240,5 +240,23 @@ describe('placing in a list', () => {
     expect(placeInList(['a', 'b', 'c'], 'b', 9)).toEqual(['a', 'c', 'b']);
     expect(placeInList(['a', 'b', 'c'], 'b', -3)).toEqual(['b', 'a', 'c']);
     expect(placeInList(['a', 'b'], 'x', 0)).toEqual(['a', 'b']);
+  });
+});
+
+describe('reminders', () => {
+  const day = new Date(2026, 10, 24).getTime();
+  const ev = (id: string, time?: number, done = false): PlanEvent => ({ id, title: id, day, time, done, createdAt: 0 });
+  const at = (h: number, m: number) => new Date(2026, 10, 24, h, m).getTime();
+  it('is due from the lead time until a little after the start, once', () => {
+    const list = [ev('a', 600), ev('b', 620), ev('c'), ev('d', 600, true)];
+    expect(dueReminders(list, at(9, 49), 10, new Set())).toEqual([]);
+    expect(dueReminders(list, at(9, 50), 10, new Set()).map(e => e.id)).toEqual(['a']);
+    expect(dueReminders(list, at(10, 10), 10, new Set()).map(e => e.id)).toEqual(['a', 'b']);
+    expect(dueReminders(list, at(10, 11), 10, new Set()).map(e => e.id)).toEqual(['b']);
+    expect(dueReminders(list, at(10, 0), 10, new Set([reminderKey(list[0])]))).toEqual([]);
+  });
+  it('keeps a known lead time from a save and drops a wrong one', () => {
+    expect(sanitizePlanner({ events: [], shortlist: [], remind: 10 }).remind).toBe(10);
+    expect(sanitizePlanner({ events: [], shortlist: [], remind: 7 }).remind).toBeUndefined();
   });
 });

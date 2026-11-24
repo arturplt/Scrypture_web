@@ -7,6 +7,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { PixelButton } from '../ui/PixelButton';
 import { NameDialog } from '../ui/NameDialog';
 import { Modal } from '../ui/Modal';
+import { downloadMapPicture } from './mindmapPicture';
 import './mindmap.css';
 
 export const mindMapPath = (id: string) => `/apps/mindmap/${id}`;
@@ -46,6 +47,8 @@ export function MindMaps() {
             <div className="row">
               <PixelButton scale={1} onClick={() => navigate(mindMapPath(m.id))}>{t('openApp')}</PixelButton>
               <PixelButton scale={1} variant="red" onClick={() => setNaming({ id: m.id })}>{t('mmRename')}</PixelButton>
+              <PixelButton scale={1} variant="red" disabled={full} onClick={() => actions.duplicateMindMap(m.id, t('mmCopyName', { name: m.name }))}>{t('mmCopy')}</PixelButton>
+              <PixelButton scale={1} variant="red" disabled={!m.nodes.length} onClick={() => void downloadMapPicture(m)}>{t('mmPicture')}</PixelButton>
               <PixelButton scale={1} variant="red" onClick={() => setDeleting(m.id)}>{t('delete')}</PixelButton>
             </div>
           </div>

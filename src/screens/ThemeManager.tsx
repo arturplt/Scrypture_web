@@ -7,13 +7,13 @@ import { ButtonLook, PixelButton } from '../ui/PixelButton';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { BAR_IDS, BAR_LABELS } from '../ui/bars';
 import { BUTTON_STYLES, CHIP_SCALES, FRAME_HUES, FRAME_SCALES, FRAME_THEMES, backdropFrame, buildFrame, frameOr, resolveFrame, splitFrame, withHue, type FrameTheme } from '../ui/themes';
-import { BUTTON_SIZES, CHIP_EDGES, CRT_LEVELS, DEFAULT_APPEARANCE, BUILTIN_PRESETS, MAX_PRESETS, appearanceOf, type Preset, FRAME_CENTERS, FRAME_EDGES, NAV_ACTIVE, NAV_LABELS, sanitizeNavItems } from '../domain';
+import { BUTTON_SIZES, CHIP_EDGES, CRT_LEVELS, DEFAULT_APPEARANCE, BUILTIN_PRESETS, MAX_PRESETS, appearanceOf, type Preset, FRAME_CENTERS, FRAME_EDGES, NAV_ACTIVE, NAV_LABELS, sanitizeNavItems, moveInList } from '../domain';
 import type { Key } from '../i18n';
 import { CHIP_IDS, ChipLook, useCatChipStyle } from '../ui/chips';
 import { TICK_IDS } from '../ui/ticks';
 import { TickLook, TickSample } from '../ui/TickLook';
 import { PLATE_IDS, usePlateAttrs } from '../ui/navPlates';
-import { NAV_DEFS, isActivePath } from '../ui/navItems';
+import { NAV_DEFS, isActivePath, navDefsIn } from '../ui/navItems';
 import { Chip, Icon, PixelCheckbox, StatBox } from '../ui/misc';
 import { Slot } from '../ui/Inventory';
 import { LIGHT_FRAMES } from '../ui/themes';
@@ -229,11 +229,21 @@ export function ThemeManager() {
         <div className="tm-group">
           <div className="tm-label">{t('navItems')}</div>
           <div className="nav-items">
-            {NAV_DEFS.map(d => (
-              <PixelCheckbox key={d.id} checked={nav.items.includes(d.id)} disabled={d.id === 'home'}
-                onChange={on => set({ nav: { ...nav, items: sanitizeNavItems(on ? [...nav.items, d.id] : nav.items.filter(x => x !== d.id)) } })}
-                label={d.id === 'home' ? `${t(d.label)} - ${t('navHomeLocked')}` : t(d.label)} />
-            ))}
+            {/* the chosen ones first, in the bar's order, each with arrows to move it; then the rest */}
+            {[...navDefsIn(nav.items), ...NAV_DEFS.filter(d => !nav.items.includes(d.id))].map(d => {
+              const i = nav.items.indexOf(d.id), move = (by: -1 | 1) => set({ nav: { ...nav, items: moveInList(nav.items, d.id, by) } });
+              return (
+                <div key={d.id} className="row nav-item-row">
+                  <PixelCheckbox checked={i >= 0} disabled={d.id === 'home'}
+                    onChange={on => set({ nav: { ...nav, items: sanitizeNavItems(on ? [...nav.items, d.id] : nav.items.filter(x => x !== d.id)) } })}
+                    label={d.id === 'home' ? `${t(d.label)} - ${t('navHomeLocked')}` : t(d.label)} />
+                  {i >= 0 && <span className="row nav-move">
+                    <button type="button" className="seg" disabled={i === 0} aria-label={`${t(d.label)}: ${t('moveUp')}`} onClick={() => move(-1)}><img src="/assets/raw/arrow_stone_up.png" alt="" className="nav-move-img" /></button>
+                    <button type="button" className="seg" disabled={i === nav.items.length - 1} aria-label={`${t(d.label)}: ${t('moveDown')}`} onClick={() => move(1)}><img src="/assets/raw/arrow_stone_down.png" alt="" className="nav-move-img" /></button>
+                  </span>}
+                </div>
+              );
+            })}
           </div>
         </div>
         <Choices label={t('navLabels')} value={nav.labels} onPick={id => set({ nav: { ...nav, labels: id } })}

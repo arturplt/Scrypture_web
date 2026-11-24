@@ -3,7 +3,8 @@ import { DICTIONARIES, LATIN_UNLOCK_TASKS, achievementText, effectiveLang, makeT
 import { en } from './en';
 
 const keys = Object.keys(en) as Key[];
-const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort().join(',');
+/** The values a string uses, each once: a plain {name} and a plural {name|...} both count as `name`. */
+const placeholders = (s: string) => [...new Set([...s.matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map(m => m[1]))].sort().join(',');
 
 describe('dictionaries', () => {
   it('every language has exactly the same keys', () => {
@@ -49,5 +50,22 @@ describe('translate', () => {
     const a = { id: 'ten_tasks', title: 'Task Master', description: 'Complete 10 tasks' };
     expect(achievementText(makeT('PL'), a)).toEqual({ title: 'Mistrz zadań', description: 'Ukończ 10 zadań' });
     expect(achievementText(makeT('EN'), { id: 'x', title: 'T', description: 'D' })).toEqual({ title: 'T', description: 'D' });
+  });
+});
+
+describe('plural forms', () => {
+  it('picks the Polish one / few / many form and writes the number for #', () => {
+    const t = makeT('PL');
+    expect(t('chatPendingTasks', { n: 1 })).toBe('1 zadanie');
+    expect(t('chatPendingTasks', { n: 3 })).toBe('3 zadania');
+    expect(t('chatPendingTasks', { n: 5 })).toBe('5 zadań');
+    expect(t('chatPendingTasks', { n: 22 })).toBe('22 zadania');
+    expect(t('chatPendingTasks', { n: 12 })).toBe('12 zadań');
+    expect(t('plHabitsDoneHint', { n: 1 })).toBe('Ostatni dzień.');
+  });
+  it('uses one / other in English', () => {
+    const t = makeT('EN');
+    expect(t('chatFedTimes', { n: 1 })).toBe('Fed: once');
+    expect(t('chatFedTimes', { n: 4 })).toBe('Fed: 4 times');
   });
 });

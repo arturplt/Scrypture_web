@@ -17,3 +17,5 @@ export const NAV_DEFS: NavDef[] = [
   { id: 'settings', path: '/settings', icon: 'rearrange', size: 32, label: 'settings' },
 ];
 export const isActivePath = (route: string, path: string) => route === path || (path !== '/' && route.startsWith(`${path}/`));
+/** The bar's destinations in the order the user chose (the saved list), skipping any id the app no longer has. */
+export const navDefsIn = (items: readonly string[]): NavDef[] => items.flatMap(id => NAV_DEFS.filter(d => d.id === id));

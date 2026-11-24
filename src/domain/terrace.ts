@@ -311,13 +311,26 @@ function normCdf(z: number): number {
   return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
 }
 
+/** Sculpting: how many layers a tile may be raised or lowered from the generated ground, and how many sculpted tiles a world keeps. */
+export const RELIEF_MAX = 8, MAX_RELIEF = 20000;
+/** How far (tiles) a sculpted tile reaches: the blur's two tiles, plus the chunk's margin and the ring of layers it reads round itself (MARGIN + R in worldgen). */
+export const RELIEF_REACH = 7;
+/** Sculpted tiles: tile key -> layers added (negative: dug away). A world's game field and maps field share one. */
+export type Relief = Map<number, number>;
+const RELIEF_UP = new Float64Array(RELIEF_MAX), RELIEF_DOWN = new Float64Array(RELIEF_MAX);
+
 export class TerraceField {
   readonly seed: number;
   private grids = new Map<number, Grid>();
   private lastKey = NaN; private last: Grid | null = null;
   private readonly max: number;
-  /** `max`: how many chunk grids to keep (the game's field keeps GRID_MAX; the maps' own field keeps a few, so reading the explored chunks never pushes out the grids the screen is drawn from). */
-  constructor(seed: number, max = GRID_MAX) { this.seed = seed; this.max = max; }
+  /** The player's sculpting, laid over the generated ground in every grid (see `setRelief`). */
+  readonly relief: Relief;
+  /**
+   * `max`: how many chunk grids to keep (the game's field keeps GRID_MAX; the maps' own field keeps a few, so reading the explored chunks never pushes out the grids the screen is drawn from).
+   * `relief`: the sculpting to share with another field of the same world.
+   */
+  constructor(seed: number, max = GRID_MAX, relief: Relief = new Map()) { this.seed = seed; this.max = max; this.relief = relief; }
 
   /**
    * A chunk's grid: the elevation at every 1/SUB tile, TERRACE_G x TERRACE_G (row-major, y down). It is the field's elevation *opened*: eroded and dilated with a 5 x 5 window, which takes
@@ -342,6 +355,7 @@ export class TerraceField {
       sweep(raw, PASS2, PASS, false); sweep(PASS2, raw, PASS, true);   // erode, then dilate: an opening (takes off the little bumps); last, so it is the one that is guaranteed: no block narrower than the window is left
       const n = TERRACE_G, e = new Float32Array(n * n);
       for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) e[j * n + i] = raw[(j + M) * W + i + M];
+      if (this.relief.size) this.layRelief(e, cx, cy);   // after the opening, which would shave a lone raised tile off again; before the water, which measures the ground as sculpted
       g = { e };
       if (this.fills.size) this.layFills(g, cx, cy);
       this.grids.set(key, g);
@@ -350,6 +364,76 @@ export class TerraceField {
     this.lastKey = key; this.last = g;
     return g;
   }
+  // ---- sculpting -----------------------------------------------------------------------------------------------------------------------
+  /**
+   * The layers sculpting adds at a point. Each level of a tile's change is blurred like the water (sigma half a tile) and counts in full past the same rim, so one raised tile is a round knoll
+   * a tile across, a row of them a smooth bank, and a filled area is lifted evenly with rounded edges; the stepped height then makes its edge a wall like any other ledge.
+   */
+  reliefAt(px: number, py: number): number {
+    const tx0 = Math.floor(px) - 2, ty0 = Math.floor(py) - 2, wx: number[] = [], wy: number[] = [];
+    for (let k = 0; k < 5; k++) { wx.push(normCdf((tx0 + k + 1 - px) / FILL_SIGMA) - normCdf((tx0 + k - px) / FILL_SIGMA)); wy.push(normCdf((ty0 + k + 1 - py) / FILL_SIGMA) - normCdf((ty0 + k - py) / FILL_SIGMA)); }
+    const up = RELIEF_UP.fill(0), down = RELIEF_DOWN.fill(0); let any = false;
+    for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) {
+      const d = this.relief.get(fillKey(tx0 + i, ty0 + j)); if (!d) continue;
+      const w = wx[i] * wy[j], to = d > 0 ? up : down; any = true;
+      for (let k = 0; k < Math.min(RELIEF_MAX, Math.abs(d)); k++) to[k] += w;
+    }
+    if (!any) return 0;
+    const ease = (s: number) => (s <= FILL_RIM - FILL_EASE ? 0 : smooth(0, 1, (s - (FILL_RIM - FILL_EASE)) / (2 * FILL_EASE)));
+    let out = 0;
+    for (let k = 0; k < RELIEF_MAX; k++) out += ease(up[k]) - ease(down[k]);
+    return out;
+  }
+  private reliefChunks = new Map<number, number>();
+  private layRelief(e: Float32Array, cx: number, cy: number) {
+    let near = false;   // most chunks have no sculpting anywhere near: skip the 33 x 33 blurs
+    for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) if (this.reliefChunks.get((cx + dx + 32768) * 65536 + (cy + dy + 32768))) { near = true; break; }
+    if (!near && this.reliefChunks.size) return;
+    const n = TERRACE_G, x0 = cx * CHUNK, y0 = cy * CHUNK;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const r = this.reliefAt(x0 + i / TERRACE_SUB, y0 + j / TERRACE_SUB); if (r) e[j * n + i] += r; }
+  }
+  /** Count the sculpted tiles per chunk again (after loading, or when another field shares the relief and changed it). */
+  private recountRelief() {
+    this.reliefChunks.clear();
+    for (const k of this.relief.keys()) { const x = Math.floor(k / 2097152) - 1048576, y = (k % 2097152) - 1048576, ck = (Math.floor(x / CHUNK) + 32768) * 65536 + (Math.floor(y / CHUNK) + 32768); this.reliefChunks.set(ck, (this.reliefChunks.get(ck) ?? 0) + 1); }
+  }
+  /**
+   * Raise (by > 0) or lower the ground at these tiles by whole layers, each tile at most RELIEF_MAX from the generated ground. `floor`: a tile is never dug below this layer (the beach,
+   * so the sea is not let in). Returns the chunks whose ground changed, as [cx, cy]; their grids are dropped (and noted for `takeDirty`, so the renderer cuts their meshes again).
+   */
+  setRelief(tiles: readonly (readonly [number, number])[], by: number, floor = 0): [number, number][] {
+    const changed: [number, number][] = [];
+    for (const [x, y] of tiles) {
+      const k = fillKey(x, y), cur = this.relief.get(k) ?? 0, next = Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, cur + by));
+      if (next === cur || (by < 0 && this.layerAt(x, y) + by < floor)) continue;
+      if (next) this.relief.set(k, next); else this.relief.delete(k);
+      changed.push([x, y]);
+    }
+    if (!changed.length) return [];
+    this.recountRelief();
+    const touched = new Set<number>();
+    for (const [x, y] of changed) for (let dy = -RELIEF_REACH; dy <= RELIEF_REACH; dy += RELIEF_REACH) for (let dx = -RELIEF_REACH; dx <= RELIEF_REACH; dx += RELIEF_REACH) touched.add((Math.floor((x + dx) / CHUNK) + 32768) * 65536 + (Math.floor((y + dy) / CHUNK) + 32768));
+    for (const key of touched) { this.grids.delete(key); this.dirty.add(key); }
+    this.lastKey = NaN;
+    return [...touched].map(k => [Math.floor(k / 65536) - 32768, (k % 65536) - 32768] as [number, number]);
+  }
+  /** Forget these chunks' grids (the relief this field shares was changed through another field). */
+  dropGrids(chunks: readonly (readonly [number, number])[]) {
+    this.recountRelief();
+    for (const [cx, cy] of chunks) this.grids.delete((cx + 32768) * 65536 + (cy + 32768));
+    this.lastKey = NaN;
+  }
+  /** The sculpting as [x, y, layers] for the save. */
+  reliefList(): [number, number, number][] {
+    return [...this.relief].map(([k, d]) => [Math.floor(k / 2097152) - 1048576, (k % 2097152) - 1048576, d]);
+  }
+  /** Lay saved sculpting over the ground (before any grid is built, as a world opens). */
+  loadRelief(list: readonly (readonly [number, number, number])[]) {
+    for (const [x, y, d] of list) if (d) this.relief.set(fillKey(x, y), Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, d)));
+    this.recountRelief();
+    this.grids.clear(); this.lastKey = NaN;
+  }
+
   // ---- water laid over the ground (ponds, tarns) --------------------------------------------------------------------------------------
   /** Tiles with water standing on them: the shelf (layer class) their sheet lies at. A flooded tile is lifted to that shelf, so a pond is a flat sheet. Kept apart from the noise, so the natural ground is still there to ask about. */
   private fills = new Map<number, number>();
@@ -471,7 +555,7 @@ export class TerraceField {
   /** The layer of a tile (-1 = sea). */
   layerAt(x: number, y: number): number { return layerOf(this.elevationAt(x, y)); }
   /** The layer of a tile straight from the noise, nothing cached: for maps that read far more tiles than the game keeps. */
-  layerDirect(x: number, y: number): number { return layerOf(elevation(x + 0.5, y + 0.5, this.seed)); }
+  layerDirect(x: number, y: number): number { return layerOf(elevation(x + 0.5, y + 0.5, this.seed) + (this.relief.size ? this.relief.get(fillKey(x, y)) ?? 0 : 0)); }   // (the tile's own sculpting, unblurred: near enough for a map)
 }
 
 /** Is a tile on a ledge (a neighbour on another layer)? Trees and rocks keep off these: they would hang over the edge. */

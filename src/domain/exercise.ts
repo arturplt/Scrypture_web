@@ -34,13 +34,17 @@ export interface Workout {
   bodyPointsAwarded: number;
   exercises: Exercise[];
 }
-export interface ExerciseSave { workouts: Workout[] }
+export type WeightUnit = 'kg' | 'lb';
+export interface ExerciseSave { workouts: Workout[]; /** how weights are shown and typed (they are always stored in kg; unset = kg) */ unit?: WeightUnit; /** the rest timer's length (unset = REST_SECONDS) */ restSeconds?: number }
 export const emptyExerciseSave = (): ExerciseSave => ({ workouts: [] });
 
 export const MAX_WORKOUTS = 500;
 export const MAX_EXERCISES = 30;
 export const MAX_SETS = 20;
 export const REST_SECONDS = 60;
+/** The rest lengths to choose from, in seconds. */
+export const REST_CHOICES = [30, 45, 60, 90, 120, 180] as const;
+export const restLength = (save: Pick<ExerciseSave, 'restSeconds'>) => save.restSeconds ?? REST_SECONDS;
 /** How many finished workouts the averages look back over (Android: 10). */
 export const AVERAGE_WORKOUTS = 10;
 
@@ -141,6 +145,38 @@ export function lastWeight(workouts: Workout[], name: string): number | undefine
 }
 export const roundHalf = (x: number) => Math.round(x * 2) / 2;
 
+// ---- units: weights are kept in kg; pounds are only how they are shown and typed
+
+export const KG_PER_LB = 0.45359237;
+/** A weight in kg as the unit shows it, to the half (so 60 kg reads 132.5 lb). */
+export const showWeight = (kg: number, unit: WeightUnit = 'kg') => roundHalf(unit === 'lb' ? kg / KG_PER_LB : kg);
+/** A weight typed in the unit, back in kg (kept exact, so showing it again gives the same number). */
+export const weightKg = (v: number, unit: WeightUnit = 'kg') => (unit === 'lb' ? v * KG_PER_LB : v);
+/** How much one press of the weight stepper adds: 2.5 kg or 5 lb, the usual plate steps. */
+export const weightStep = (unit: WeightUnit = 'kg') => (unit === 'lb' ? 5 : 2.5);
+
+// ---- progress of one exercise over time
+
+export interface ProgressPoint { at: number; /** heaviest set (kg) */ best?: number; /** sum of reps x kg */ volume: number; /** most reps in one set */ reps?: number; /** longest set, ms */ duration?: number }
+/** One point per finished workout that did this exercise, oldest first: what a progress chart draws. */
+export function exerciseProgress(workouts: Workout[], name: string): ProgressPoint[] {
+  const out: ProgressPoint[] = [];
+  for (const w of finished(workouts).reverse()) {
+    const sets = w.exercises.filter(e => sameName(e.name, name)).flatMap(e => e.sets.filter(s => s.completed));
+    if (!sets.length) continue;
+    const max = (xs: (number | undefined)[]) => { const v = xs.filter((x): x is number => x !== undefined); return v.length ? Math.max(...v) : undefined; };
+    out.push({ at: w.startTime, best: max(sets.map(s => s.weight)), volume: sets.reduce((n, s) => n + (s.reps ?? 0) * (s.weight ?? 0), 0), reps: max(sets.map(s => s.reps)), duration: max(sets.map(s => s.duration)) });
+  }
+  return out;
+}
+/** Which measure a chart of this exercise follows: the heaviest set where there are weights, else the most reps, else the longest set. */
+export function progressMeasure(points: ProgressPoint[]): 'best' | 'reps' | 'duration' | null {
+  if (points.some(p => p.best)) return 'best';
+  if (points.some(p => p.reps)) return 'reps';
+  if (points.some(p => p.duration)) return 'duration';
+  return null;
+}
+
 /** What the set dialog starts at (Android: SetEditDialog.defaultValues): history, then the set before, then the set itself, then a plain default. */
 export function setDefaults(workouts: Workout[], ex: Exercise, set: ExerciseSet): { reps: number; weight: number; seconds: number } {
   const prev = ex.sets.find(s => s.setNumber === set.setNumber - 1);
@@ -218,5 +254,8 @@ export function sanitizeExerciseSave(raw: unknown): ExerciseSave {
   const open = list.filter(w => !w.completed).sort((a, b) => b.startTime - a.startTime);
   const drop = new Set(open.slice(1).map(w => w.id));
   const workouts = list.filter(w => !drop.has(w.id)).sort((a, b) => b.startTime - a.startTime).slice(0, MAX_WORKOUTS);
-  return { workouts };
+  const out: ExerciseSave = { workouts };
+  if (isObj(raw) && raw.unit === 'lb') out.unit = 'lb';
+  if (isObj(raw) && (REST_CHOICES as readonly number[]).includes(raw.restSeconds)) out.restSeconds = raw.restSeconds;
+  return out;
 }

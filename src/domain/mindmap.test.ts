@@ -3,6 +3,7 @@ import {
   MAX_MAP_NODES, MAX_MIND_MAPS, MM_FIT_MAX_ZOOM, MM_MAX_ZOOM, MM_MIN_W, MM_MIN_ZOOM, addLink, addNode, anchor, canLink, childSpot, colsForRight, curveDistance, curvePath,
   curvePoint, fitView, freeSpot, linkAt, linkCurve, mapBounds, moveNode, newMindMap, nodeAt, nodeSize, raiseNode, removeLink, removeNode, sanitizeMindMap,
   sanitizeMindMaps, branchOf, cleanDesc, linkCurves, moveBranch, setNodeDesc, setNodeCols, setNodeLabel, setNodeTheme, snap, tidyMap, collapseView, wrapLabel, zoomAt, type MindMap,
+  flipLink, duplicateMap, arrowHead,
 } from './mindmap';
 
 const empty = () => newMindMap('m', 'Test', 0);
@@ -258,5 +259,26 @@ describe('collapse', () => {
     expect([...inner.hidden]).toEqual([['a', 2]]);
     expect(collapseView(m, new Set()).map).toBe(m);
     expect(collapseView(m, new Set(['c'])).map).toBe(m);   // a leaf hides nothing
+  });
+});
+
+describe('link direction and copies', () => {
+  const base = () => addLink(addNode(addNode(newMindMap('m', 'Map', 0), 'a', 'A', 0, 0), 'b', 'B', 200, 0), 'l', 'a', 'b');
+  it('flips a link, so the other box becomes the parent', () => {
+    const m = flipLink(base(), 'l');
+    expect(m.links[0]).toMatchObject({ from: 'b', to: 'a' });
+    expect([...branchOf(m, 'b')].sort()).toEqual(['a', 'b']);
+    expect(flipLink(m, 'nope')).toBe(m);
+  });
+  it('duplicates a map under a new id without sharing arrays', () => {
+    const m = base(), d = duplicateMap(m, 'm2', 'Copy', 5);
+    expect(d).toMatchObject({ id: 'm2', name: 'Copy', updatedAt: 5 });
+    expect(d.nodes).toEqual(m.nodes);
+    expect(d.nodes).not.toBe(m.nodes);
+    expect(duplicateMap(m, 'm3', '  ', 5).name).toBe('Map');
+  });
+  it('points the arrowhead at the child end', () => {
+    const c = linkCurves(base()).get('l')!;
+    expect(arrowHead(c)).toContain(`L${c.x3} ${c.y3}L`);
   });
 });

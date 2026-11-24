@@ -62,6 +62,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
       // sound volume 0..1, in steps of 0.1 (anything else means the default)
       reduceMotion: isObj(s.settings) && s.settings.reduceMotion === true,
       highContrast: isObj(s.settings) && s.settings.highContrast === true,
+      haptics: !(isObj(s.settings) && s.settings.haptics === false),
       volume: isObj(s.settings) && typeof s.settings.volume === 'number' && s.settings.volume >= 0 && s.settings.volume <= 1 ? Math.round(s.settings.volume * 10) / 10 : d.settings.volume },
     categories: sanitizeCategories(s.categories),
     inventory: isObj(s.inventory) ? s.inventory : {},

@@ -30,7 +30,7 @@ export interface PlanEvent {
   series?: string;
   repeat?: Frequency;
 }
-export interface PlannerSave { events: PlanEvent[]; /** ids of the tasks picked as "do these next", in order */ shortlist: string[]; /** how many day columns the board shows (unset = 3) */ span?: Span }
+export interface PlannerSave { events: PlanEvent[]; /** ids of the tasks picked as "do these next", in order */ shortlist: string[]; /** how many day columns the board shows (unset = 3) */ span?: Span; /** remind this many minutes before a timed activity starts (unset = no reminders) */ remind?: RemindLead }
 export const emptyPlanner = (): PlannerSave => ({ events: [], shortlist: [] });
 
 export const MAX_EVENTS = 500, SHORTLIST_MAX = 12, EVENT_TITLE_MAX = 80, EVENT_NOTE_MAX = 300;
@@ -38,6 +38,9 @@ export const MAX_EVENTS = 500, SHORTLIST_MAX = 12, EVENT_TITLE_MAX = 80, EVENT_N
 export const SPANS = [1, 3, 5, 7] as const;
 export type Span = (typeof SPANS)[number];
 export const DEFAULT_SPAN: Span = 3;
+/** How long before an activity a reminder may come: at its start, or 5, 10, 15 or 30 minutes before. */
+export const REMIND_LEADS = [0, 5, 10, 15, 30] as const;
+export type RemindLead = (typeof REMIND_LEADS)[number];
 /** Dragging on the board lands on quarter hours; a block is never shorter than one. */
 export const SNAP_MINUTES = 15;
 /** The hours the board shows unless something lies outside them. */
@@ -323,8 +326,11 @@ export function sanitizePlanner(raw: unknown): PlannerSave {
     if (events.length >= MAX_EVENTS) break;
   }
   const shortlist = [...new Set((Array.isArray(raw.shortlist) ? raw.shortlist : []).filter((x): x is string => typeof x === 'string' && !!x))].slice(0, SHORTLIST_MAX);
-  const span = SPANS.find(n => n === raw.span);
-  return span ? { events, shortlist, span } : { events, shortlist };
+  const span = SPANS.find(n => n === raw.span), remind = REMIND_LEADS.find(n => n === raw.remind);
+  const out: PlannerSave = { events, shortlist };
+  if (span) out.span = span;
+  if (remind !== undefined) out.remind = remind;
+  return out;
 }
 
 /** Move one id a place up (-1) or down (1) in a list; anything else (not there, already at the end) leaves it as it was. */
@@ -358,4 +364,25 @@ export function bobrNudge(p: PlanData, now: number): Nudge | null {
     if (e.time - nowMin <= SOON_MINUTES) return { kind: 'soon', title: e.title, minutes: e.time - nowMin };
   }
   return s.late > 0 ? { kind: 'late', n: s.late } : null;
+}
+
+// ---- reminders -------------------------------------------------------------------------------------------------------
+
+/** A reminder is still worth showing this long after its activity started (the app may have been closed at the moment itself). */
+export const REMIND_LATE_MINUTES = 10;
+/** The key a reminder is remembered by, so moving an activity to a new time reminds again. */
+export const reminderKey = (e: Pick<PlanEvent, 'id' | 'day' | 'time'>) => `${e.id}@${e.day}+${e.time}`;
+/**
+ * The open, timed activities whose reminder is due at `now`: from `lead` minutes before the start until a little after it,
+ * leaving out the ones already reminded (`seen`, by `reminderKey`). Soonest first.
+ */
+export function dueReminders(events: readonly PlanEvent[], now: number, lead: number, seen: ReadonlySet<string>): PlanEvent[] {
+  const out: PlanEvent[] = [];
+  for (const e of events) {
+    if (e.done || e.time == null || seen.has(reminderKey(e))) continue;
+    const d = new Date(e.day); d.setHours(0, e.time, 0, 0);   // local clock time, so the night the clocks change does not shift it an hour
+    const at = d.getTime();
+    if (now >= at - lead * 60_000 && now <= at + REMIND_LATE_MINUTES * 60_000) out.push(e);
+  }
+  return out.sort((a, b) => a.day - b.day || a.time! - b.time!);
 }

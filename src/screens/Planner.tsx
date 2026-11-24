@@ -15,6 +15,8 @@ import { Chip, Icon, Modal, PixelCheckbox } from '../ui/misc';
 import { TaskForm } from './TaskForm';
 import { HabitForm } from './HabitForm';
 import { PlannerBoard, dayAtPoint, scrollerOf, slotAtPoint, swallowClick } from './PlannerBoard';
+import { askToNotify, canNotify } from '../audio/reminders';
+import { REMIND_LEADS, type RemindLead } from '../domain';
 import './planner.css';
 
 const CATS: Category[] = ['BODY', 'MIND', 'SOUL'];
@@ -169,6 +171,8 @@ export function Planner() {
 
       <PlannerBoard day={day} onDay={show} tasks={tasks} habits={habits} planner={planner} now={now} dropDay={carry?.day}
         onEditEvent={setEventForm} onEditTask={setTaskForm} onEditHabit={setHabitForm} onNewEvent={(on, time) => setEventForm({ on, time })} onNewTask={on => setTaskForm({ on })} onAddHabit={setHabitDay} />
+
+      <Reminders lead={planner.remind} />
 
       <div className="pl-cols">
         <div className="pl-col">
@@ -336,5 +340,27 @@ function EventForm({ event, day, time: at, onClose }: { event?: PlanEvent; day: 
         )}
       </form>
     </Modal>
+  );
+}
+
+/** Reminders before timed activities: off, at the start, or some minutes before. Asks for notification permission when switched on. */
+function Reminders({ lead }: { lead?: RemindLead }) {
+  const { t } = useI18n();
+  const [note, setNote] = useState<string | null>(null);
+  if (!canNotify()) return null;
+  const pick = async (v: RemindLead | null) => {
+    setNote(null);
+    if (v === null) { actions.setPlannerRemind(null); return; }
+    if (!(await askToNotify())) { setNote(t('plRemindDenied')); return; }
+    actions.setPlannerRemind(v);
+  };
+  return (
+    <div className="field pl-remind">{t('plRemind')}
+      <div className="row wrap" role="group" aria-label={t('plRemind')}>
+        <button type="button" className={`seg ${lead === undefined ? 'on' : ''}`} aria-pressed={lead === undefined} onClick={() => void pick(null)}>{t('crtOff')}</button>
+        {REMIND_LEADS.map(v => <button type="button" key={v} className={`seg ${lead === v ? 'on' : ''}`} aria-pressed={lead === v} onClick={() => void pick(v)}>{v ? t('plRemindBefore', { n: v }) : t('plRemindAtStart')}</button>)}
+      </div>
+      <div className="muted small" role="status">{note ?? t('plRemindHint')}</div>
+    </div>
   );
 }

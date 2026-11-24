@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bodyPoints, elapsedMs, exerciseSummary, setProgress, exerciseLibrary, exercisePR, formatClock, lastWeight, newExercise, rollingAverages, sanitizeExerciseSave, setDefaults, setInputs, workoutBodyPoints,
+  bodyPoints, elapsedMs, exerciseSummary, setProgress, exerciseLibrary, exercisePR, formatClock, lastWeight, newExercise, rollingAverages, sanitizeExerciseSave, setDefaults, setInputs, workoutBodyPoints, showWeight, weightKg, weightStep, exerciseProgress, progressMeasure, restLength,
   type Workout,
 } from './exercise';
 
@@ -104,5 +104,28 @@ describe('loading a save', () => {
     expect(s.workouts.map(w => w.id)).toEqual(['b', 'c']);
     expect(s.workouts[0].exercises[0]).toMatchObject({ name: 'Bench Press', type: 'OTHER', sets: [{ id: 's', setNumber: 1, reps: undefined, weight: undefined, completed: false }] });
     expect(s.workouts[1].bodyPointsAwarded).toBe(7);
+  });
+});
+
+describe('units, rest and progress', () => {
+  const w = (id: string, at: number, sets: { reps?: number; weight?: number }[]): Workout => ({ id, startTime: at, completed: true, duration: 60_000, pausedMs: 0, bodyPointsAwarded: 0,
+    exercises: [{ id: id + 'e', name: 'Squats', type: 'WEIGHT_TRAINING', sets: sets.map((s, i) => ({ id: `${id}s${i}`, setNumber: i + 1, completed: true, ...s })) }] });
+  it('shows pounds to the half and keeps kg exact', () => {
+    expect(showWeight(60, 'lb')).toBe(132.5);
+    expect(showWeight(60)).toBe(60);
+    expect(weightKg(100, 'lb')).toBeCloseTo(45.359, 3);
+    expect(weightStep('lb')).toBe(5);
+  });
+  it('charts the heaviest set per workout, oldest first', () => {
+    const p = exerciseProgress([w('b', 2, [{ reps: 5, weight: 80 }]), w('a', 1, [{ reps: 8, weight: 60 }, { reps: 6, weight: 70 }])], 'squats');
+    expect(p.map(x => x.best)).toEqual([70, 80]);
+    expect(p[0].volume).toBe(8 * 60 + 6 * 70);
+    expect(progressMeasure(p)).toBe('best');
+    expect(progressMeasure(exerciseProgress([w('c', 1, [{ reps: 10 }])], 'Squats'))).toBe('reps');
+  });
+  it('keeps the unit and a known rest length from a save', () => {
+    expect(sanitizeExerciseSave({ workouts: [], unit: 'lb', restSeconds: 90 })).toEqual({ workouts: [], unit: 'lb', restSeconds: 90 });
+    expect(sanitizeExerciseSave({ workouts: [], unit: 'stone', restSeconds: 7 })).toEqual({ workouts: [] });
+    expect(restLength({})).toBe(60);
   });
 });

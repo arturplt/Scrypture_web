@@ -301,7 +301,7 @@ export class World {
   constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural') {
     this.seed = seed; this.kind = kind;
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
-    this.mapField = this.field ? new TerraceField(seed, 40) : null;
+    this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
   }
   /** Does the ground have height (hills, a chunk mesh, ridge lift)? The Lake District and the terraced worlds. */
@@ -409,6 +409,22 @@ export class World {
     this.version++;
   }
   setTerrain(x: number, y: number, t: Terrain): void { this.set(x, y, plainTile(t)); }
+  /**
+   * Sculpt the terraced ground: raise (by > 0) or lower these tiles by whole layers (never below the beach). The chunks it reaches lose their cached tiles and grids (both fields), so they are
+   * generated again from the new ground. Returns their keys (`tileKey(cx, cy)`), for the renderer and the maps; empty when nothing changed (not a terraced world, at the limit, the beach).
+   */
+  /** Lay a save's sculpting over the ground, as the world opens. */
+  loadRelief(list: readonly (readonly [number, number, number])[]) { if (!this.field || !list.length) return; this.field.loadRelief(list); this.mapField?.dropGrids([]); this.cache.clear(); }
+  sculpt(tiles: readonly (readonly [number, number])[], by: number): number[] {
+    if (!this.field) return [];
+    const chunks = this.field.setRelief(tiles, by, 0);
+    if (!chunks.length) return [];
+    this.mapField?.dropGrids(chunks);
+    const keys = chunks.map(([cx, cy]) => tileKey(cx, cy));
+    for (const k of keys) this.cache.delete(k);
+    this.version++;
+    return keys;
+  }
 
   /** Coast distance of a water tile, 1..3 (3 = three or more), by Manhattan steps to the nearest land. */
   private coast(x: number, y: number): number {

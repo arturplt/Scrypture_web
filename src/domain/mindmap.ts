@@ -151,6 +151,22 @@ export const canLink = (m: MindMap, from: string, to: string) =>
 export const addLink = (m: MindMap, id: string, from: string, to: string): MindMap =>
   (canLink(m, from, to) && !m.links.some(l => l.id === id) ? { ...m, links: [...m.links, { id, from, to }] } : m);
 export const removeLink = (m: MindMap, id: string): MindMap => (m.links.some(l => l.id === id) ? { ...m, links: m.links.filter(l => l.id !== id) } : m);
+/** Turn a link round, so the box it pointed to becomes the parent (a link's direction decides what a branch is, and how Tidy lays it out). */
+export const flipLink = (m: MindMap, id: string): MindMap => (m.links.some(l => l.id === id) ? { ...m, links: m.links.map(l => (l.id === id ? { ...l, from: l.to, to: l.from } : l)) } : m);
+
+/** A copy of a map under a new id and name; the boxes and links keep their own ids, which only need to be unique inside one map. */
+export function duplicateMap(m: MindMap, id: string, name: string, now: number): MindMap {
+  return { id, name: cleanMapName(name) || m.name, nodes: m.nodes.map(n => ({ ...n })), links: m.links.map(l => ({ ...l })), updatedAt: now };
+}
+
+/** The arrowhead at the child end of a link: two short strokes back from the tip, along the way the curve arrives. */
+export function arrowHead(c: Curve, size = 5): string {
+  let dx = c.x3 - c.x2, dy = c.y3 - c.y2;
+  const len = Math.hypot(dx, dy) || 1;
+  dx /= len; dy /= len;
+  const bx = c.x3 - dx * size, by = c.y3 - dy * size, px = -dy * size * 0.7, py = dx * size * 0.7;
+  return `M${bx + px} ${by + py}L${c.x3} ${c.y3}L${bx - px} ${by - py}`;
+}
 
 // ---- placing new boxes ---------------------------------------------------------------------------------------------
 

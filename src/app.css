@@ -275,6 +275,11 @@ textarea { resize: vertical; }
 .nav-look .nav-btn { flex: none; width: calc(48 * var(--u)); min-height: calc(40 * var(--u)); }
 .nav-icons { display: inline-flex; gap: calc(4 * var(--u)); flex-wrap: wrap; }
 .nav-items { display: grid; gap: calc(4 * var(--u)); padding: calc(4 * var(--u)) 0; }
+.nav-item-row { justify-content: space-between; gap: calc(6 * var(--u)); }
+.nav-move { gap: calc(4 * var(--u)); }
+.nav-move .seg { padding: calc(2 * var(--u)) calc(4 * var(--u)); line-height: 0; }
+.nav-move .seg:disabled { opacity: 0.35; }
+.nav-move-img { width: calc(16 * var(--u)); height: auto; image-rendering: pixelated; }
 .pcheck.disabled { opacity: .6; cursor: default; }
 
 .pb-sample.pb-compact, .pb-sample.pb-medium { min-height: 0; }

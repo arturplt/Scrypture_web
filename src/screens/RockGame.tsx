@@ -11,6 +11,7 @@ import { PixelButton } from '../ui/PixelButton';
 import { PixelSlider } from '../ui/PixelSlider';
 import { Icon, Modal } from '../ui/misc';
 import { uiPlay } from '../audio/uiSound';
+import { buzz } from '../audio/haptics';
 import { addHit, drawGame, loadSprites, newFx, tickFx, type Fx, type Sprites } from '../ui/rockDraw';
 
 interface Hud { score: number; level: number; throws: number; left: number; combo: number; power: number; angle: number; canThrow: boolean; time: number; speed: number }
@@ -77,7 +78,7 @@ export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold
     game.current = { ...game.current, paused: true };
     const sum = summarize(game.current);
     const r = actions.finishRockGame(sum);
-    uiPlay('land', 0.8);
+    uiPlay('land', 0.8); buzz('fail');
     setOutcome({ ...r, score: sum.score, level: sum.level, targetsHit: sum.targetsHit });
     sync();
   }, [sync]);
@@ -90,8 +91,8 @@ export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold
       const dt = Math.min(0.1, (ts - last) / 1000); last = ts;
       const r = step(game.current, dt, Date.now(), Math.random);
       game.current = r.state;
-      r.hits.forEach(h => { addHit(fx.current, h); uiPlay(h.bullseye ? 'hoop' : 'ready', Math.min(1, h.combo / 8)); });
-      if (r.levelUp) uiPlay('hoop', 1);
+      r.hits.forEach(h => { addHit(fx.current, h); uiPlay(h.bullseye ? 'hoop' : 'ready', Math.min(1, h.combo / 8)); buzz(h.bullseye ? 'bullseye' : 'hit'); });
+      if (r.levelUp) { uiPlay('hoop', 1); buzz('level'); }
       if (r.levelUp) fx.current.banner = { text: t('levelComplete'), age: 0 };
       tickFx(fx.current, dt);
       redraw(); sync();
@@ -114,7 +115,7 @@ export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold
     const g = game.current;
     if (!canThrow(g)) return;
     game.current = g.power > MIN_SHOOT_POWER ? { ...throwRock(g), power: g.power } : g;
-    if (game.current.rocks.length > g.rocks.length) uiPlay('throw');
+    if (game.current.rocks.length > g.rocks.length) { uiPlay('throw'); buzz('tap'); }
     sync();
   };
   const aimTo = (angle: number, power: number) => { game.current = setPower(setAngle(game.current, angle), power); redraw(); sync(); };

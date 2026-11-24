@@ -12,7 +12,7 @@
 .mm-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
 .mm-links { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; transform-origin: 0 0; transform: scale(var(--ui)); }
 /* drawn in screen pixels (--mm-k = px per unit), so a line never gets thinner than 1.5px however far out the map is zoomed */
-.mm-link { fill: none; stroke: #e8e5d2cc; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-width: max(calc(2px * var(--mm-k, 1)), 1.5px); }
+.mm-link { fill: none; stroke: #e8e5d2cc; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; stroke-width: max(calc(2px * var(--mm-k, 1)), 1.5px); }
 .mm-link.on { stroke: #ffd54f; stroke-width: max(calc(3px * var(--mm-k, 1)), 2.5px); }
 .pf.mm-node { position: absolute; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); padding: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;

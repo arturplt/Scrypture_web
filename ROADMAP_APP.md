@@ -1,6 +1,6 @@
 # App roadmap: what is left to build
 
-The order to work through what is still open in Scrypture-web, as of 2026-11-17. `BACKLOG.md` stays the full list (154 open
+The order to work through what is still open in Scrypture-web, as of 2026-11-24. `BACKLOG.md` stays the full list (154 open
 items, with the detail and the Android references); this file groups them into phases and puts them in order. The world
 simulation has its own roadmaps and is only summarised here: `ROADMAP.md` (ecosystem) and `ROADMAP_BEAVERS.md` (beavers).
 
@@ -11,15 +11,15 @@ Update the status table when a phase moves.
 
 | # | Phase | Size | Status |
 |---|---|---|---|
-| 1 | Safety net and first release | M | Partly: error toast and update toast built 2026-11-17; nothing is committed, deployed or in CI yet |
+| 1 | Safety net and first release | M | Mostly: committed, CI tests and deploys to scrypture.app (GitHub Pages); error and update toasts built. Open: the end-to-end test in the repo, real migrations, pruning `public/assets/raw`, a Lighthouse check |
 | 2 | Real-device pass | M | Not started |
-| 3 | Planner and Bóbr, second round | M-L | First version built 2026-11-16; activities pay XP and stats (2026-11-17) |
+| 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Open: calendar sprite, chat history, typing animation |
 | 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
-| 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. 2026-11-24: speech bubble, XP stars, stone hold. Open: sad+hungry animation, extra items, ancient sprite, feeding count |
-| 6 | Mind map, second round | M | First and second versions built 2026-11-16 |
-| 7 | Exercise tracker | L | First version built 2026-11-17 (see below) |
-| 8 | Sound and haptics | M | Mostly built 2026-11-17: UI sounds, volume setting, rock game sounds. Haptics open |
-| 9 | Games and apps leftovers | S-M | Started 2026-11-17: Time Trial mode built. Rest open |
+| 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. 2026-11-24: speech bubble, XP stars, stone hold, feeding count. Open: sad+hungry animation, extra items, ancient sprite (all need art or design) |
+| 6 | Mind map, second round | M | Mostly built: tidy, collapse, link direction and flip, copy, picture (2026-11-24). Open: undo after closing, user frames for boxes |
+| 7 | Exercise tracker | L | Built: first version 2026-11-17; kg/lb, rest length, editing finished workouts, progress charts 2026-11-24 |
+| 8 | Sound and haptics | M | Built: sounds 2026-11-17, vibration 2026-11-24. Open: trying both on a real phone |
+| 9 | Games and apps leftovers | S-M | Time Trial and the stone hold built. Open: trajectory arrows, throwing animation, Sanctuary link and game tie, Pixelite icon (needs art) |
 | 10 | World simulation | L | See `ROADMAP.md` and `ROADMAP_BEAVERS.md` |
 | 11 | Polish: themes, languages, accessibility, layouts | ongoing | Do alongside the other phases |
 
@@ -35,7 +35,7 @@ Made 2026-11-17:
 
 Still open, each blocks or shapes a phase:
 
-- **Where to publish** (phase 1): GitHub Pages under a sub-path, or a custom domain at the root. It decides whether asset URLs must be made relative. Recommended: a custom domain, which needs no code change.
+- ~~**Where to publish**~~: decided, a custom domain at the root (scrypture.app on GitHub Pages).
 - **Should Bóbr's items keep spawning while the app is closed** (phase 5)? Hunger already advances while away; items do not. Recommended: yes, with a cap.
 
 ## Phase 1: safety net and first release
@@ -67,10 +67,10 @@ Why: almost everything was checked only in desktop Chromium and an emulated phon
 
 Why: the planner is new and is the part meant to tie the app together; the first version is deliberately small.
 
-- Repeating activities ("every Tuesday") and reminders through notifications.
-- Week view, and a day shown as a timeline with hours.
+- ~~Repeating activities~~ (built) and ~~reminders through notifications~~ (built 2026-11-24, while the app is open or installed: there is no push server).
+- ~~Week view, and a day shown as a timeline with hours~~ (built: the board).
 - ~~Bóbr speaks first on Home~~ (built 2026-11-17).
-- Shortlist: reorder by dragging; decide whether 5 stays fixed.
+- ~~Shortlist: reorder by dragging~~ (built; the shortlist holds 12).
 - ~~Turn a mind-map box into a task or an activity~~ (built 2026-11-17); showing a ticked task on its box is open.
 - The completion sparkle: built for the Planner 2026-11-17; "What now?" in the chat is open.
 - A calendar sprite for the tile and the bar (needs art).
@@ -104,8 +104,8 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 ## Phase 6: mind map, second round
 
 - ~~Tidy button~~ (built 2026-11-17); ~~collapsing a branch~~ (built 2026-11-17).
-- Show and flip a link's direction, since it decides what a branch is.
-- Export a map as a picture; duplicate a map.
+- ~~Show and flip a link's direction~~ (built 2026-11-24).
+- ~~Export a map as a picture; duplicate a map~~ (built 2026-11-24).
 - Keep undo steps after the map is closed; offer the user's own frames and colour variants for boxes.
 - ~~A visible hint that holding the Mind box on Home opens the maps~~ (built 2026-11-17).
 - Done when: a 50-box map can be kept tidy without placing every box by hand.
@@ -114,21 +114,21 @@ Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 
 Built 2026-11-17 (`domain/exercise.ts`, `screens/Exercise.tsx`): opens by holding Body on Home, or from Apps. Start an empty workout or one of the 7
 presets, add exercises (common list, ones you logged before, or your own name), log each set (reps, kg, seconds, defaulting from the last 10 workouts, with PR and
-AVG), a 60 s rest timer, pause, finish (pays Body points by Android's formula), Quick Log, history with delete, exercise library.
+AVG), a rest timer (30 s to 3 min since 2026-11-24), pause, finish (pays Body points by Android's formula), Quick Log, history with delete, exercise library.
 
 Differences from Android: the clock leaves out paused time and survives a reload (Android loses the pause); all of a set's values are entered in one dialog
-instead of three steps; an exercise can be removed and a running workout discarded; the history keeps at most 500 workouts. Still open: edit a finished
-workout, kg/lb switch, progress chart per exercise, rest length setting.
+instead of three steps; an exercise can be removed and a running workout discarded; the history keeps at most 500 workouts. Built 2026-11-24: a kg/lb switch, editing a finished workout's sets and name, a progress chart per
+exercise, the rest length. Still open: adding or removing sets in a finished workout.
 
 ## Phase 8: sound and haptics
 
 - ~~Sound toggle and UI sounds~~ (built 2026-11-17: click on buttons, XP blip, level-up and achievement chimes; the world map keeps its own sound).
-- Still open: sounds for the rock game (throw, hit, level), a richer task-complete sound, vibration where Android uses it (minigame, animations), and trying all of it on a real device.
+- ~~Rock game sounds~~ (built) and ~~vibration~~ (built 2026-11-24: rock game, task ticks, level-ups, reminders). Still open: a richer task-complete sound, and trying all of it on a real device.
 - Done when: the rock game has sound too, and haptics work on a phone.
 
 ## Phase 9: games and apps leftovers
 
-- Rock game: start by holding the stone in the inventory for 5 stone; off-screen trajectory arrows; a throwing animation; tune Time Trial by playing. (Its speed bonus is shown in the HUD since 2026-11-17.) (Time Trial replaced CHALLENGE and was built 2026-11-17.)
+- Rock game: ~~start by holding the stone in the inventory for 5 stone~~ (built 2026-11-24); off-screen trajectory arrows; a throwing animation; tune Time Trial by playing. (Its speed bonus is shown in the HUD since 2026-11-17.) (Time Trial replaced CHALLENGE and was built 2026-11-17.)
 - Sanctuary: a link from Home or the pen, and a tie to the game (cost, Bóbr walking in it, achievements).
 - Pixelite: its own Apps icon.
 
@@ -144,10 +144,10 @@ Kept in its own files. In short, what is open there:
 Small items to pick up while touching a screen; the detail is in `BACKLOG.md`.
 
 - **Themes:** more elements customisable (achievement cards, chat bubbles, event dialogs), translated style names, an inventory slot picker, the `gameover` frame.
-- **Languages:** Polish plural forms, a native-speaker review of the Latin and Polish written for the web, translated labels on the Body / Mind / Soul sprites.
+- **Languages:** ~~Polish plural forms~~ (built 2026-11-24), a native-speaker review of the Latin and Polish written for the web, translated labels on the Body / Mind / Soul sprites.
 - **Accessibility:** ~~a reduced-motion switch~~ (built 2026-11-17), ~~a high-contrast palette~~ (built 2026-11-17), text and interface size in onboarding, a screen-reader pass on a real device.
 - **Layouts:** Settings, Chat, habit detail and Start Here stay one narrow column on wide screens.
-- **Settings:** reordering navigation items. (Name editing was built 2026-11-17.)
+- **Settings:** ~~reordering navigation items~~ (built 2026-11-24). (Name editing was built 2026-11-17.)
 - **Developer pages:** `/kit` does not show the newer pieces.
 
 ## Suggested order

@@ -57,6 +57,8 @@ interface Deco { x: number; y: number; cell: Cell; scale: number }
 interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean }
 interface Hud { landed: boolean; hour: number; temp: number; weather: 'heat' | 'cold' | null; x: number; y: number; layer: number; clouds: number; water: number; fps: number; ms: number; biome: string }
 type Tool = 'fly' | 'paint';
+/** What the paint tool lays: a tile, or (terraced worlds) a layer raised or dug away. */
+type Brush = Terrain | 'up' | 'down';
 
 const TILT_RAD = 1.1;   // radians of tipping per unit of tilt (slider step / 10): the top step, 0.8, is about 50 degrees
 /** The slider's 0..16 as a tilt unit (x TILT_RAD radians): steps 1-8 are tenths (up to about 50 degrees), 9-16 go on to about 62 degrees. */
@@ -202,6 +204,7 @@ function WorldView({ id }: { id: string }) {
   const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
     const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural');
+    if (initial.relief) world.loadRelief(initial.relief);   // (before anything builds a chunk from the ground)
     const flight = newFlight(initial.plane.x, initial.plane.y);
     flight.heading = initial.plane.heading; flight.pitch = initial.plane.pitch;
     const eco = new Ecosystem(world, Math.random, { ...initial.wind });
@@ -352,7 +355,7 @@ function WorldView({ id }: { id: string }) {
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
   const [paused, setPaused] = useState(false);
   const [tool, setTool] = useState<Tool>('fly');
-  const [brush, setBrush] = useState<Terrain>(WATER);
+  const [brush, setBrush] = useState<Brush>(WATER);
   const [radius, setRadius] = useState(1);
   // numbers on screen live in a ref and are read by tiny components on a timer, so the 4-times-a-second update never re-renders this whole screen
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
@@ -1131,6 +1134,8 @@ function WorldView({ id }: { id: string }) {
         if (key !== actKey.current) { actKey.current = key; const a: Act = { dam: n, bush, beaver: bv ? { id: bv.id, sex: bv.sex, full: bv.full > 0, trust } : null }; actRef.current = a; setAct(a); }
       }
       mark('before'); s.eco.step(simDt); s.eco.easeClouds(simDt); mark('eco');                                                              // the world keeps living while you fly
+      for (const key of reliefDirty.current) miniCache.lay.delete(key);   // (sculpted chunks: their layers changed too, which nothing else ever changes)
+      reliefDirty.current.clear();
       for (const key of s.eco.dirty) { const old = chunks.current.get(key); if (old) old.stale = true; miniCache.terr.delete(key); }   // (the minimap's copy of that chunk is made again too)   // keep showing the old picture until the new one is ready
       s.eco.dirty.clear();
       if (s.world.field && glr) { const wet = s.world.field.takeDirty(); if (wet.length) glr.dropTerrainMeshes(wet.map(([cx, cy]) => tileKey(cx, cy))); }   // (water laid over, or taken off, the terraces: those chunks' meshes are cut again)
@@ -2036,13 +2041,25 @@ function WorldView({ id }: { id: string }) {
     const r = stage.current!.getBoundingClientRect(), c = camPos.current, T = TILE_PX * camZoomNow.current.chase * altZoom.current;
     return { x: Math.floor((e.clientX - r.left - r.width / 2) / T + c.x), y: Math.floor((e.clientY - r.top - r.height / 2) / T + c.y) };
   };
+  const reliefDirty = useRef(new Set<number>());   // chunks whose layers sculpting changed, for the minimap (its copies are made in the frame loop)
+  const sculpted = useRef(new Set<number>());   // the tiles this stroke has already raised or lowered: dragging over a tile moves it one layer, not one a frame
   const paintAt = (x: number, y: number) => {
     const { brush: b, radius: rad } = live.current, s = sim.current!;
+    if (b === 'up' || b === 'down') {
+      const tiles: [number, number][] = [];
+      for (let j = -(rad - 1); j <= rad - 1; j++) for (let i = -(rad - 1); i <= rad - 1; i++) { const k = tileKey(x + i, y + j); if (!sculpted.current.has(k)) { sculpted.current.add(k); tiles.push([x + i, y + j]); } }
+      for (const key of s.world.sculpt(tiles, b === 'up' ? 1 : -1)) { s.eco.dirty.add(key); reliefDirty.current.add(key); }   // (the chunk pictures and the minimap's copies are made again; the 3D meshes follow the field's own dirty list)
+      return;
+    }
     for (let j = -(rad - 1); j <= rad - 1; j++) for (let i = -(rad - 1); i <= rad - 1; i++) if (s.world.terrainAt(x + i, y + j) !== b) s.eco.paint(x + i, y + j, b);
   };
-  const onStageDown = (e: RPointerEvent) => { if (live.current.tool !== 'paint') return; painting.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); const p = tileUnder(e); hoverTile.current = p; paintAt(p.x, p.y); };
+  const onStageDown = (e: RPointerEvent) => { if (live.current.tool !== 'paint') return; painting.current = true; sculpted.current.clear(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); const p = tileUnder(e); hoverTile.current = p; paintAt(p.x, p.y); };
   const onStageMove = (e: RPointerEvent) => { if (live.current.tool !== 'paint') return; const p = tileUnder(e); hoverTile.current = p; if (painting.current) paintAt(p.x, p.y); };
-  const onStageUp = () => { painting.current = false; };
+  const onStageUp = () => {
+    painting.current = false;
+    const f = sim.current?.world.field;
+    if (sculpted.current.size && f) { sculpted.current.clear(); actions.saveWorld(id, { relief: f.reliefList() }); }   // a stroke of sculpting is saved when it ends
+  };
 
   // joystick
   const joy = useRef<HTMLDivElement>(null);
@@ -2087,7 +2104,7 @@ function WorldView({ id }: { id: string }) {
     for (const c of s.eco.clouds) { const d = Math.hypot(c.x - bx, c.y - by); if (d < bd) { bd = d; from = c; } }
     s.eco.strike(bx + 0.5, by + 0.5, from, true);
   };
-  const pickBrush = (tt: Terrain) => {
+  const pickBrush = (tt: Brush) => {
     if (tool === 'paint' && brush === tt) setRadius(r => (r >= 4 ? 1 : r + 1));   // tapping the chosen tile again grows the brush
     setBrush(tt); setTool('paint');
   };
@@ -2182,6 +2199,12 @@ function WorldView({ id }: { id: string }) {
               <PixelFrame key={tt} as="button" theme={tool === 'paint' && brush === tt ? 'green_ornate' : 'bronze'} scale={1} className="wui-btn wui-tile" aria-pressed={tool === 'paint' && brush === tt}
                 aria-label={`${t(tt === WATER ? 'worldWater' : tt === SAND ? 'worldSand' : 'worldGrass')} ${radius}`} onClick={() => pickBrush(tt)}
                 style={{ '--cx': TILE_CELL[tt][0], '--cy': TILE_CELL[tt][1], '--sheet': `url(${SHEET_URL})` } as CSSProperties}><i /><b>{radius}</b></PixelFrame>
+            ))}
+            {initial.kind === 'terraced' && (['up', 'down'] as const).map(d => (
+              <PixelFrame key={d} as="button" theme={brush === d ? 'green_ornate' : 'bronze'} scale={1} className="wui-btn wui-sculpt" aria-pressed={brush === d}
+                aria-label={`${t(d === 'up' ? 'worldRaise' : 'worldLower')} ${radius}`} title={t(d === 'up' ? 'worldRaise' : 'worldLower')} onClick={() => pickBrush(d)}>
+                <Icon name={d === 'up' ? 'arrow_stone_up' : 'arrow_stone_down'} size={16} /><b>{radius}</b>
+              </PixelFrame>
             ))}
           </div>
         )}

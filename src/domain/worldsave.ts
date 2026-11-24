@@ -1,7 +1,7 @@
 /** Saved Bóbr worlds: a seed plus only what changed (the generator rebuilds everything else), the plane, the sky and the wind. */
 import { tileKey, keyX, keyY, type TileState, type Terrain, type DecoKind, type Variant } from './worldgen';
 import { lakeSpawnFor, type LakeMapId } from './lakedistrict';
-import { terraceSpawn } from './terrace';
+import { terraceSpawn, MAX_RELIEF, RELIEF_MAX } from './terrace';
 import { defaultWind, type Wind } from './ecosystem';
 import { sanitizeBerries, type SavedBerry } from './berries';
 
@@ -9,6 +9,20 @@ export const MAX_WORLDS = 12;
 export const MAX_CHANGES = 60000;
 /** One changed tile: [x, y, terrain, variant, decoration, scale x 100]. */
 export type SavedTile = [number, number, number, number, number, number];
+/** One sculpted tile of a terraced world: [x, y, layers added] (negative: dug away). */
+export type SavedRelief = [number, number, number];
+/** Valid sculpted tiles, each once, at most MAX_RELIEF; nothing for an untouched world. */
+export function sanitizeRelief(raw: unknown): SavedRelief[] {
+  const out: SavedRelief[] = [], seen = new Set<number>();
+  for (const r of Array.isArray(raw) ? raw : []) {
+    if (!Array.isArray(r) || r.length < 3 || !r.every(n => typeof n === 'number' && Number.isInteger(n))) continue;
+    const [x, y, d] = r as number[];
+    if (Math.abs(x) > 1e6 || Math.abs(y) > 1e6 || !d || Math.abs(d) > RELIEF_MAX || seen.has(tileKey(x, y))) continue;
+    seen.add(tileKey(x, y)); out.push([x, y, d]);
+    if (out.length >= MAX_RELIEF) break;
+  }
+  return out;
+}
 /** One finished run (it ends with a crash): hoops flown through and metres flown, scored together. */
 export interface RunScore { points: number; hoops: number; metres: number; height: number; bonus: number; at: number }
 export const MAX_SCORES = 10;
@@ -52,6 +66,7 @@ export interface SavedWorld {
   map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m)
   kind?: 'procedural' | 'lakedistrict' | 'terraced';   // the Lake District is a real map (see lakedistrict.ts), 'terraced' the stepped hills (terrace.ts); a world without this is procedural (flat)
   changes: SavedTile[];
+  relief?: SavedRelief[];         // a terraced world's sculpting: tiles raised or lowered by whole layers
   hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
   scores?: RunScore[];            // this world's leaderboard (best runs first)
@@ -168,7 +183,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
     out.list.push({
       ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : w.kind === 'terraced' ? { kind: 'terraced' as const } : {}),
       id: w.id, name: (typeof w.name === 'string' ? w.name.trim().slice(0, 40) : '') || 'World', seed: fin(w.seed, 0) >>> 0,
-      createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes,
+      createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes, ...(w.kind === 'terraced' && sanitizeRelief(w.relief).length ? { relief: sanitizeRelief(w.relief) } : {}),
       hour: clamp(fin(w.hour, 12), 0, 23.999),
       wind: { enabled: wind.enabled !== false, strength: clamp(fin(wind.strength, dw.strength), 0, 10), dir: fin(wind.dir, dw.dir) },
       plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45), ...(plane.landed === true ? { landed: true } : {}) },

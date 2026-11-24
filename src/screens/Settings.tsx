@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { BUZZ, canVibrate } from '../audio/haptics';
 import { actions, useAppState } from '../data/hooks';
 import { back, navigate } from '../router';
 import { PixelFrame } from '../ui/PixelFrame';
@@ -74,6 +75,7 @@ export function Settings() {
   const volume = useAppState(s => s.settings.volume);
   const reduceMotion = useAppState(s => !!s.settings.reduceMotion);
   const highContrast = useAppState(s => !!s.settings.highContrast);
+  const haptics = useAppState(s => s.settings.haptics !== false);
   const wantFullscreen = useAppState(s => s.settings.fullscreen);
   const fs = useFullscreen();
   // enterFullscreen() must start inside the tap, so it is called before anything async
@@ -161,6 +163,11 @@ export function Settings() {
             {[0, 0.3, 0.7, 1].map(v => <button key={v} className={`seg ${volume === v ? 'on' : ''}`} aria-pressed={volume === v} onClick={() => actions.setSettings({ volume: v })}>{v === 0 ? t('soundVolumeOff') : `${Math.round(v * 100)}%`}</button>)}
           </div>
         </div>
+        {canVibrate() && <div className="field">{t('haptics')}
+          <div className="row wrap" role="group" aria-label={t('haptics')}>
+            {[true, false].map(v => <button key={String(v)} className={`seg ${haptics === v ? 'on' : ''}`} aria-pressed={haptics === v} onClick={() => { actions.setSettings({ haptics: v }); if (v) navigator.vibrate?.(BUZZ.hit); }}>{v ? t('hapticsOn') : t('crtOff')}</button>)}
+          </div>
+        </div>}
       </section>
 
       <section className="list">

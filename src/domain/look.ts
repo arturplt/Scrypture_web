@@ -41,11 +41,11 @@ export const NAV_LABELS = ['icons', 'both'] as const;
 export interface NavSettings { frame: string; active: string; plate: string; plateScale: number; items: string[]; labels: string }
 export const DEFAULT_NAV: NavSettings = { frame: 'wood_steel', active: 'outline', plate: 'wood', plateScale: 2, items: ['home', 'tasks', 'habits', 'apps'], labels: 'icons' };
 
-/** Valid, de-duplicated items in the fixed canonical order, always including Home. */
+/** Valid, de-duplicated items in the order the user put them, always including Home (first, when it was missing). */
 export function sanitizeNavItems(raw: unknown): string[] {
-  const asked = new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : DEFAULT_NAV.items);
-  asked.add('home');
-  return NAV_ITEMS.filter(id => asked.has(id));
+  const asked = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : DEFAULT_NAV.items;
+  const out = [...new Set(asked)].filter(id => (NAV_ITEMS as readonly string[]).includes(id));
+  return out.includes('home') ? out : ['home', ...out];
 }
 
 /** Button size = how thick the frame border is drawn: large (the full 16px tile), medium (12), compact (8). */

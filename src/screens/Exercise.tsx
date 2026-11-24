@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import {
-  COMMON_EXERCISES, EXERCISE_TYPES, MAX_EXERCISES, MAX_WORKOUTS, REST_SECONDS, WORKOUT_PRESETS, elapsedMs, exerciseLibrary, exercisePR, exerciseSummary, formatClock, rollingAverages, roundHalf,
+  COMMON_EXERCISES, EXERCISE_TYPES, MAX_EXERCISES, MAX_WORKOUTS, REST_CHOICES, WORKOUT_PRESETS, exerciseProgress, progressMeasure, restLength, showWeight, weightKg, weightStep, type WeightUnit, elapsedMs, exerciseLibrary, exercisePR, exerciseSummary, formatClock, rollingAverages, roundHalf,
   setDefaults, setInputs, setProgress, workoutBodyPoints, type Exercise, type ExerciseSet, type ExerciseType, type PlannedExercise, type Workout,
 } from '../domain';
 import { actions, useAppState } from '../data/hooks';
@@ -12,6 +12,7 @@ import { PixelFrame } from '../ui/PixelFrame';
 import { PixelButton } from '../ui/PixelButton';
 import { PixelProgressBar } from '../ui/PixelProgressBar';
 import { Chip, Icon, Modal, PickBox } from '../ui/misc';
+import { NameDialog } from '../ui/NameDialog';
 import './exercise.css';
 
 const TYPE_KEY: Record<ExerciseType, Key> = { WEIGHT_TRAINING: 'exTypeWeight', BODYWEIGHT: 'exTypeBody', CARDIO: 'exTypeCardio', OTHER: 'exTypeOther' };
@@ -28,9 +29,10 @@ type Sheet = null | 'quick' | 'presets' | 'library' | 'add' | 'finish' | 'discar
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 const setCount = (w: Workout) => w.exercises.reduce((n, e) => n + e.sets.length, 0);
-/** "x10 60kg 1:30": what a set holds, shortest form. */
-const setText = (s: ExerciseSet, e: Exercise) =>
-  [s.reps !== undefined ? `x${s.reps}` : '', e.type === 'WEIGHT_TRAINING' && s.weight ? `${roundHalf(s.weight)}kg` : '', s.duration ? mmss(s.duration / 1000) : ''].filter(Boolean).join(' ');
+/** "x10 60kg 1:30": what a set holds, shortest form, with the weight in the chosen unit. */
+const setText = (s: ExerciseSet, e: Exercise, unit: WeightUnit = 'kg') =>
+  [s.reps !== undefined ? `x${s.reps}` : '', e.type === 'WEIGHT_TRAINING' && s.weight ? `${showWeight(s.weight, unit)}${unit}` : '', s.duration ? mmss(s.duration / 1000) : ''].filter(Boolean).join(' ');
+const useUnit = () => useAppState(s => s.exercise.unit ?? 'kg');
 
 /** A number with a minus and a plus button on either side (Android uses stone arrows). */
 function Stepper({ label, value, step, min = 0, show, onChange }: { label: string; value: number; step: number; min?: number; show?: (n: number) => string; onChange: (n: number) => void }) {
@@ -63,8 +65,10 @@ const Stat = ({ value, label }: { value: ReactNode; label: string }) => (
 export function Exercise() {
   const { t } = useI18n();
   const workouts = useAppState(s => s.exercise.workouts);
+  const restSecs = useAppState(s => restLength(s.exercise)), unit = useUnit();
   const active = workouts.find(w => !w.completed);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [chart, setChart] = useState<string | null>(null);   // the exercise whose progress is shown
   const [note, setNote] = useState<string | null>(null);
   const [restUntil, setRestUntil] = useState(0);
   const now = useNow(1000);
@@ -85,7 +89,7 @@ export function Exercise() {
       {note && <div className="ex-note" role="status"><Chip color={GOLD}>{note}</Chip></div>}
 
       {active ? (
-        <ActiveWorkout w={active} now={now} restUntil={restUntil} onRest={() => setRestUntil(Date.now() + REST_SECONDS * 1000)} onSkipRest={() => setRestUntil(0)}
+        <ActiveWorkout w={active} now={now} restUntil={restUntil} restSecs={restSecs} onRest={() => setRestUntil(Date.now() + restSecs * 1000)} onSkipRest={() => setRestUntil(0)}
           onAdd={() => setSheet('add')} onFinish={() => setSheet('finish')} onDiscard={() => setSheet('discard')} />
       ) : (
         <>
@@ -104,13 +108,24 @@ export function Exercise() {
             <Tile icon="sort" label={t('exLibrary')} onClick={() => setSheet('library')} />
           </div>
           {full && <div className="muted small" role="status">{t('exFull', { n: MAX_WORKOUTS })}</div>}
-          <History workouts={workouts} />
+          <section className="ex-block ex-prefs" aria-label={t('exSettings')}>
+            <div className="ex-types" role="group" aria-label={t('exUnit')}>
+              <span className="muted small">{t('exUnit')}</span>
+              {(['kg', 'lb'] as const).map(u => <button type="button" key={u} className={`seg ${u === unit ? 'on' : ''}`} aria-pressed={u === unit} onClick={() => actions.setExerciseSettings({ unit: u })}>{u}</button>)}
+            </div>
+            <div className="ex-types" role="group" aria-label={t('exRestLength')}>
+              <span className="muted small">{t('exRestLength')}</span>
+              {REST_CHOICES.map(n => <button type="button" key={n} className={`seg ${n === restSecs ? 'on' : ''}`} aria-pressed={n === restSecs} onClick={() => actions.setExerciseSettings({ restSeconds: n })}>{mmss(n)}</button>)}
+            </div>
+          </section>
+          <History workouts={workouts} onChart={setChart} />
         </>
       )}
 
       <QuickLog open={sheet === 'quick'} onClose={() => setSheet(null)} onSaved={n => { setSheet(null); setNote(t('exEarned', { n: n ?? 0 })); }} />
       <Presets open={sheet === 'presets'} onClose={() => setSheet(null)} onStart={p => start(t(PRESET_KEY[p.id]), p.exercises)} />
-      <Library open={sheet === 'library'} onClose={() => setSheet(null)} workouts={workouts} />
+      <Library open={sheet === 'library'} onClose={() => setSheet(null)} workouts={workouts} onChart={n => { setSheet(null); setChart(n); }} />
+      {chart && <Progress name={chart} workouts={workouts} onClose={() => setChart(null)} />}
       <AddExercise open={sheet === 'add'} onClose={() => setSheet(null)} workouts={workouts} onAdd={p => { if (active) actions.addExercise(active.id, p); setSheet(null); }} />
       <Modal open={sheet === 'finish' && !!active} onClose={() => setSheet(null)} title={t('exFinish')} theme="app">
         {active && <p className="small ex-ask">{t('exFinishAsk', { n: workoutBodyPoints(active, elapsedMs(active, Date.now())) })}</p>}
@@ -131,8 +146,12 @@ export function Exercise() {
 }
 
 /** Finished workouts, newest first; tap one to see what was in it. */
-function History({ workouts }: { workouts: Workout[] }) {
+function History({ workouts, onChart }: { workouts: Workout[]; onChart: (name: string) => void }) {
   const { t, lang } = useI18n();
+  const unit = useUnit();
+  const [editing, setEditing] = useState<string | null>(null);   // the finished workout whose sets can be tapped to change
+  const [fixing, setFixing] = useState<{ w: Workout; e: Exercise; s: ExerciseSet } | null>(null);
+  const [renaming, setRenaming] = useState<Workout | null>(null);
   const [shown, setShown] = useState(10);
   const [open, setOpen] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -161,17 +180,30 @@ function History({ workouts }: { workouts: Workout[] }) {
               <div className="ex-hist-body">
                 {w.exercises.map(e => (
                   <div key={e.id} className="ex-line" style={{ '--c': TYPE_COLOR[e.type] } as React.CSSProperties}>
-                    <span>{e.name}</span>
-                    <span className="muted">{e.sets.map(s => setText(s, e) || '✓').join(' · ')}</span>
+                    <button type="button" className="ex-link" title={t('exProgress')} onClick={() => onChart(e.name)}>{e.name}</button>
+                    {editing === w.id ? (
+                      <span className="ex-sets ex-sets-small">
+                        {e.sets.filter(s => s.completed).map(s => <PickBox key={s.id} color={SET_DONE} selected={false} onClick={() => setFixing({ w, e, s })}><span className="ex-set"><strong>{s.setNumber}</strong><span>{setText(s, e, unit) || '✓'}</span></span></PickBox>)}
+                      </span>
+                    ) : <span className="muted">{e.sets.map(s => setText(s, e, unit) || '✓').join(' · ')}</span>}
                   </div>
                 ))}
-                <div className="row"><PixelButton scale={1} size="compact" variant="red" onClick={() => setDeleting(w.id)}>{t('delete')}</PixelButton></div>
+                {editing === w.id && <div className="muted small">{t('exEditHint')}</div>}
+                <div className="row">
+                  <PixelButton scale={1} size="compact" onClick={() => setEditing(editing === w.id ? null : w.id)}>{editing === w.id ? t('exStopEdit') : t('edit')}</PixelButton>
+                  <PixelButton scale={1} size="compact" variant="red" onClick={() => setRenaming(w)}>{t('mmRename')}</PixelButton>
+                  <PixelButton scale={1} size="compact" variant="red" onClick={() => setDeleting(w.id)}>{t('delete')}</PixelButton>
+                </div>
               </div>
             )}
           </PixelFrame>
         );
       })}
       {done.length > shown && <PixelButton scale={1} onClick={() => setShown(shown + 10)}>{t('exMore')}</PixelButton>}
+      {fixing && <SetDialog w={fixing.w} e={fixing.e} s={fixing.s} onClose={() => setFixing(null)}
+        onSave={v => { actions.editLoggedSet(fixing.w.id, fixing.e.id, fixing.s.id, v); setFixing(null); }} />}
+      <NameDialog open={!!renaming} title={t('mmRename')} initial={renaming?.name ?? t('exWorkout')} okLabel={t('exSave')} cancelLabel={t('cancel')}
+        onSubmit={name => { if (renaming) actions.renameWorkout(renaming.id, name); setRenaming(null); }} onClose={() => setRenaming(null)} />
       <Modal open={!!doomed} onClose={() => setDeleting(null)} title={t('delete')} theme="app">
         <p className="small ex-ask">{t('exDeleteAsk', { name: doomed?.name ?? t('exWorkout') })}</p>
         <div className="row">
@@ -183,8 +215,8 @@ function History({ workouts }: { workouts: Workout[] }) {
   );
 }
 
-function ActiveWorkout({ w, now, restUntil, onRest, onSkipRest, onAdd, onFinish, onDiscard }:
-  { w: Workout; now: number; restUntil: number; onRest: () => void; onSkipRest: () => void; onAdd: () => void; onFinish: () => void; onDiscard: () => void }) {
+function ActiveWorkout({ w, now, restUntil, restSecs, onRest, onSkipRest, onAdd, onFinish, onDiscard }:
+  { w: Workout; now: number; restUntil: number; restSecs: number; onRest: () => void; onSkipRest: () => void; onAdd: () => void; onFinish: () => void; onDiscard: () => void }) {
   const { t } = useI18n();
   const paused = w.pausedAt !== undefined;
   const rest = Math.max(0, Math.ceil((restUntil - now) / 1000));
@@ -206,7 +238,7 @@ function ActiveWorkout({ w, now, restUntil, onRest, onSkipRest, onAdd, onFinish,
         {rest > 0 && (
           <div className="ex-restbox" role="status">
             <div className="row between"><span className="ex-rest">{t('exRest', { s: rest })}</span><PixelButton scale={1} size="compact" variant="red" onClick={onSkipRest}>{t('exSkipRest')}</PixelButton></div>
-            <PixelProgressBar value={rest} max={REST_SECONDS} look="seg_blue" scale={1} label={t('exRest', { s: rest })} />
+            <PixelProgressBar value={rest} max={restSecs} look="seg_blue" scale={1} label={t('exRest', { s: rest })} />
           </div>
         )}
         <div className="ex-two">
@@ -234,7 +266,7 @@ function ExerciseCard({ w, e, onLogged }: { w: Workout; e: Exercise; onLogged: (
   const [logging, setLogging] = useState<string | null>(null);
   const doneN = e.sets.filter(s => s.completed).length;
   const next = e.sets.find(s => !s.completed);
-  const target = e.sets.find(s => s.id === logging);
+  const target = e.sets.find(s => s.id === logging), unit = useUnit();
   return (
     <PixelFrame theme={STONE} scale={1} className={`ex-card ${next ? '' : 'done'}`} style={{ '--c': TYPE_COLOR[e.type] } as React.CSSProperties}>
       <div className="row between ex-card-head">
@@ -246,7 +278,7 @@ function ExerciseCard({ w, e, onLogged }: { w: Workout; e: Exercise; onLogged: (
       </div>
       <div className="ex-sets">
         {e.sets.map(s => {
-          const text = setText(s, e);
+          const text = setText(s, e, unit);
           return (
             <PickBox key={s.id} color={s.completed ? SET_DONE : SET_TODO} selected={s.id === next?.id} onClick={() => setLogging(s.id)}>
               <span className="ex-set" aria-label={t('exSetN', { n: s.setNumber })}>
@@ -258,18 +290,21 @@ function ExerciseCard({ w, e, onLogged }: { w: Workout; e: Exercise; onLogged: (
         })}
       </div>
       {next && <PixelButton scale={1} onClick={() => setLogging(next.id)}>{t('exLogSet', { n: next.setNumber })}</PixelButton>}
-      {target && <SetDialog w={w} e={e} s={target} onClose={() => setLogging(null)} onDone={() => { setLogging(null); onLogged(); }} />}
+      {target && <SetDialog w={w} e={e} s={target} onClose={() => setLogging(null)}
+        onSave={v => { actions.completeSet(w.id, e.id, target.id, v); setLogging(null); onLogged(); }} />}
     </PixelFrame>
   );
 }
 
 /** Log one set: reps, weight and time, whichever the exercise has (Android walks through them one at a time). */
-function SetDialog({ w, e, s, onClose, onDone }: { w: Workout; e: Exercise; s: ExerciseSet; onClose: () => void; onDone: () => void }) {
+function SetDialog({ e, s, onClose, onSave }: { w: Workout; e: Exercise; s: ExerciseSet; onClose: () => void; onSave: (v: { reps?: number; weight?: number; duration?: number }) => void }) {
   const { t } = useI18n();
-  const all = useAppState(st => st.exercise.workouts);
+  const all = useAppState(st => st.exercise.workouts), unit = useUnit();
   const inputs = setInputs(e);
   const d = s.completed ? { reps: s.reps ?? 0, weight: s.weight ?? 0, seconds: Math.round((s.duration ?? 0) / 1000) } : setDefaults(all, e, s);   // a set already logged opens with what it holds
-  const [reps, setReps] = useState(d.reps), [weight, setWeight] = useState(d.weight), [secs, setSecs] = useState(d.seconds);
+  // the weight is typed in the chosen unit; an untouched weight keeps its exact kg (showing 132.5 lb and back would move 60 kg a little)
+  const [reps, setReps] = useState(d.reps), [weight, setWeight] = useState(showWeight(d.weight, unit)), [secs, setSecs] = useState(d.seconds);
+  const kg = weight === showWeight(d.weight, unit) ? d.weight : weightKg(weight, unit);
   const pr = exercisePR(all, e.name), av = rollingAverages(all, e.name, s.setNumber);
   const none = !inputs.reps && !inputs.weight && !inputs.time;
   return (
@@ -277,20 +312,17 @@ function SetDialog({ w, e, s, onClose, onDone }: { w: Workout; e: Exercise; s: E
       <div className="ex-dialog">
         <div className="row"><Chip color={TYPE_COLOR[e.type]}>{t('exSetN', { n: s.setNumber })} / {e.sets.length}</Chip></div>
         {inputs.reps && <Stepper label={t('exReps')} value={reps} step={1} min={0} onChange={setReps} />}
-        {inputs.weight && <Stepper label={t('exWeight')} value={weight} step={2.5} min={0} onChange={n => setWeight(roundHalf(n))} />}
+        {inputs.weight && <Stepper label={t('exWeightIn', { unit })} value={weight} step={weightStep(unit)} min={0} onChange={n => setWeight(roundHalf(n))} />}
         {inputs.weight && (
           <div className="ex-pravg">
-            <div><span className="muted">{t('exPR')}</span><strong>{pr === undefined ? '--' : roundHalf(pr)}</strong></div>
-            <div><span className="muted">{t('exAvg')}</span><strong>{av.weight === undefined ? '--' : roundHalf(av.weight)}</strong></div>
+            <div><span className="muted">{t('exPR')}</span><strong>{pr === undefined ? '--' : showWeight(pr, unit)}</strong></div>
+            <div><span className="muted">{t('exAvg')}</span><strong>{av.weight === undefined ? '--' : showWeight(av.weight, unit)}</strong></div>
           </div>
         )}
         {inputs.time && <Stepper label={t('exTime')} value={secs} step={5} min={0} show={mmss} onChange={setSecs} />}
         {none && <div className="muted small">{t('exNothing')}</div>}
         <div className="ex-two">
-          <PixelButton scale={1} onClick={() => {
-            actions.completeSet(w.id, e.id, s.id, { ...(inputs.reps ? { reps } : {}), ...(inputs.weight ? { weight } : {}), ...(inputs.time ? { duration: secs * 1000 } : {}) });
-            onDone();
-          }}>{t('exDone')}</PixelButton>
+          <PixelButton scale={1} onClick={() => onSave({ ...(inputs.reps ? { reps } : {}), ...(inputs.weight ? { weight: kg } : {}), ...(inputs.time ? { duration: secs * 1000 } : {}) })}>{t('exDone')}</PixelButton>
           <PixelButton scale={1} variant="red" onClick={onClose}>{t('cancel')}</PixelButton>
         </div>
       </div>
@@ -347,7 +379,7 @@ function AddExercise({ open, onClose, workouts, onAdd }: { open: boolean; onClos
 /** One exercise logged after the fact (Android: QuickLogDialog). */
 function QuickLog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (points: number | null) => void }) {
   const { t } = useI18n();
-  const workouts = useAppState(s => s.exercise.workouts);
+  const workouts = useAppState(s => s.exercise.workouts), unit = useUnit();
   const [type, setType] = useState<ExerciseType>('CARDIO');
   const [name, setName] = useState('');
   const [minutes, setMinutes] = useState(30), [sets, setSets] = useState(3), [reps, setReps] = useState(10), [weight, setWeight] = useState(0);
@@ -360,9 +392,9 @@ function QuickLog({ open, onClose, onSaved }: { open: boolean; onClose: () => vo
         <Stepper label={t('exMinutes')} value={minutes} step={5} min={0} onChange={setMinutes} />
         {!cardio && <Stepper label={t('exSets')} value={sets} step={1} min={1} onChange={n => setSets(Math.min(20, n))} />}
         {!cardio && <Stepper label={t('exReps')} value={reps} step={1} min={0} onChange={setReps} />}
-        {lifting && <Stepper label={t('exWeight')} value={weight} step={2.5} min={0} onChange={n => setWeight(roundHalf(n))} />}
+        {lifting && <Stepper label={t('exWeightIn', { unit })} value={weight} step={weightStep(unit)} min={0} onChange={n => setWeight(roundHalf(n))} />}
         <div className="ex-two">
-          <PixelButton scale={1} disabled={!name.trim()} onClick={() => onSaved(actions.quickLog({ name, type, minutes, sets: cardio ? 1 : sets, reps: cardio || reps === 0 ? undefined : reps, weight: lifting && weight > 0 ? weight : undefined }))}>{t('exSave')}</PixelButton>
+          <PixelButton scale={1} disabled={!name.trim()} onClick={() => onSaved(actions.quickLog({ name, type, minutes, sets: cardio ? 1 : sets, reps: cardio || reps === 0 ? undefined : reps, weight: lifting && weight > 0 ? weightKg(weight, unit) : undefined }))}>{t('exSave')}</PixelButton>
           <PixelButton scale={1} variant="red" onClick={onClose}>{t('cancel')}</PixelButton>
         </div>
       </div>
@@ -409,7 +441,7 @@ function Presets({ open, onClose, onStart }: { open: boolean; onClose: () => voi
 }
 
 /** Everything you can pick, by type, with the ones you added yourself marked (Android: ExerciseLibraryScreen). */
-function Library({ open, onClose, workouts }: { open: boolean; onClose: () => void; workouts: Workout[] }) {
+function Library({ open, onClose, workouts, onChart }: { open: boolean; onClose: () => void; workouts: Workout[]; onChart: (name: string) => void }) {
   const { t } = useI18n();
   const lib = exerciseLibrary(workouts);
   const own = (type: ExerciseType, n: string) => !(COMMON_EXERCISES as Record<string, string[]>)[type]?.includes(n);
@@ -419,10 +451,44 @@ function Library({ open, onClose, workouts }: { open: boolean; onClose: () => vo
         {EXERCISE_TYPES.map(type => (
           <section key={type} className="ex-lib" style={{ '--c': TYPE_COLOR[type] } as React.CSSProperties}>
             <h2 className="ex-label">{t(TYPE_KEY[type])} ({lib[type].length})</h2>
-            <div className="row ex-wrap ex-chips">{lib[type].map(n => <Chip key={n} color={own(type, n) ? GREEN : GREY}>{n}</Chip>)}</div>
+            <div className="row ex-wrap ex-chips">{lib[type].map(n => <button type="button" key={n} className="ex-chipbtn" title={t('exProgress')} onClick={() => onChart(n)}><Chip color={own(type, n) ? GREEN : GREY}>{n}</Chip></button>)}</div>
           </section>
         ))}
         <div className="row between"><span className="row muted small"><Chip color={GREEN}>{t('exOwn')}</Chip></span><PixelButton scale={1} variant="red" onClick={onClose}>{t('exClose')}</PixelButton></div>
+      </div>
+    </Modal>
+  );
+}
+
+/** How one exercise went over time: a line through its heaviest set (or most reps, or longest set) in each finished workout. */
+function Progress({ name, workouts, onClose }: { name: string; workouts: Workout[]; onClose: () => void }) {
+  const { t, lang } = useI18n();
+  const unit = useUnit();
+  const all = exerciseProgress(workouts, name), points = all.slice(-30), measure = progressMeasure(points);
+  const value = (p: (typeof points)[number]) => (measure === 'best' ? showWeight(p.best ?? 0, unit) : measure === 'reps' ? p.reps ?? 0 : Math.round((p.duration ?? 0) / 1000));
+  const show = (v: number) => (measure === 'best' ? `${v}${unit}` : measure === 'reps' ? `x${v}` : mmss(v));
+  const vs = points.map(value), hi = Math.max(1, ...vs), lo = Math.min(hi, ...vs), W = 240, H = 90, P = 6;
+  const x = (i: number) => (points.length < 2 ? W / 2 : P + (i * (W - 2 * P)) / (points.length - 1)), y = (v: number) => H - P - ((v - lo) / Math.max(1e-9, hi - lo || hi)) * (H - 2 * P);
+  const date = (ms: number) => new Date(ms).toLocaleDateString(DATE_LOCALE[lang], { day: 'numeric', month: 'short' });
+  return (
+    <Modal open onClose={onClose} title={name} theme="app">
+      <div className="ex-dialog">
+        {!measure ? <div className="muted small">{t('exNoProgress')}</div> : (<>
+          <div className="muted small">{t(measure === 'best' ? 'exChartBest' : measure === 'reps' ? 'exChartReps' : 'exChartTime')}</div>
+          <svg className="ex-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${name}: ${vs.map(show).join(', ')}`}>
+            <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="ex-chart-axis" />
+            {points.length > 1 && <polyline className="ex-chart-line" points={vs.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />}
+            {vs.map((v, i) => <rect key={i} className="ex-chart-dot" x={x(i) - 2} y={y(v) - 2} width={4} height={4} />)}
+          </svg>
+          <div className="row between small"><span className="muted">{date(points[0].at)}</span><span className="muted">{date(points[points.length - 1].at)}</span></div>
+          <div className="ex-pravg">
+            <div><span className="muted">{t('exChartFirst')}</span><strong>{show(vs[0])}</strong></div>
+            <div><span className="muted">{t('exChartLast')}</span><strong>{show(vs[vs.length - 1])}</strong></div>
+            <div><span className="muted">{t('exPR')}</span><strong>{show(Math.max(...vs))}</strong></div>
+          </div>
+          <div className="muted small">{t('exChartCount', { n: all.length })}</div>
+        </>)}
+        <div className="row"><PixelButton scale={1} variant="red" onClick={onClose}>{t('exClose')}</PixelButton></div>
       </div>
     </Modal>
   );

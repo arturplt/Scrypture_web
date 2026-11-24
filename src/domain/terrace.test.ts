@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor } from './terrace';
+import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor, RELIEF_MAX } from './terrace';
 import { World, GRASS, SAND, WATER, DECO_NONE, CHUNK, MARGIN, SIDE, generateTerraceChunk } from './worldgen';
-import { newSavedWorld, sanitizeWorlds } from './worldsave';
+import { newSavedWorld, sanitizeWorlds, sanitizeRelief } from './worldsave';
 
 describe('terraced height field', () => {
   it('is the same for the same seed and differs between seeds', () => {
@@ -253,5 +253,46 @@ describe('the hop over a ledge on foot', () => {
     expect(ledgeStep(1, 1 + TERRACE_STEP)).toBe('up');
     expect(ledgeStep(1 + TERRACE_STEP, 1)).toBe('down');
     expect(ledgeStep(1, 1.1)).toBeNull();
+  });
+});
+
+describe('sculpting (C5)', () => {
+  // a land tile well above the beach, so lowering it a layer stays on land
+  const pick = (f: TerraceField) => { for (let y = 0; y < 400; y += 7) for (let x = 0; x < 400; x += 7) { const l = f.layerAt(x, y); if (l >= 3 && l < 20) return { x, y, l }; } throw new Error('no land'); };
+  it('raises a single tile by a layer as a small knoll, leaving the ground further off alone', () => {
+    const f = new TerraceField(11), { x, y, l } = pick(f), far = f.layerAt(x + 6, y);
+    const chunks = f.setRelief([[x, y]], 1);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(f.layerAt(x, y)).toBe(l + 1);
+    expect(f.layerAt(x + 6, y)).toBe(far);
+    expect(f.takeDirty().length).toBe(chunks.length);
+  });
+  it('raises a patch evenly and lowers it back to the generated ground', () => {
+    const f = new TerraceField(12), { x, y, l } = pick(f), patch: [number, number][] = [];
+    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) patch.push([x + i, y + j]);
+    const before = f.elevationAt(x, y);
+    f.setRelief(patch, 2);
+    expect(f.layerAt(x, y)).toBe(l + 2);
+    expect(f.elevationAt(x, y)).toBeCloseTo(before + 2, 5);
+    f.setRelief(patch, -2);
+    expect(f.relief.size).toBe(0);
+    expect(f.elevationAt(x, y)).toBeCloseTo(before, 5);
+  });
+  it('never digs below the floor, and keeps each tile within RELIEF_MAX', () => {
+    const f = new TerraceField(13), { x, y, l } = pick(f);
+    expect(f.setRelief([[x, y]], -1, l)).toEqual([]);
+    for (let i = 0; i < RELIEF_MAX + 3; i++) f.setRelief([[x, y]], 1);
+    expect(f.relief.get([...f.relief.keys()][0])).toBe(RELIEF_MAX);
+  });
+  it('saves and loads, and a world regenerates the tiles it touched', () => {
+    const w = new World(14, undefined, 'terraced'), f = w.field!, { x, y, l } = pick(f);
+    expect(w.layerAt(x, y)).toBe(l);
+    expect(w.sculpt([[x, y], [x + 1, y]], 1).length).toBeGreaterThan(0);
+    expect(w.layerAt(x, y)).toBe(l + 1);
+    expect(w.mapLayer(x, y)).toBe(l + 1);
+    const g = new TerraceField(14);
+    g.loadRelief(sanitizeRelief(f.reliefList()));
+    expect(g.layerAt(x, y)).toBe(l + 1);
+    expect(sanitizeRelief([[1, 2, 0], [1, 2, 3], [1, 2, 4], [5, 5, RELIEF_MAX + 1], [6, 6, 1.5], 'x'])).toEqual([[1, 2, 3]]);
   });
 });

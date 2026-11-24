@@ -17,9 +17,27 @@ export const DATE_LOCALE: Record<Lang, string> = { EN: 'en-GB', LA: 'en-GB', PL:
 
 const DICTS: Record<Lang, Record<Key, string>> = { EN: en, LA: la, PL: pl };
 
+/** The order plural forms are written in, per language: English one|other, Polish one|few|many (Latin follows English). */
+const PLURAL_ORDER: Record<Lang, string[]> = { EN: ['one', 'other'], LA: ['one', 'other'], PL: ['one', 'few', 'many'] };
+const pluralRules = new Map<Lang, Intl.PluralRules>();
+/** Which of the written forms a count takes: `{n|# zadanie|# zadania|# zadań}` gives 1 zadanie, 3 zadania, 5 zadań. */
+export function pluralIndex(lang: Lang, n: number, forms: number): number {
+  let r = pluralRules.get(lang);
+  if (!r) pluralRules.set(lang, r = new Intl.PluralRules(lang === 'PL' ? 'pl' : 'en'));
+  const i = PLURAL_ORDER[lang].indexOf(r.select(n));
+  return Math.min(forms - 1, i < 0 ? forms - 1 : i);   // an unlisted category (a fraction in Polish) takes the last form
+}
 export function translate(lang: Lang, key: Key, params?: Params): string {
   const s = DICTS[lang][key] ?? en[key] ?? key;
-  return params ? s.replace(/\{(\w+)\}/g, (m, p) => (p in params ? String(params[p]) : m)) : s;
+  if (!params) return s;
+  // plural forms first ({n|one|few|many}, # for the number), then plain {name} values
+  const plural = s.replace(/\{(\w+)\|([^{}]*)\}/g, (m, p, body: string) => {
+    const v = params[p];
+    if (typeof v !== 'number') return m;
+    const forms = body.split('|');
+    return forms[pluralIndex(lang, v, forms.length)].replace(/#/g, String(v));
+  });
+  return plural.replace(/\{(\w+)\}/g, (m, p) => (p in params ? String(params[p]) : m));
 }
 export const makeT = (lang: Lang): TFn => (key, params) => translate(lang, key, params);
 

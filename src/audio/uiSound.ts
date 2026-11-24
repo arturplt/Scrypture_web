@@ -6,6 +6,7 @@
 import { createAudioEngine, type AudioEngine, type SoundEvent } from './engine';
 import { SILENT } from '../domain/soundmap';
 import { store } from '../data/hooks';
+import { buzz } from './haptics';
 
 const inWorld = () => location.hash.startsWith('#/games/paperplane/play/');
 
@@ -34,8 +35,10 @@ export function startUiSound(): () => void {
     const evs = store.getEvents();
     if (evs.length < seen) seen = evs.length;           // events were dismissed
     for (let i = seen; i < evs.length; i++) {
-      if (quiet() || !eng) continue;
       const e = evs[i];
+      // vibration has its own setting, so it does not wait for the sound to be on
+      if (e.type === 'taskComplete') buzz('tap'); else if (e.type === 'levelUp' || e.type === 'achievement') buzz('level');
+      if (quiet() || !eng) continue;
       if (e.type === 'taskComplete') eng.play('ready');
       else if (e.type === 'levelUp') eng.play('hoop', 0.6);
       else if (e.type === 'achievement') eng.play('hoop', 0.9);

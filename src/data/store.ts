@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule,
-  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -49,7 +49,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
   }
 
   function editWorkout(id: string, f: (w: Workout) => Workout) {
-    set({ ...state, exercise: { workouts: state.exercise.workouts.map(w => (w.id === id ? f(w) : w)) } });
+    set({ ...state, exercise: { ...state.exercise, workouts: state.exercise.workouts.map(w => (w.id === id ? f(w) : w)) } });
   }
 
   const actions = {
@@ -262,6 +262,14 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const clean = name === undefined ? {} : { name: cleanMapName(name) || 'Mind map' };
       set({ ...state, mindMaps: { list: state.mindMaps.list.map(m => (m.id === id ? { ...m, ...rest, ...clean, updatedAt: clock() } : m)) } });
     },
+    /** Copy a mind map (boxes, links and all) under a new name. Returns the copy's id, or null when the list is full or the map is gone. */
+    duplicateMindMap(id: string, name: string): string | null {
+      const m = state.mindMaps.list.find(x => x.id === id);
+      if (!m || state.mindMaps.list.length >= MAX_MIND_MAPS) return null;
+      const copy = duplicateMap(m, genId(), name, clock());
+      set({ ...state, mindMaps: { list: [...state.mindMaps.list, copy] } });
+      return copy.id;
+    },
     deleteMindMap(id: string) { set({ ...state, mindMaps: { list: state.mindMaps.list.filter(m => m.id !== id) } }); },
     /** Notes: make an empty one. Returns its id, or null when the list is full. */
     createNote(title: string): string | null {
@@ -289,7 +297,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if (open) return open.id;
       if (state.exercise.workouts.length >= MAX_WORKOUTS) return null;
       const w: Workout = { id: genId(), name: cleanWorkoutName(name), startTime: clock(), completed: false, pausedMs: 0, bodyPointsAwarded: 0, exercises: planned.slice(0, MAX_EXERCISES).map(p => newExercise(() => genId(), p)) };
-      set({ ...state, exercise: { workouts: [w, ...state.exercise.workouts] } });
+      set({ ...state, exercise: { ...state.exercise, workouts: [w, ...state.exercise.workouts] } });
       return w.id;
     },
     /** Add an exercise (with its empty sets) to a workout that is still running. */
@@ -317,7 +325,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if (!w || w.completed) return 0;
       const now = clock(), duration = elapsedMs(w, now), points = workoutBodyPoints(w, duration);
       const done: Workout = { ...w, completed: true, endTime: now, duration, pausedAt: undefined, bodyPointsAwarded: points };
-      set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + points }, exercise: { workouts: state.exercise.workouts.map(x => (x.id === id ? done : x)) } }));
+      set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + points }, exercise: { ...state.exercise, workouts: state.exercise.workouts.map(x => (x.id === id ? done : x)) } }));
       return points;
     },
     /** One exercise logged after the fact: a finished workout of its own ("Quick Log"). `minutes` is the time it took (optional). Returns the Body points, or null when the history is full. */
@@ -328,11 +336,23 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       ex.sets = ex.sets.map(s => ({ ...s, completed: true, completedAt: now, duration: input.type !== 'WEIGHT_TRAINING' && ms && ex.sets.length === 1 ? ms : undefined }));
       const w: Workout = { id: genId(), name: 'Quick Log', startTime: now - ms, endTime: now, duration: ms, completed: true, pausedMs: 0, bodyPointsAwarded: 0, exercises: [ex] };
       w.bodyPointsAwarded = workoutBodyPoints(w, ms);
-      set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + w.bodyPointsAwarded }, exercise: { workouts: [w, ...state.exercise.workouts] } }));
+      set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + w.bodyPointsAwarded }, exercise: { ...state.exercise, workouts: [w, ...state.exercise.workouts] } }));
       return w.bodyPointsAwarded;
     },
     /** Remove a workout from the history (or throw away the running one). Body points already paid stay. */
-    deleteWorkout(id: string) { set({ ...state, exercise: { workouts: state.exercise.workouts.filter(w => w.id !== id) } }); },
+    /** Change a set that was already logged, also in a finished workout (a typo found later). Its Body points stay: they count sets, not their values. */
+    editLoggedSet(workoutId: string, exerciseId: string, setId: string, values: { reps?: number; weight?: number; duration?: number }) {
+      editWorkout(workoutId, w => ({ ...w, exercises: w.exercises.map(e => (e.id !== exerciseId ? e : { ...e, sets: e.sets.map(s => (s.id !== setId || !s.completed ? s : { ...s, ...values })) })) }));
+    },
+    renameWorkout(id: string, name: string) { editWorkout(id, w => ({ ...w, name: cleanWorkoutName(name) })); },
+    /** The tracker's own settings: the weight unit and the rest timer's length. */
+    setExerciseSettings(patch: { unit?: WeightUnit; restSeconds?: number }) {
+      const next = { ...state.exercise };
+      if (patch.unit) { if (patch.unit === 'lb') next.unit = 'lb'; else delete next.unit; }
+      if (patch.restSeconds !== undefined && (REST_CHOICES as readonly number[]).includes(patch.restSeconds)) next.restSeconds = patch.restSeconds;
+      set({ ...state, exercise: next });
+    },
+    deleteWorkout(id: string) { set({ ...state, exercise: { ...state.exercise, workouts: state.exercise.workouts.filter(w => w.id !== id) } }); },
     // ---- planner
     /** Put an activity on the calendar. Returns its id, or null when it has no title or the calendar is full. */
     addEvent(input: NewEvent, repeat?: Frequency): string | null {
@@ -373,6 +393,11 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if (e && e.time != null) actions.updateEvent(id, resizeEvent(e, minutes));
     },
     setPlannerSpan(span: Span) { set({ ...state, planner: { ...state.planner, span } }); },
+    /** Reminders before timed activities: how many minutes ahead, or null for none. */
+    setPlannerRemind(lead: RemindLead | null) {
+      const { remind: _old, ...rest } = state.planner;
+      set({ ...state, planner: lead === null ? rest : { ...rest, remind: lead } });
+    },
     /** Tick or untick an activity: ticking pays XP (and a point in its category); unticking takes exactly that back. */
     setEventDone(id: string, done: boolean) {
       const e = state.planner.events.find(x => x.id === id);

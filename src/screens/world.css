@@ -515,3 +515,7 @@
 .wui-hkkey[aria-pressed='true'] { outline: 2px solid #ffd54f; outline-offset: 1px; animation: wui-orbit-blink 0.6s steps(2) infinite; }
 .wui-hkreset { justify-self: start; font: inherit; padding: calc(3 * var(--u)) calc(8 * var(--u)); color: #eaffef; background: #3a2a10; border: 2px solid #1a1206; cursor: pointer; }
 .wui-hkreset:disabled { opacity: 0.4; cursor: default; }
+/* the sculpting brushes (terraced worlds): an arrow the size of a tile button, the brush size under it */
+.wui-sculpt { position: relative; }
+.wui-sculpt img { width: calc(24 * var(--u)); height: calc(24 * var(--u)); }
+.wui-sculpt b { position: absolute; right: calc(4 * var(--u)); bottom: calc(2 * var(--u)); font-weight: normal; color: #fff; text-shadow: 0 0 calc(3 * var(--u)) #000, 0 0 calc(3 * var(--u)) #000; font-size: var(--fs-xs); }

@@ -30,6 +30,7 @@ import { Onboarding } from './screens/Onboarding';
 import { persistent, useAppState } from './data/hooks';
 import { EventHost } from './ui/EventHost';
 import { startUiSound } from './audio/uiSound';
+import { startReminders } from './audio/reminders';
 import { UndoBar } from './ui/UndoBar';
 import { SaveIcon } from './ui/SaveIcon';
 import { Notices } from './ui/Notices';
@@ -45,7 +46,7 @@ import { usePlateAttrs } from './ui/navPlates';
 import { DeviceShell } from './ui/DeviceShell';
 import { FrameDensity } from './ui/PixelFrame';
 import { useNavPreview } from './ui/navPreview';
-import { NAV_DEFS, isActivePath } from './ui/navItems';
+import { NAV_DEFS, isActivePath, navDefsIn } from './ui/navItems';
 import { useNavBadges } from './ui/navBadges';
 import { AppDrawerHost, setAppDrawer } from './ui/appDrawer';
 import { useLongPress } from './ui/misc';
@@ -139,6 +140,7 @@ export function App() {
   useEffect(() => { boxSprite('/assets/raw/box_large.png', 3).then(sp => { for (const [k, v] of Object.entries(boxVars('pick', sp))) document.documentElement.style.setProperty(k, v); }, () => {}); }, []);
   useEffect(() => { document.documentElement.lang = lang.toLowerCase(); }, [lang]);
   useEffect(() => startUiSound(), []);
+  useEffect(() => startReminders(), []);
   const onboarded = useAppState(s => s.user.onboarded);
   // Start in full screen: browsers only allow it from a user gesture, so go in on the first tap / key press. If the user
   // leaves full screen later (Esc, back) we do not drag them back in until the next visit.
@@ -176,7 +178,7 @@ export function App() {
     const from = prevRoute.current;
     prevRoute.current = route;
     if (from === route || reduceMotion || !onboarded) return;
-    const ids = NAV_DEFS.filter(d => nav.items.includes(d.id));
+    const ids = navDefsIn(nav.items);
     const at = (r: string) => ids.findIndex(d => isActivePath(r, d.path));
     const a = at(from), b = at(route);
     const dir = a >= 0 && b >= 0 && a !== b ? Math.sign(b - a) : route.length >= from.length ? 1 : -1;
@@ -236,7 +238,7 @@ export function App() {
               {nav.labels === 'both' && <span className="nav-label">{t('back')}</span>}
             </button>
             <div className="nav-preview"><img src={navPreview.url} alt="" style={navPreview.height ? { height: navPreview.height } : undefined} /></div>
-          </> : NAV_DEFS.filter(d => nav.items.includes(d.id)).map(d => {
+          </> : navDefsIn(nav.items).map(d => {
             const active = isActivePath(route, d.path);
             return (
               <NavButton key={d.id} d={d} active={active} label={t(d.label)} size={device ? Math.round(d.size * 0.75) : d.size} badge={badges[d.path]} showLabel={nav.labels === 'both'} />
