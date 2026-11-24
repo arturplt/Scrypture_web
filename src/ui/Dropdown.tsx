@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /** A chip-styled button that rolls a list of options down on click (closes on pick, outside click or Escape). */
-export function Dropdown({ label, label2, children, ariaLabel }: { label: ReactNode; label2?: ReactNode; ariaLabel?: string; /** options: render with `close` so a pick can fold the list */ children: (close: () => void) => ReactNode }) {
+export function Dropdown({ label, children, ariaLabel }: { label: ReactNode; ariaLabel?: string; /** options: render with `close` so a pick can fold the list */ children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {

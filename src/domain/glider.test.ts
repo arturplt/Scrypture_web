@@ -24,7 +24,7 @@ describe('glider physics', () => {
   });
   it('stalls when held fully back and recovers when released', () => {
     const g = newGlider(0, 0, 0, 100); let stalled = false;
-    run(g, t => { if (g.stalled) stalled = true; return { pitch: 1, roll: 0, yaw: 0 }; }, still, 10);
+    run(g, () => { if (g.stalled) stalled = true; return { pitch: 1, roll: 0, yaw: 0 }; }, still, 10);
     expect(stalled).toBe(true);
     run(g, none, still, 10);
     expect(g.stalled).toBe(false);

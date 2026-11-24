@@ -29,7 +29,7 @@ import { Slot } from '../ui/Inventory';
 import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
 import type { Key, TFn } from '../i18n';
 import { ChunkClient, FarClient, type WorkerLike } from './chunkClient';
-import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels } from '../domain/chunkbuild';
+import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels, meshSig, sameBytes, sameDecos } from '../domain/chunkbuild';
 import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
@@ -56,7 +56,7 @@ import './world.css';
 
 interface Deco { x: number; y: number; cell: Cell; scale: number }
 /** A built chunk: its ground as raw pixels (the 3D view uploads them as they are; the flat view makes a canvas from them the first time it draws the chunk), and its trees, bushes and rocks. */
-interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean; mesh?: TerraceMesh }   // (mesh: the hill mesh the chunk worker cut, until WorldGL has taken it)
+interface ChunkImg { src: ChunkPx; cv?: HTMLCanvasElement; decos: Deco[]; stale?: boolean; mesh?: TerraceMesh; at?: number; sig?: number }   // (at: when the worker's picture was stored; sig: a fingerprint of its mesh, kept after the renderer has taken the arrays)   // (mesh: the hill mesh the chunk worker cut, until WorldGL has taken it)
 interface Hud { landed: boolean; hour: number; temp: number; weather: 'heat' | 'cold' | null; x: number; y: number; layer: number; clouds: number; water: number; fps: number; ms: number; biome: string }
 type Tool = 'fly' | 'paint';
 /** What the paint tool lays: a tile, or (terraced worlds) a layer raised or dug away. */
@@ -666,11 +666,21 @@ function WorldView({ id }: { id: string }) {
       if (!r.done) return false;
       freeChunk(chunks.current.get(key)); chunks.current.set(key, r.value); building.delete(key); return true;
     };
+    /** Is a changed chunk to be built again now? With the worker, a chunk that keeps changing (a shore) is rebuilt at most every 1.5 s: the build is not instant, so asking again at once would never end. */
+    const rebuildDue = (ch: ChunkImg) => !!ch.stale && (!cw?.active || performance.now() - (ch.at ?? 0) > 1500);
     /** Store what the worker has finished (once a frame, before anything asks what is missing). */
     const takeChunks = (x: number, y: number) => {
       if (!cw) return;
       cw.wantMesh = !!glr && !!s.world.field;   // (the 3D view cuts hills from meshes; the worker can make them too)
-      for (const b of cw.tick(x, y)) { if (b.grid && s.world.field) s.world.field.adoptGrid(b.cx, b.cy, b.grid.e, b.grid.base, b.epoch); const old = chunks.current.get(b.key); freeChunk(old); chunks.current.set(b.key, { src: { px: b.px as Uint8ClampedArray<ArrayBuffer>, size: CPX }, decos: b.decos, stale: b.stale || undefined, mesh: b.mesh }); }
+      const now = performance.now();
+      for (const b of cw.tick(x, y)) {
+        if (b.grid && s.world.field) s.world.field.adoptGrid(b.cx, b.cy, b.grid.e, b.grid.base, b.epoch);
+        const old = chunks.current.get(b.key), sig = b.mesh ? meshSig(b.mesh) : undefined;
+        // a rebuild that came out the same (the ecosystem is always touching the edges of chunks by a lake): keep what is there, so nothing is uploaded again and nothing flickers
+        if (old && sameBytes(old.src.px, b.px) && sameDecos(old.decos, b.decos) && (sig === undefined || sig === old.sig)) { old.stale = b.stale || undefined; old.at = now; continue; }
+        freeChunk(old);
+        chunks.current.set(b.key, { src: { px: b.px as Uint8ClampedArray<ArrayBuffer>, size: CPX }, decos: b.decos, stale: b.stale || undefined, mesh: b.mesh, at: now, sig });
+      }
     };
 
     // thermals: warm bare ground makes the strongest rising air, water and forest the weakest; heat waves help, cold snaps hurt
@@ -732,7 +742,7 @@ function WorldView({ id }: { id: string }) {
       for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (Math.hypot(cx - pcx, cy - pcy) <= R + 0.5) near.push([cx, cy]);
       near.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
       const t1 = performance.now();
-      for (const [cx, cy] of near) { if (performance.now() - t1 > 6) break; const ch = chunks.current.get(tileKey(cx, cy)); if (!ch || ch.stale) stepChunk(cx, cy, t1 + 6); }
+      for (const [cx, cy] of near) { if (performance.now() - t1 > 6) break; const ch = chunks.current.get(tileKey(cx, cy)); if (!ch || rebuildDue(ch)) stepChunk(cx, cy, t1 + 6); }
       if (glr) { for (const [cx, cy] of near) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) ring.push({ key: tileKey(cx, cy), cx, cy, src: ch.src, meshBox: ch }); } glr.preload(ring, CHUNK, 4); }
       // the small minimap's chunks round the plane (out to what its widest zoom shows), so it is whole when the map closes
       const t2 = performance.now(), MR = Math.ceil(52 * (BIG_MAP_SCALE / 2) / CHUNK) + 1;
@@ -1119,7 +1129,7 @@ function WorldView({ id }: { id: string }) {
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
         if (lodOnly || !chunkVis(cx, cy)) continue;
         const ch = chunks.current.get(tileKey(cx, cy));
-        if (!ch) missing.push([cx, cy]); else if (ch.stale) stale.push([cx, cy]);
+        if (!ch) missing.push([cx, cy]); else if (rebuildDue(ch)) stale.push([cx, cy]);
       }
       const t0 = performance.now();
       let built = 0;
@@ -1985,6 +1995,16 @@ function WorldView({ id }: { id: string }) {
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
+            (() => {   // the ring of chunks round the plane (5 chunks): how many exist, how many are on the GPU, and the nearest that is missing (tiles), so a patch of missing ground can be told apart: never built, built but not uploaded, or not drawn
+              const pcx = chunkOf(f.x), pcy = chunkOf(f.y); let tot = 0, built = 0, gpu = 0, near = Infinity, nearGpu = Infinity;
+              for (let cy = pcy - 5; cy <= pcy + 5; cy++) for (let cx = pcx - 5; cx <= pcx + 5; cx++) {
+                const d = Math.hypot((cx + 0.5) * CHUNK - f.x, (cy + 0.5) * CHUNK - f.y); tot++;
+                if (chunks.current.has(tileKey(cx, cy))) built++; else near = Math.min(near, d);
+                if (glr?.has(tileKey(cx, cy))) gpu++; else nearGpu = Math.min(nearGpu, d);
+              }
+              const gi = glr?.groundInfo;
+              return `ring ${built}/${tot} built (first missing ${isFinite(near) ? near.toFixed(0) : '-'}), ${gpu}/${tot} on GPU (first missing ${isFinite(nearGpu) ? nearGpu.toFixed(0) : '-'})` + (gi ? `  undrawn ${isFinite(gi.undrawn) ? gi.undrawn.toFixed(0) : '-'} cover ${isFinite(gi.cover) ? gi.cover.toFixed(0) : '-'} smooth ${isFinite(gi.coverSm) ? gi.coverSm.toFixed(0) : '-'}` : '');
+            })(),
             `far ${far ? (far.active ? `${far.builtN} built, last ${far.lastMs.toFixed(0)}ms` : 'failed (' + far.failure + ')') : 'off'}  worker ${cw ? `${cw.state}${cw.state === 'failed' ? ' (' + cw.failure + ')' : ` ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms, ${cw.busy} queued`}` : 'off'}`,
             `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)` + (glr ? `  far from ${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}` : ''),
             `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),

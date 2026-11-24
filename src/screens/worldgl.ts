@@ -417,6 +417,18 @@ export interface GroundChunk { key: number; cx: number; cy: number; src: ChunkPx
 const TEX_POOL = 48;   // spare chunk textures kept to be written over
 const TEX_KEEP = 200;   // chunk textures kept at most (the longest unseen go first; ~350 KB each with mipmaps)
 
+/** The convex hull of some points, counter-clockwise (Andrew's monotone chain). */
+function convexHull(pts: [number, number][]): [number, number][] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: [number, number][] = [], upper: [number, number][] = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
 export class WorldGL {
   private fpvK = 0;
   private skyProg!: WebGLProgram;
@@ -484,6 +496,8 @@ export class WorldGL {
   private coverSm = Infinity;
   /** For the ?perf readout: where the far mesh began last frame (tiles from the eye), and how far the chunks were meant to reach. */
   get holeInfo() { return { hole: this.coverSm * 0.9, near: this.nearReach }; }
+  /** For the ?perf readout: nearest chunk (tiles from the eye) the GPU could not draw on the last `ground` call, and how far the far mesh was told to start. */
+  get groundInfo() { return { undrawn: this.undrawn, cover: this.cover, coverSm: this.coverSm }; }
   /** Where the real ground ends and the far mesh begins (tiles from the eye), last frame; Infinity when there is no far mesh. */
   get farHole() { return this.farOn && this.farMesh && isFinite(this.coverSm) ? this.coverSm * 0.9 : Infinity; }
   private nearReach = 0;                                          // how far the real chunks reach when the far mesh covers the rest (0 = as far as `reach`)
@@ -764,7 +778,10 @@ export class WorldGL {
   private groundAt(nx: number, ny: number): [number, number] {
     const d: Vec3 = [this.R[0] * nx * this.tanX + this.U[0] * ny * this.tanY + this.F[0], this.R[1] * nx * this.tanX + this.U[1] * ny * this.tanY + this.F[1], this.R[2] * nx * this.tanX + this.U[2] * ny * this.tanY + this.F[2]];
     const hl = Math.hypot(d[0], d[1]) || 1e-6;
-    let t = d[2] > 1e-4 ? Math.max(0, -this.eye[2] - this.baseH) / d[2] : Infinity;
+    // Where the ray meets the ground, taken as a flat plane. On the terraces the plane is the lowest ground there is (the beach, 0), not the ground under the plane: lowland (a lake basin,
+    // a valley below the shelf the plane flies over) is met farther out than a plane at the plane's own height says, and chunks there fell outside this polygon, were never listed or uploaded,
+    // and, with the far ground told to start well beyond them, were drawn by nobody. A plane at the bottom reaches everything above it (a hill is met sooner, never later).
+    let t = d[2] > 1e-4 ? Math.max(0, -this.eye[2] - (this.terraceStep > 0 ? 0 : this.baseH)) / d[2] : Infinity;
     const lim = this.nearReach > 0 ? this.nearReach : this.reach;
     if (t * hl > lim) t = lim / hl;                         // looks over the horizon, or past the reach: stop at the reach
     return [this.eye[0] + d[0] * t, this.eye[1] + d[1] * t];
@@ -772,8 +789,16 @@ export class WorldGL {
 
   /** The visible ground as a polygon round the stage's border (rays clamped at the reach, so the far edge is an arc) and its bounding box, in tiles. */
   footprint() {
-    const border: [number, number][] = [[-1, 1], [-0.5, 1], [0, 1], [0.5, 1], [1, 1], [1, 0.5], [1, 0], [1, -0.5], [1, -1], [0.5, -1], [0, -1], [-0.5, -1], [-1, -1], [-1, -0.5], [-1, 0], [-1, 0.5]];
-    const pts = border.map(([nx, ny]) => this.groundAt(nx, ny)), n = pts.length;
+    // The stage's border, 12 points a side. The ground is cut off at the reach, so where one point is cut and its neighbour is not, the straight line between them cuts a corner off what is
+    // visible: with 4 points a side that corner was tens of tiles and chunks in it were never listed (a patch of missing ground). The more points, the smaller the corner.
+    const border: [number, number][] = [];
+    for (let i = 0; i < 12; i++) { const u = -1 + (2 * i) / 12; border.push([u, 1]); }
+    for (let i = 0; i < 12; i++) { const u = 1 - (2 * i) / 12; border.push([1, u]); }
+    for (let i = 0; i < 12; i++) { const u = 1 - (2 * i) / 12; border.push([u, -1]); }
+    for (let i = 0; i < 12; i++) { const u = -1 + (2 * i) / 12; border.push([-1, u]); }
+    // The ground the border meets is where a flat plane is; ground that stands higher is met sooner, on the same rays, between the eye and that edge. So the region is the hull of the eye and
+    // the points, a wedge that starts at the eye (a hill by a lake is seen on rays that hit it long before the plane they were drawn against, and chunks there were never listed).
+    const pts = convexHull([...border.map(([nx, ny]) => this.groundAt(nx, ny)), [this.eye[0], this.eye[1]]]), n = pts.length;
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9, area = 0;
     for (let i = 0; i < n; i++) {
       const [x, y] = pts[i], b = pts[(i + 1) % n];

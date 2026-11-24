@@ -94,7 +94,7 @@ function moodText(c: ChatContext): string {
 // ---- ideas: new tasks from the Start Here catalogue ------------------------------------------------
 /** The stat that lags behind (Body, then Mind, then Soul on a tie). */
 const weakestStat = (c: ChatContext): Category => STAT_ORDER.map(s => s).sort((a, b) => c.stats[a.toLowerCase() as 'body'] - c.stats[b.toLowerCase() as 'body'])[0];
-const scaleLine = (c: ChatContext, s: StarterTask) => `D${s.difficulty} · ${benchmarkXP(s.difficulty)} XP · ${fmtMinutes(s.minutes)}`;
+const scaleLine = (s: StarterTask) => `D${s.difficulty} · ${benchmarkXP(s.difficulty)} XP · ${fmtMinutes(s.minutes)}`;
 /** Offer the suggestion nearest to the wanted difficulty, for the weakest stat, that is not on the task list and was not offered yet. */
 function offerIdea(c: ChatContext, f: ChatFlow, want: number): { reply: string; flow: ChatFlow } {
   const { t } = c, stat = weakestStat(c);
@@ -102,7 +102,7 @@ function offerIdea(c: ChatContext, f: ChatFlow, want: number): { reply: string; 
   if (!open.length) return { reply: t('chatIdeaNone'), flow: initialFlow() };
   const pick = open.reduce((a, b) => (Math.abs(b.difficulty - want) < Math.abs(a.difficulty - want) ? b : a));
   return {
-    reply: `${t('chatIdeaFor', { stat: t(STAT_KEY[stat]) })}\n\n'${t(pick.title)}'\n${t(pick.desc)}\n\n${scaleLine(c, pick)}`,
+    reply: `${t('chatIdeaFor', { stat: t(STAT_KEY[stat]) })}\n\n'${t(pick.title)}'\n${t(pick.desc)}\n\n${scaleLine(pick)}`,
     flow: { ...initialFlow(), mode: 'idea', ideaId: pick.id, previous: [...f.previous, pick.id] },
   };
 }
@@ -111,7 +111,7 @@ export const ideaDifficulty = (level: number) => Math.max(0, Math.min(9, level -
 /** The whole scale in ten lines, one example per difficulty (the stats take turns). */
 function scaleText(c: ChatContext): string {
   const { t } = c;
-  const lines = Array.from({ length: 10 }, (_, d) => { const s = benchmarkFor(d, STAT_ORDER[d % 3])!; return `${scaleLine(c, s)}\n${t(s.title)}`; });
+  const lines = Array.from({ length: 10 }, (_, d) => { const s = benchmarkFor(d, STAT_ORDER[d % 3])!; return `${scaleLine(s)}\n${t(s.title)}`; });
   return `${t('chatXpHow')}\n\n${lines.join('\n\n')}\n\n${t('chatXpTip')}`;
 }
 

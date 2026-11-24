@@ -4,6 +4,7 @@
  * same function runs on the main thread (the fallback, and the Lake District) and in the chunk worker (see chunkclient.ts and workers/chunk.worker.ts).
  */
 import { CHUNK, TILE_PX, SAND, SHEET, type Cell, type World } from './worldgen';
+import type { TerraceMesh } from './terrace';
 
 export const CPX = CHUNK * TILE_PX;                         // a chunk's picture is this many pixels a side
 export interface Deco { x: number; y: number; cell: Cell; scale: number }
@@ -70,4 +71,33 @@ export function decodeDecos(flat: Float64Array): Deco[] {
   const out: Deco[] = [];
   for (let i = 0; i + 3 < flat.length; i += 4) out.push({ x: flat[i], y: flat[i + 1], cell: CELLS[flat[i + 2]], scale: flat[i + 3] });
   return out;
+}
+
+// ---- is a rebuilt chunk any different? (the ecosystem touches a chunk's neighbours and edges all the time; a rebuild that came out the same must not cost a texture and a mesh upload) ----
+/** Do two chunk pictures hold the same pixels? */
+export function sameBytes(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
+  if (a.length !== b.length) return false;
+  if (a.byteOffset % 4 === 0 && b.byteOffset % 4 === 0 && a.length % 4 === 0) {
+    const x = new Uint32Array(a.buffer, a.byteOffset, a.length / 4), y = new Uint32Array(b.buffer, b.byteOffset, b.length / 4);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+/** The same decorations, on the same tiles, at the same scale? */
+export function sameDecos(a: readonly Deco[], b: readonly Deco[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].cell !== b[i].cell || a[i].scale !== b[i].scale) return false;
+  return true;
+}
+/** A number that changes when any of a hill mesh's arrays does (FNV-1a over their bytes): to tell, after the renderer has taken the arrays, that a new mesh is the same one. */
+export function meshSig(m: TerraceMesh): number {
+  let h = 0x811c9dc5;
+  for (const a of [m.pos, m.nrm, m.idx, m.sub, m.wpos, m.widx, m.wkind]) {
+    const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    h = Math.imul(h ^ a.length, 0x01000193);
+    for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193);
+  }
+  return h >>> 0;
 }

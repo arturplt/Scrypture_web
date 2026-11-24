@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_BYTES, BLOCK_TABLE_BYTES, CPX, SHEET_COLS, SHEET_ROWS, blockIndex, blocksFromTable, buildChunk, chunkPixels, decodeDecos, encodeDecos } from './chunkbuild';
+import { BLOCK_BYTES, BLOCK_TABLE_BYTES, CPX, SHEET_COLS, SHEET_ROWS, blockIndex, blocksFromTable, buildChunk, chunkPixels, decodeDecos, encodeDecos, meshSig, sameBytes, sameDecos } from './chunkbuild';
 import { CHUNK, SHEET, TILE_PX, World, SAND } from './worldgen';
+import { terraceChunkMesh } from './terrace';
 
 /** A block table whose every block is one flat colour that says which cell (and whether road) it is. */
 function table(): Uint8ClampedArray {
@@ -67,5 +68,34 @@ describe('decorations across a clone', () => {
   });
   it('refuses a cell that is not on the sheet table instead of drawing the wrong tree', () => {
     expect(() => encodeDecos([{ x: 0, y: 0, cell: [9, 9], scale: 1 }])).toThrow();
+  });
+});
+
+describe('telling whether a rebuilt chunk is any different', () => {
+  const blocks = blocksFromTable(table());
+  it('sees one changed pixel, and the same picture built twice', () => {
+    const w = new World(5, undefined, 'terraced');
+    const a = buildChunk(w, blocks, null, 2, 2), b = buildChunk(w, blocks, null, 2, 2);
+    expect(sameBytes(a.px, b.px)).toBe(true);
+    expect(sameDecos(a.decos, b.decos)).toBe(true);
+    b.px[b.px.length - 3] ^= 1;
+    expect(sameBytes(a.px, b.px)).toBe(false);
+    expect(sameBytes(a.px, a.px.subarray(4))).toBe(false);
+  });
+  it('sees a decoration that moved, changed scale or kind', () => {
+    const d = [{ x: 1, y: 2, cell: SHEET.bush, scale: 2 }];
+    expect(sameDecos(d, [{ x: 1, y: 2, cell: SHEET.bush, scale: 2 }])).toBe(true);
+    expect(sameDecos(d, [{ x: 2, y: 2, cell: SHEET.bush, scale: 2 }])).toBe(false);
+    expect(sameDecos(d, [{ x: 1, y: 2, cell: SHEET.conifer, scale: 2 }])).toBe(false);
+    expect(sameDecos(d, [{ x: 1, y: 2, cell: SHEET.bush, scale: 3 }])).toBe(false);
+    expect(sameDecos(d, [])).toBe(false);
+  });
+  it('fingerprints a hill mesh: the same ground the same, water laid over it different', () => {
+    const w = new World(9, undefined, 'terraced'), f = w.field!;
+    const mesh = () => terraceChunkMesh(f.grid(0, 0).e, 0, 0, (x, y) => f.waterSheetAt(x, y), (x, y) => f.heightAt(x, y));
+    const before = meshSig(mesh());
+    expect(meshSig(mesh())).toBe(before);
+    f.setFill([[5, 5], [6, 5], [5, 6], [6, 6]], 1, 2, 0);
+    expect(meshSig(mesh())).not.toBe(before);
   });
 });
