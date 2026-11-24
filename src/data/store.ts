@@ -29,8 +29,15 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
   /** The quick start bonus is for the first habit ticked in a session. */
   let quickStartUsed = false;
   let events: AppEvent[] = [];
-  /** The most recent completion (task or habit), offered for undo until `until` (transient, not saved). A habit keeps how it was before. */
-  let undo: { taskId: string; until: number } | { habitId: string; prev: Habit; prevStats: AppState['stats']; prevQuick: boolean; until: number } | null = null;
+  /**
+   * Completions offered for undo (transient, not saved), oldest first; the bar offers the last one, until its `until`. Taking it back
+   * offers the one before it if that one's 10 s are not over. A habit keeps how it was before, which is why only the last one can be undone.
+   */
+  type UndoEntry = { taskId: string; until: number } | { habitId: string; prev: Habit; prevStats: AppState['stats']; prevQuick: boolean; until: number };
+  let undoStack: UndoEntry[] = [];
+  const topUndo = (): UndoEntry | null => undoStack[undoStack.length - 1] ?? null;
+  /** Drop the entries whose time is over and give the last one that is left. */
+  const dropUndo = (match: (e: UndoEntry) => boolean) => { const now = clock(); undoStack = undoStack.filter(e => !match(e) && e.until >= now).slice(-5); };
   const listeners = new Set<() => void>();
 
   const emit = () => listeners.forEach(l => l());
@@ -121,7 +128,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const r = applyTaskCompletion(state.stats, task);
       pushEvents({ type: 'taskComplete', taskId: id, xp: task.experienceReward });
       if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });
-      undo = { taskId: id, until: now + UNDO_WINDOW_MS };
+      undoStack = [...undoStack, { taskId: id, until: now + UNDO_WINDOW_MS }].slice(-5);
       set(withAchievements({ ...state, stats: r.stats, tasks: state.tasks.map(t => (t.id === id ? done : t)) }));
     },
     /**
@@ -136,12 +143,12 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const refund = canRefund(task, now);
       const reset: Task = { ...task, completed: false, lastReward: undefined, updatedAt: now,
         ...(refund ? { completionCount: Math.max(0, (task.completionCount ?? 1) - 1), lastCompletedAt: undefined } : {}) };
-      if (undo && 'taskId' in undo && undo.taskId === id) undo = null;
+      dropUndo(e => 'taskId' in e && e.taskId === id);
       set({ ...state, stats: refund ? revokeTaskCompletion(state.stats, task.lastReward!) : state.stats, tasks: state.tasks.map(t => (t.id === id ? reset : t)) });
       return refund;
     },
     /** Hide the undo offer without undoing. */
-    dismissUndo() { undo = null; emit(); },
+    dismissUndo() { undoStack = []; emit(); },
 
     // ---- habits
     addHabit(input: NewHabit): Habit {
@@ -167,7 +174,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const quick = !quickStartUsed && now - openedAt <= QUICK_START_MS;
       const reward = habitReward(h, next.streak, quick);
       const r = applyReward(state.stats, reward.xp, reward.statRewards);
-      undo = { habitId: id, prev: h, prevStats: state.stats, prevQuick: quickStartUsed, until: now + UNDO_WINDOW_MS };
+      undoStack = [...undoStack, { habitId: id, prev: h, prevStats: state.stats, prevQuick: quickStartUsed, until: now + UNDO_WINDOW_MS }].slice(-5);
       quickStartUsed = true;
       pushEvents({ type: 'taskComplete', taskId: id, xp: reward.xp });
       if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });
@@ -175,9 +182,10 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     },
     /** Take back today's completion of a habit within the undo window (10 s): streak, best streak and last-done date go back. Unlocked achievements stay. */
     undoHabit(id: string): boolean {
-      if (!undo || !('habitId' in undo) || undo.habitId !== id || clock() > undo.until) return false;
-      const { prev, prevStats, prevQuick } = undo;
-      undo = null;
+      const top = topUndo();
+      if (!top || !('habitId' in top) || top.habitId !== id || clock() > top.until) return false;
+      const { prev, prevStats, prevQuick } = top;
+      dropUndo(e => e === top);
       quickStartUsed = prevQuick;
       set({ ...state, stats: prevStats, habits: state.habits.map(x => (x.id === id ? { ...prev, updatedAt: clock() } : x)) });
       return true;
@@ -534,7 +542,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     /** True when saving stopped because the save belongs to a newer version of the app. */
     isSaveBlocked: () => saveBlocked,
     getEvents: () => events,
-    getUndo: () => undo,
+    getUndo: () => topUndo(),
     subscribe(l: () => void) { listeners.add(l); return () => listeners.delete(l); },
     actions,
   };

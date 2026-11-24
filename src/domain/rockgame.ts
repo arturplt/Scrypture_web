@@ -4,7 +4,7 @@
  * whole game is deterministic under test. The field is a fixed logical space (FIELD_W x FIELD_H, Android's px at ~3x
  * density) that the UI scales to the screen, so the game plays the same on every device.
  *
- * Deliberate differences from Android, where its own rules could not work as described (see BACKLOG.md):
+ * Deliberate differences from Android, where its own rules could not work as described (see BACKLOG.md and BACKLOG_DONE.md):
  *  - the combo carries across throws and resets when a thrown rock misses everything (Android reset it every frame);
  *  - the distance bonus is measured from the thrower to the target (Android measured hit point to target centre = ~0);
  *  - the accuracy bonus uses how close the rock's flight path passes to the target centre, so a "bullseye" is reachable;

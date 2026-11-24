@@ -8,7 +8,7 @@
  * list the completed habits. Pure functions only.
  */
 import type { Frequency, Habit } from './types';
-import { cleanTarget, dayDiff } from './habits';
+import { cleanTarget, dayDiff, habitTarget, periodIndex } from './habits';
 import { startOfDay } from './tasks';
 
 export interface HabitPlan {
@@ -28,12 +28,18 @@ export const HABIT_LOG_MAX = 400, HABIT_MOVED_MAX = 60;
 const shift = (day: number, n: number) => { const d = new Date(day); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n).getTime(); };
 const monthLength = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
 
-/** Does the rule put an occurrence on this day? */
-export function isRuleDay(frequency: Frequency, start: number, day: number): boolean {
+/** The days of a planned week a "N days a week" habit falls on, as offsets from its start: spread as evenly as 7 days allow (3 = 0, 2, 5). */
+export const weekOffsets = (target: number): number[] => Array.from({ length: Math.max(1, Math.min(7, target)) }, (_, i) => Math.round(i * 7 / Math.max(1, Math.min(7, target))));
+
+/**
+ * Does the rule put an occurrence on this day? A weekly habit with a target of N days a week has N of them in every planned week
+ * (`weekOffsets`); a monthly one with a target still has one a month (the board is not asked to fit 20 days).
+ */
+export function isRuleDay(frequency: Frequency, start: number, day: number, target = 1): boolean {
   const n = dayDiff(start, day);
   if (n < 0) return false;
   if (frequency === 'DAILY') return true;
-  if (frequency === 'WEEKLY') return n % 7 === 0;
+  if (frequency === 'WEEKLY') return target > 1 ? weekOffsets(target).includes(n % 7) : n % 7 === 0;
   const d = new Date(day);
   return d.getDate() === Math.min(new Date(start).getDate(), monthLength(d));
 }
@@ -85,8 +91,8 @@ export function habitSlot(habit: Habit, day: number): HabitSlot | null {
   const p = habit.plan;
   if (!p) return null;
   const d = startOfDay(day), moved = p.moved ?? {};
-  for (const [from, to] of Object.entries(moved)) if (to === d && isRuleDay(habit.frequency, p.start, Number(from))) return { habit, day: d, ruleDay: Number(from) };
-  return isRuleDay(habit.frequency, p.start, d) && !(String(d) in moved) ? { habit, day: d, ruleDay: d } : null;
+  for (const [from, to] of Object.entries(moved)) if (to === d && isRuleDay(habit.frequency, p.start, Number(from), habitTarget(habit))) return { habit, day: d, ruleDay: Number(from) };
+  return isRuleDay(habit.frequency, p.start, d, habitTarget(habit)) && !(String(d) in moved) ? { habit, day: d, ruleDay: d } : null;
 }
 /** The planned habits of a day: the ones without a time first, then by time, then by name. */
 export function habitsOn(habits: readonly Habit[], day: number): HabitSlot[] {
@@ -94,10 +100,21 @@ export function habitsOn(habits: readonly Habit[], day: number): HabitSlot[] {
     .sort((a, b) => (slotTime(a) ?? -1) - (slotTime(b) ?? -1) || a.habit.title.localeCompare(b.habit.title));
 }
 /**
- * Was this occurrence done? A daily one on its day; a weekly one on any day of the week around it (three days either
+ * Was this occurrence done? (With a weekly target, see below.) A daily one on its day; a weekly one on any day of the week around it (three days either
  * side); a monthly one any day of its month. So a habit done a little early or late still counts for its turn.
  */
 export function slotDone({ habit, day, ruleDay }: HabitSlot): boolean {
+  const target = habitTarget(habit), p = habit.plan;
+  if (habit.frequency === 'WEEKLY' && target > 1 && p) {
+    // several a week: done on that very day, or its Monday-to-Sunday week (the weeks the habit's own target counts) has had as many
+    // completions as there are turns in it up to this one
+    const log = habitLog(habit);
+    if (log.includes(day) || log.includes(ruleDay)) return true;
+    const week = periodIndex('WEEKLY', ruleDay);
+    const turns = Array.from({ length: 13 }, (_, i) => shift(ruleDay, i - 6)).filter(d => periodIndex('WEEKLY', d) === week && isRuleDay('WEEKLY', p.start, d, target));
+    const rank = turns.indexOf(ruleDay);
+    return rank >= 0 && log.filter(d => periodIndex('WEEKLY', d) === week).length > rank;
+  }
   const near = (d: number) => {
     if (d === day || d === ruleDay) return true;
     if (habit.frequency === 'WEEKLY') return Math.abs(dayDiff(ruleDay, d)) <= 3;

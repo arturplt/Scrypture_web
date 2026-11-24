@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampNoteSize, complementColor, notePalette, oppositeColor, sanitizeNotes } from './notes';
+import { clampNoteSize, complementColor, notePalette, oppositeColor, sanitizeNotes, searchNotes, type Note } from './notes';
 
 describe('note colours', () => {
   it('opposite inverts every channel', () => {
@@ -48,5 +48,25 @@ describe('note line alignment', () => {
     expect(alignLines(undefined, 1, 2, 'center')).toEqual(['left', 'center', 'center']);
     expect(alignLines(['left', 'center'], 1, 1, 'left')).toBeUndefined();
     expect(cleanAligns(['right', 'x', 'left'])).toEqual(['right']);
+  });
+});
+
+describe('searching notes', () => {
+  const n = (id: string, title: string, body: string, updatedAt: number): Note => ({ id, title, body, updatedAt });
+  const list = [n('a', 'Shopping', 'milk\nbread and Bóbr snacks', 1), n('b', 'Bóbr ideas', 'a dam of sticks', 2), n('c', 'Łódź trip', 'train at nine', 3), n('d', 'Misc', 'x'.repeat(100) + ' needle ' + 'y'.repeat(100), 4)];
+  it('keeps everything, newest first, for an empty query', () => {
+    expect(searchNotes(list, '  ').map(r => r.note.id)).toEqual(['d', 'c', 'b', 'a']);
+  });
+  it('finds words in title or text, ignoring case and accents, and needs every word', () => {
+    expect(searchNotes(list, 'bobr').map(r => r.note.id)).toEqual(['b', 'a']);   // title matches first
+    expect(searchNotes(list, 'lodz').map(r => r.note.id)).toEqual(['c']);
+    expect(searchNotes(list, 'dam sticks').map(r => r.note.id)).toEqual(['b']);
+    expect(searchNotes(list, 'dam bread')).toEqual([]);
+  });
+  it('shows the line of the first hit in the text, trimmed round it', () => {
+    expect(searchNotes(list, 'snacks')[0].snippet).toBe('bread and Bóbr snacks');
+    const s = searchNotes(list, 'needle')[0].snippet;
+    expect(s.startsWith('…') && s.includes('needle') && s.length <= 61).toBe(true);
+    expect(searchNotes(list, 'trip')[0].snippet).toBe('train at nine');   // title match: the text's first line
   });
 });

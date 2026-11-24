@@ -2,7 +2,7 @@
  * Bóbr world map, part 1: infinite terrain. Ported from Android's `BiomeRegion`, `ChunkLoader`, `BiomeGenerator` and
  * `TerrainTransitionTiles` (docs: MAP_GENERATION_DOCUMENTATION.md).
  *
- * Differences from Android, on purpose (also listed in BACKLOG.md):
+ * Differences from Android, on purpose (also listed in BACKLOG.md and BACKLOG_DONE.md):
  *  - Android generated each 16x16 chunk on its own and then patched the borders with "edge constraints" copied from the loaded
  *    neighbours, and picked one biome per chunk (a visible square grid of biomes). Here every tile is a pure function of
  *    (seed, x, y): the biome is chosen per tile, and a chunk is built with a margin so beaches and transitions cross chunk

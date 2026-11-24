@@ -1780,6 +1780,8 @@ export const la: Record<Key, string> = {
   "holdStoneAria": "Tene ut lapides iacias (5 lapides)",
   "noteNew": "Nota nova",
   "noteNone": "Nullae adhuc notae.",
+  "noteSearch": "Quaere notas",
+  "noteNoMatch": "Nulla nota congruit.",
   "noteFull": "Usque ad {n} notas habere potes.",
   "noteName": "Titulus notae",
   "noteNewName": "Nota nova",

@@ -42,6 +42,23 @@ describe('a habit on the planner repeats by its cycle', () => {
     expect(slotDone(slot(habit({ frequency: 'MONTHLY', plan: { start: D(15) }, log: [D(2)] }), 15))).toBe(true);
     expect(slotDone(slot(habit({ frequency: 'MONTHLY', plan: { start: D(15) }, log: [D(2, 1)] }), 15))).toBe(false);
   });
+  it('a weekly habit with a target of N days is on the board N days a week, spread out, and each turn is done in order', () => {
+    expect([5, 6, 7, 8, 9, 10, 11, 12, 14].map(n => isRuleDay('WEEKLY', D(5), D(n), 3))).toEqual([true, false, true, false, false, true, false, true, true]);
+    expect([5, 8, 9, 10].map(n => isRuleDay('WEEKLY', D(5), D(n), 2))).toEqual([true, false, true, false]);   // 0 and 4 days in
+    expect(isRuleDay('WEEKLY', D(5), D(6), 1)).toBe(false);                                                  // no target: one a week as before
+    const h = (log: number[]) => habit({ target: 3, plan: { start: D(5) }, log });
+    const done = (log: number[], n: number) => slotDone(habitSlot(h(log), D(n))!);
+    expect(habitsOn([h([])], D(7)).map(s => s.ruleDay)).toEqual([D(7)]);
+    expect([5, 7, 10].map(n => done([], n))).toEqual([false, false, false]);
+    expect([5, 7, 10].map(n => done([D(5)], n))).toEqual([true, false, false]);            // one done this week: the first turn only
+    expect([5, 7, 10].map(n => done([D(6), D(8)], n))).toEqual([true, true, false]);       // done on other days than planned still count in order
+    expect(done([D(12)], 7)).toBe(false);                                                   // next week's do not
+    // a plan started midweek (Wed the 7th: turns on Wed, Fri and the next Mon) counts the habit's own Monday-to-Sunday weeks
+    const mid = (log: number[], n: number) => slotDone(habitSlot(habit({ target: 3, plan: { start: D(7) }, log }), D(n))!);
+    expect([7, 9].map(n => mid([D(6)], n))).toEqual([true, false]);       // done on the Tuesday: the first turn of that week
+    expect([7, 9, 12].map(n => mid([D(10)], n))).toEqual([true, false, false]);
+    expect(mid([D(8), D(11)], 9)).toBe(true);
+  });
   it('today only asks for a planned habit on its day, and not when its turn is done', () => {
     const NOW = D(14) + 10 * 3_600_000, plan = { start: D(7) };
     const ids = (habits: Habit[], now = NOW) => dayPlan({ events: [], shortlist: [], tasks: [], habits }, now, now).habits.map(h => h.id);

@@ -249,6 +249,17 @@ describe('unticking and completing again', () => {
     s.actions.dismissUndo();
     expect(s.getUndo()).toBeNull();
   });
+  it('undoing the last completion offers the one before it while its 10 s last', () => {
+    const { s, t, id } = setup();
+    const b = s.actions.addTask({ title: 'B', category: 'SOUL', priority: 'LOW', difficulty: 0 });
+    s.actions.completeTask(id); t.now += 4000; s.actions.completeTask(b.id);
+    expect(s.getUndo()).toMatchObject({ taskId: b.id });
+    s.actions.uncompleteTask(b.id);
+    expect(s.getUndo()).toMatchObject({ taskId: id });              // the first is still in its window
+    s.actions.completeTask(b.id); t.now += 7000;                    // the first one's 10 s are over, the second's are not
+    s.actions.uncompleteTask(b.id);
+    expect(s.getUndo()).toBeNull();                                  // nothing expired is offered again
+  });
   it('a habit completion can be undone within 10 s, restoring its streak, and not after', () => {
     const { s, t } = setup();
     const h = s.actions.addHabit({ title: 'Stretch', category: 'BODY', frequency: 'DAILY' });

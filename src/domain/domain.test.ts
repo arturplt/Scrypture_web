@@ -268,6 +268,14 @@ describe('look (appearance + accessibility)', () => {
     ];
     for (const [w, h, want] of cases) expect(autoUiScale(w, h), `${w}x${h}`).toBe(want);
   });
+  it('auto scale stays at the bigger size while a URL bar eats a little height, and drops once clearly under', () => {
+    expect(autoUiScale(768, 1024)).toBe(2);
+    expect(autoUiScale(768, 900)).toBe(1);                // no history: the plain rule
+    expect(autoUiScale(768, 900, 2)).toBe(2);             // 900/460 = 1.96: inside the margin
+    expect(autoUiScale(768, 820, 2)).toBe(1);             // 1.78: clearly under
+    expect(autoUiScale(768, 1024, 1)).toBe(2);            // going up is immediate
+    expect(autoUiScale(1080, 1500, 3)).toBe(3);
+  });
   it('layout comes from the logical width', () => {
     expect([320, 559, 560, 899, 900, 1920].map(layoutFor)).toEqual(['compact', 'compact', 'medium', 'medium', 'wide', 'wide']);
     expect(layoutFor(1440 / 2)).toBe('medium');

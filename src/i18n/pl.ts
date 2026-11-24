@@ -1780,6 +1780,8 @@ export const pl: Record<Key, string> = {
   "holdStoneAria": "Przytrzymaj, by grać w rzucanie (5 kamieni)",
   "noteNew": "Nowa notatka",
   "noteNone": "Nie ma jeszcze notatek.",
+  "noteSearch": "Szukaj w notatkach",
+  "noteNoMatch": "Żadna notatka nie pasuje.",
   "noteFull": "Możesz mieć do {n} notatek.",
   "noteName": "Tytuł notatki",
   "noteNewName": "Nowa notatka",

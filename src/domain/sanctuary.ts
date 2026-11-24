@@ -2,7 +2,7 @@
  * Sanctuary: the isometric block builder, ported from Android's `Sanctuary` sandbox (tile sheet, grid maths, height-map
  * island generator, saved levels). Pure functions only; the canvas editor lives in `screens/Sanctuary.tsx`.
  *
- * Deliberate differences from Android (see BACKLOG.md): no WebGL path / performance monitor (a 2D canvas is plenty for
+ * Deliberate differences from Android (see BACKLOG.md and BACKLOG_DONE.md): no WebGL path / performance monitor (a 2D canvas is plenty for
  * ~2000 blocks), layers are 16 px apart (Android used 32, which left a gap between stacked cubes), and there is no block
  * rotation (the sheet already has every direction as its own tile).
  */

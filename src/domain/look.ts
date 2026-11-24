@@ -142,10 +142,16 @@ export function sanitizeLook(raw: Partial<Record<keyof Look, unknown>> | undefin
  * Automatic interface scale: the biggest whole number that still leaves a phone-sized logical screen
  * (>= 360 wide and >= 460 tall) so sprites stay crisp and nothing gets cramped. Capped at 3.
  */
-export function autoUiScale(width: number, height: number): 1 | 2 | 3 {
-  const n = Math.floor(Math.min(width / 360, height / 460));
-  return (n >= 3 ? 3 : n >= 2 ? 2 : 1);
+export function autoUiScale(width: number, height: number, previous?: 1 | 2 | 3): 1 | 2 | 3 {
+  const r = Math.min(width / 360, height / 460);
+  const n = Math.floor(r);
+  const now = (n >= 3 ? 3 : n >= 2 ? 2 : 1) as 1 | 2 | 3;
+  // Hysteresis: a phone's URL bar sliding in and out changes the height by ~60 px, which must not flip the whole interface
+  // when it sits near a threshold. Going up happens at the threshold; going down only once it is clearly under it.
+  if (previous && previous > now && r >= previous - SCALE_HYSTERESIS) return previous;
+  return now;
 }
+export const SCALE_HYSTERESIS = 0.15;
 
 /** Largest scale that still leaves a usable logical screen (>= 160 wide), so a saved/imported choice can't break a small device. */
 export const maxUiScale = (width: number): 1 | 2 | 3 => { const n = Math.floor(width / 160); return n >= 3 ? 3 : n >= 2 ? 2 : 1; };

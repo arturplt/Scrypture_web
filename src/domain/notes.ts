@@ -135,3 +135,30 @@ export function sanitizeNotes(raw: unknown): NotesSave {
   }
   return { list };
 }
+
+/** Text folded for searching: lower case, without accents (Bóbr = bobr) and with the Polish ł as l. */
+export const foldText = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/gi, 'l').toLowerCase();
+
+/**
+ * The notes that contain every word of `query` (in the title or the text), newest first, those with it in the title ahead of
+ * those with it only in the text. `snippet` is the line of the text round the first word found there (up to 60 characters),
+ * or the text's first line when only the title matched. An empty query keeps every note in newest-first order.
+ */
+export function searchNotes(notes: readonly Note[], query: string): { note: Note; snippet: string }[] {
+  const words = foldText(query).split(/\s+/).filter(Boolean);
+  const out = notes.map(note => {
+    const title = foldText(note.title), body = foldText(note.body), both = `${title}\n${body}`;
+    if (!words.every(w => both.includes(w))) return null;
+    const lines = note.body.split('\n'), first = words.map(w => foldText(note.body).indexOf(w)).filter(i => i >= 0).sort((a, b) => a - b)[0];
+    let line = lines[0] ?? '';
+    if (first !== undefined) {   // folding never changes the length of a line, so the same position finds the line in the original
+      let at = 0;
+      for (const l of lines) { if (first <= at + l.length) { line = l; break; } at += l.length + 1; }
+      const col = Math.max(0, first - (at)); // position inside that line
+      const start = Math.max(0, Math.min(col - 20, line.length - 60));
+      return { note, snippet: (start > 0 ? '…' : '') + line.slice(start, start + 60), inTitle: words.every(w => title.includes(w)) };
+    }
+    return { note, snippet: line.slice(0, 60), inTitle: true };
+  }).filter((x): x is { note: Note; snippet: string; inTitle: boolean } => !!x);
+  return out.sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || b.note.updatedAt - a.note.updatedAt).map(({ note, snippet }) => ({ note, snippet }));
+}

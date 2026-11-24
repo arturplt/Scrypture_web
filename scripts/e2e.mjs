@@ -8,6 +8,7 @@
  *
  *   npm run build && npm run e2e
  *   E2E_URL=http://192.168.1.10:5173 npm run e2e        (another server, e.g. the LAN address of the dev server)
+ *   E2E_SIZE=390x844 npm run e2e                           (a phone-sized window with touch; default 1024x768)
  *   CHROME=/path/to/chrome npm run e2e                     (when Chromium is not on the PATH)
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -23,6 +24,7 @@ if (typeof WebSocket === 'undefined') {
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const [W, H] = (process.env.E2E_SIZE ?? '1024x768').split('x').map(Number), PHONE = W < 600;
 const PORT = 4179, URL_ = process.env.E2E_URL ?? `http://localhost:${PORT}/`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const procs = [];
@@ -166,7 +168,7 @@ async function main() {
   await waitHttp(URL_, 30000);
 
   profile = mkdtempSync(join(tmpdir(), 'scrypture-e2e-'));
-  const chrome = spawn(findChrome(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1024,768', 'about:blank'], { stdio: 'ignore' });
+  const chrome = spawn(findChrome(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
   procs.push(chrome);
   const portFile = join(profile, 'DevToolsActivePort');
   const t0 = Date.now();
@@ -180,11 +182,12 @@ async function main() {
   s.on('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description ?? p.exceptionDetails.text));
   s.on('Runtime.consoleAPICalled', p => { if (p.type === 'error') errors.push(p.args.map(a => a.value ?? a.description ?? '').join(' ')); });
   await s.send('Runtime.enable'); await s.send('Page.enable');
+  if (PHONE) { await s.send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: true }); await s.send('Emulation.setTouchEmulationEnabled', { enabled: true }); }
   let loaded = null; s.on('Page.loadEventFired', () => loaded?.());
   const navigate = async url => { const done = new Promise(r => { loaded = r; }); await s.send('Page.navigate', { url }); await done; };
   await navigate(URL_);
 
-  console.log(`Testing ${URL_}`);
+  console.log(`Testing ${URL_} at ${W}x${H}`);
   for (const [name, code, opt] of STEPS) {
     const t = Date.now();
     const done = opt?.reload ? new Promise(r => { loaded = r; }) : null;

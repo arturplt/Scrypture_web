@@ -105,6 +105,10 @@ textarea { resize: vertical; }
 .ob-h1 { font-size: var(--fs-md); font-weight: normal; margin: 0; text-align: center; color: var(--gold); line-height: 1.4; }
 .ob-body { display: grid; gap: calc(8 * var(--u)); height: calc(150 * var(--u)); box-sizing: border-box; overflow: hidden; align-content: start; }   /* one fixed height for every page: the pen above never resizes between pages */
 .story { font-size: calc(var(--fs-xs) * 0.9); line-height: 1.6; margin: 0; min-height: 6em; }
+.story.short { min-height: 0; }
+.ob-sizes { display: grid; gap: calc(4 * var(--u)); }
+.ob-sizes .seg { min-height: calc(24 * var(--u)); white-space: nowrap; padding-inline: calc(4 * var(--u)); }
+.ob-sizes .small { margin: 0; }
 .onboarding .langs .seg { min-height: calc(28 * var(--u)); }
 .onboarding .ob-h1 { font-size: var(--fs-sm, var(--fs-md)); }
 .dots { display: flex; gap: calc(8 * var(--u)); justify-content: center; }
@@ -153,6 +157,7 @@ textarea { resize: vertical; }
 
 .langs { display: grid; gap: calc(8 * var(--u)); }
 .langs .seg { min-height: calc(40 * var(--u)); }
+.langs.cols { grid-template-columns: repeat(auto-fit, minmax(calc(56 * var(--u)), 1fr)); }
 .nav-btn { flex: 1 1 calc(40 * var(--u)); min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(2 * var(--u)); background: none; border: calc(6 * var(--u)) solid transparent; border-radius: var(--radius); padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; image-rendering: pixelated; }
 .pcheck { min-height: calc(40 * var(--u)); }
 .skip { position: absolute; left: calc(-999 * var(--u)); top: 0; background: var(--gold); color: var(--bg-3); padding: calc(8 * var(--u)) calc(12 * var(--u)); z-index: 40; }

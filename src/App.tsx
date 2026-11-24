@@ -32,6 +32,7 @@ import { EventHost } from './ui/EventHost';
 import { startUiSound } from './audio/uiSound';
 import { startReminders } from './audio/reminders';
 import { UndoBar } from './ui/UndoBar';
+import { useViewport } from './ui/viewport';
 import { SaveIcon } from './ui/SaveIcon';
 import { Notices } from './ui/Notices';
 import { Keyboard } from './ui/Keyboard';
@@ -123,19 +124,23 @@ export function App() {
   const highContrast = useAppState(st => !!st.settings.highContrast);
   const { ui, layout, rail: railWanted } = useUi();
   const rail = railWanted && !device;   // inside the device case the navigation is always the bottom row of keys
+  // labels under the icons wrap the bar into rows; when that would take three or more (many items, big text, a narrow phone) show the icons alone
+  const { w: vw } = useViewport();
+  const perRow = Math.max(1, Math.floor((vw / ui - 56) / (68 * textScale)));
+  const labels = nav.labels === 'both' && !(!rail && !device && Math.ceil(nav.items.length / perRow) >= 3) ? 'both' : 'icons';
   // before paint, so the first frame already has the right scale and layout
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--font-scale', String(textScale));
     root.style.setProperty('--ui', String(ui));
     root.dataset.layout = layout;
-    root.dataset.navlabels = nav.labels;
+    root.dataset.navlabels = labels;
     for (const [k, v] of Object.entries(chipStyle)) root.style.setProperty(k, String(v));
     if (reduceMotion) root.dataset.motion = 'reduce'; else delete root.dataset.motion;
     if (highContrast) root.dataset.contrast = 'high'; else delete root.dataset.contrast;
     if (rail) root.dataset.rail = ''; else delete root.dataset.rail;
     if (device) root.dataset.device = ''; else delete root.dataset.device;
-  }, [textScale, ui, layout, rail, device, chipStyle, nav.labels, reduceMotion, highContrast]);
+  }, [textScale, ui, layout, rail, device, chipStyle, labels, reduceMotion, highContrast]);
   // the wide dark rows in Settings use the big box sprite; build its repeating version once
   useEffect(() => { boxSprite('/assets/raw/box_large.png', 3).then(sp => { for (const [k, v] of Object.entries(boxVars('pick', sp))) document.documentElement.style.setProperty(k, v); }, () => {}); }, []);
   useEffect(() => { document.documentElement.lang = lang.toLowerCase(); }, [lang]);
@@ -212,7 +217,7 @@ export function App() {
     const ro = new ResizeObserver(() => { if (first) { first = false; return; } selPlaced.current = false; place(); });
     ro.observe(frame);
     return () => ro.disconnect();
-  }, [route, slide, nav.items, nav.labels, nav.plate, navPreview, rail, device, onboarded, playing, reduceMotion]);
+  }, [route, slide, nav.items, labels, nav.plate, navPreview, rail, device, onboarded, playing, reduceMotion]);
   const banner = !persistent && <div className="banner" role="alert">{t('storageWarning')}</div>;
   // swipe the bar down to tuck it away (the click that ends such a swipe is swallowed). Above the onboarding return: every hook must run on every render, or finishing onboarding crashes the app
   const swipe = useRef<{ y: number; done: boolean } | null>(null);
@@ -230,18 +235,18 @@ export function App() {
         {canHide && navHidden && <button type="button" className="nav-toggle" aria-label={t('navShow')} onClick={() => toggleNav(false)}>
           <img src="/assets/raw/arrow_stone_up.png" alt="" />
         </button>}
-        <PixelFrame theme={navFrame} scale={1} {...(canHide ? swipeProps : {})} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={nav.labels} data-slide={slide ? '' : undefined} {...plate}>
+        <PixelFrame theme={navFrame} scale={1} {...(canHide ? swipeProps : {})} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={labels} data-slide={slide ? '' : undefined} {...plate}>
           {slide && !navPreview && <span className="nav-sel" ref={selRef} aria-hidden="true" />}
           {navPreview ? <>
             <button className="nav-btn" onClick={() => navigate('/apps')} aria-label={t('back')}>
               <Icon name="arrow_stone_left" size={device ? 32 : 48} />
-              {nav.labels === 'both' && <span className="nav-label">{t('back')}</span>}
+              {labels === 'both' && <span className="nav-label">{t('back')}</span>}
             </button>
             <div className="nav-preview"><img src={navPreview.url} alt="" style={navPreview.height ? { height: navPreview.height } : undefined} /></div>
           </> : navDefsIn(nav.items).map(d => {
             const active = isActivePath(route, d.path);
             return (
-              <NavButton key={d.id} d={d} active={active} label={t(d.label)} size={device ? Math.round(d.size * 0.75) : d.size} badge={badges[d.path]} showLabel={nav.labels === 'both'} />
+              <NavButton key={d.id} d={d} active={active} label={t(d.label)} size={device ? Math.round(d.size * 0.75) : d.size} badge={badges[d.path]} showLabel={labels === 'both'} />
             );
           })}
         </PixelFrame>

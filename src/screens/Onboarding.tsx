@@ -6,10 +6,13 @@ import { PixelButton } from '../ui/PixelButton';
 import { useT } from '../i18n/useT';
 import { LANGS, LANG_NAMES, type Key } from '../i18n';
 import { PenScene } from '../ui/PenScene';
+import { TEXT_SCALES, UI_SCALES } from '../domain';
+import { useUi } from '../ui/useUi';
 
-type Page = { kind: 'language' | 'name' | 'story'; title: Key; message: Key };
+type Page = { kind: 'language' | 'size' | 'name' | 'story'; title: Key; message: Key };
 const PAGES: Page[] = [
   { kind: 'language', title: 'chooseYourLanguage', message: 'chooseYourLanguageMessage' },
+  { kind: 'size', title: 'textSize', message: 'textSample' },   // someone who needs big text should not have to find Settings first
   { kind: 'name', title: 'whatsYourName', message: 'whatsYourNameMessage' },
   { kind: 'story', title: 'welcomeBuilder', message: 'welcomeBuilderMessage' },
   { kind: 'story', title: 'buildYourDam', message: 'buildYourDamMessage' },
@@ -35,6 +38,9 @@ function Typewriter({ text }: { text: string }) {
 export function Onboarding() {
   const t = useT();
   const language = useAppState(s => s.settings.language);
+  const textScale = useAppState(s => s.settings.textScale);
+  const uiScale = useAppState(s => s.settings.uiScale);
+  const { ui: activeUi, maxUi } = useUi();
   const [page, setPage] = useState(0);
   const [name, setName] = useState('');
   const [say, setSay] = useState<string | null>(null);   // Bóbr's reply to a tap on the locked Latin button
@@ -59,10 +65,22 @@ export function Onboarding() {
         <img className="pixel ob-bobr" src="/assets/raw/bobr_ancient.png" alt="Ancient Bóbr" />
       </PixelFrame>
       <PixelFrame theme="green_bev" scale={1} className="ob-body">
-        {p.kind !== 'language' && <Typewriter text={t(p.message)} />}
+        {p.kind === 'size' && <p className="story short">{t(p.message)}</p>}
+        {p.kind !== 'language' && p.kind !== 'size' && <Typewriter text={t(p.message)} />}
         {p.kind === 'name' && (
           <input value={name} maxLength={20} onChange={e => setName(e.target.value)} placeholder={t('enterYourName')} autoFocus
             onKeyDown={e => e.key === 'Enter' && next()} aria-label={t('enterYourName')} />
+        )}
+        {p.kind === 'size' && (
+          <div className="ob-sizes">
+            <div className="langs cols" role="group" aria-label={t('textSize')}>
+              {TEXT_SCALES.map(v => <button key={v} className={`seg ${textScale === v ? 'on' : ''}`} aria-pressed={textScale === v} onClick={() => actions.setSettings({ textScale: v })}>{Math.round(v * 100)}%</button>)}
+            </div>
+            <p className="muted small">{t('interfaceSize')}</p>
+            <div className="langs cols" role="group" aria-label={t('interfaceSize')}>
+              {UI_SCALES.map(v => <button key={v} className={`seg ${uiScale === v ? 'on' : ''}`} aria-pressed={uiScale === v} disabled={v > maxUi} onClick={() => actions.setSettings({ uiScale: v })}>{v === 0 ? `${t('auto')} (${activeUi}x)` : `${v}x`}</button>)}
+            </div>
+          </div>
         )}
         {p.kind === 'language' && (
           <div className="langs" role="group" aria-label={t('language')}>

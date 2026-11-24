@@ -17,7 +17,7 @@ Update the status table when a phase moves, and note here any ecosystem feature 
 
 Done before the roadmap: clouds blown far out of the watched area come back in upwind (`CLOUD_MARGIN`), river channels that stop growing are given up (`STALL_TICKS`), lone water tiles get their river line planned once, old tree-growth times are pruned, corner tiles redraw the diagonal chunk, rain lands on the tile under the cloud, grass spread uses a fair shuffle.
 
-Built outside the roadmap: thunder and fire (see BACKLOG.md, "Thunder and fire"). It adds work to phase 2 (fires, charred and wet ground are not saved) and makes phase 0 more important (fire removes trees, rain adds them: nobody has checked which wins over a long run; `STRIKE_CHANCE`, `SPREAD_RATE` and burn times were set from short simulated runs).
+Built outside the roadmap: thunder and fire (see BACKLOG.md and BACKLOG_DONE.md, "Thunder and fire"). It adds work to phase 2 (fires, charred and wet ground are not saved) and makes phase 0 more important (fire removes trees, rain adds them: nobody has checked which wins over a long run; `STRIKE_CHANCE`, `SPREAD_RATE` and burn times were set from short simulated runs).
 
 ## Phase 0: soak test
 

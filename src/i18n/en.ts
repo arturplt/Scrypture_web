@@ -1779,6 +1779,8 @@ export const en = {
   "holdStoneAria": "Hold to play the rock game (5 stone)",
   "noteNew": "New note",
   "noteNone": "No notes yet.",
+  "noteSearch": "Search notes",
+  "noteNoMatch": "No note matches.",
   "noteFull": "You can keep up to {n} notes.",
   "noteName": "Note title",
   "noteNewName": "New note",

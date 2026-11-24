@@ -3,7 +3,7 @@
  * (ECOSYSTEM_DOCUMENTATION.md, ECOSYSTEM_FLAWS_AND_FIXES.md) rather than line by line: the water cycle (evaporation ->
  * clouds in 10 layers -> wind -> rain -> terrain change) and the vegetation ladder SAND -> GRASS -> flowers -> bush/tree -> bigger tree.
  *
- * Differences from Android, on purpose (also in BACKLOG.md):
+ * Differences from Android, on purpose (also in BACKLOG.md and BACKLOG_DONE.md):
  *  - Android's own review lists seven bugs in the rain code; they are fixed here by design: a cloud remembers which tiles it
  *    already rained on and only pays for new ones (no 20x repeated tiles), it stays visible until its animation ends, it never
  *    rains with an empty belly, wind on/off is a single flag, rain lands `wind strength` tiles downwind (not `10x`, which put it

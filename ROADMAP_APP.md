@@ -1,7 +1,6 @@
 # App roadmap: what is left to build
 
-The order to work through what is still open in Scrypture-web, as of 2026-11-24. `BACKLOG.md` stays the full list (154 open
-items, with the detail and the Android references); this file groups them into phases and puts them in order. The world
+The order to work through what is still open in Scrypture-web, as of 2026-11-24. `BACKLOG.md` stays the full list of what is open (about 155 items: 118 unchecked boxes and 38 dated notes with leftovers, with the detail and the Android references); what is finished is in `BACKLOG_DONE.md`; this file groups them into phases and puts them in order. The world
 simulation has its own roadmaps and is only summarised here: `ROADMAP.md` (ecosystem) and `ROADMAP_BEAVERS.md` (beavers).
 
 Each phase leaves the app working, so work can stop after any of them. Sizes: S = under a day, M = a few days, L = a week or more.
@@ -11,11 +10,11 @@ Update the status table when a phase moves.
 
 | # | Phase | Size | Status |
 |---|---|---|---|
-| 1 | Safety net and first release | M | Built but for one check: committed; CI type-checks, tests, builds, runs the end-to-end test and deploys to scrypture.app; old saves are tested; error and update toasts. Open: a Lighthouse check and an install hint |
+| 1 | Safety net and first release | M | Built but for one check: committed; CI type-checks, tests, builds, runs the end-to-end test (desktop and a 390x844 touch phone) and deploys to scrypture.app; old saves are tested; error and update toasts. Open: a Lighthouse check and an install hint |
 | 2 | Real-device pass | M | Not started |
-| 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Chat history, typing animation and the chat sparkle built 2026-11-24. Open: calendar sprite, a targeted habit on N planner days |
-| 4 | Tasks and habits depth | M-L | Mostly built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets. Start Here filters, weekly/monthly habit rules and custom categories built. Open: nothing big |
-| 5 | Bóbr and Home life | M | Started 2026-11-17: EXCITED and MISCHIEVOUS moods. 2026-11-24: speech bubble, XP stars, stone hold, feeding count. Open: sad+hungry animation, extra items, ancient sprite (all need art or design) |
+| 3 | Planner and Bóbr, second round | M-L | Mostly built: repeats, a 1/3/5/7-day board with hours, shortlist dragging, reminders (2026-11-24). Chat history, typing animation and the chat sparkle built 2026-11-24. Open: calendar sprite. "N days a week" habits are placed N times a week on the planner (2026-11-24) |
+| 4 | Tasks and habits depth | M-L | Built 2026-11-17: habit XP/streaks/quick start/undo, several core attributes, sort modes, tags, task detail, quick-add and presets, Start Here filters, weekly/monthly habit rules and custom categories. Undo reaches back through the last 5 completions (2026-11-24). Open: nothing |
+| 5 | Bóbr and Home life | M | Built 2026-11-17: EXCITED and MISCHIEVOUS moods, items from play, wandering. 2026-11-24: speech bubble, XP stars, stone hold, feeding count. Open: the sad+hungry animation, slots for the extra items, the ancient sprite (all need art or design) |
 | 6 | Mind map, second round | M | Mostly built: tidy, collapse, link direction and flip, copy, picture (2026-11-24). Open: undo after closing, user frames for boxes |
 | 7 | Exercise tracker | L | Built: first version 2026-11-17; kg/lb, rest length, editing finished workouts, progress charts 2026-11-24 |
 | 8 | Sound and haptics | M | Built: sounds 2026-11-17, vibration 2026-11-24. Open: trying both on a real phone |
@@ -40,7 +39,7 @@ Still open, each blocks or shapes a phase:
 
 ## Phase 1: safety net and first release
 
-Why: 450 unit tests are run by hand, nothing is committed, and nothing is published. Everything after this is safer once it is.
+Why (when this was written): the tests were run by hand, nothing was committed and nothing was published. Everything after this is safer once it is; it is live now, with 847 unit tests run on every push.
 
 - ~~First commit, then an automatic build and test run on every push~~ (done: `.github/workflows/pages.yml`).
 - ~~Put the end-to-end flow test (onboarding, add task and habit, chat, export and import) into the repo.~~ (built 2026-11-24: `npm run e2e`, run in CI; it found and now guards against a crash at the end of onboarding).
@@ -49,7 +48,7 @@ Why: 450 unit tests are run by hand, nothing is committed, and nothing is publis
 - ~~"New version available, reload" toast for the service worker~~ (built 2026-11-17, untried on a production build).
 - ~~"Something went wrong" message when an action fails~~ (built 2026-11-17).
 - ~~Remove the unused Android sprites from `public/assets/raw`~~ (2026-11-24: 8 were unused; moved to `art/unused-sprites/`).
-- Lighthouse PWA check and an "Add to home screen" hint on the published address.
+- Lighthouse PWA check and an "Add to home screen" hint on the published address (the only open item here).
 - Done when: a push runs the tests, the app is installable from its public address, and an old save still opens after a format change.
 
 ## Phase 2: real-device pass
@@ -59,7 +58,7 @@ Why: almost everything was checked only in desktop Chromium and an emulated phon
 - Android phone, iPhone Safari and Firefox: layout (`100dvh`, side rail, frame crispness), install, full screen.
 - Two-finger gestures that are written but untested: mind map, Sanctuary, world map joystick, rock-game aiming.
 - Typing on a phone: the on-screen keyboard may cover a mind-map box or a form field.
-- The collapsing address bar and tablet rotation can flip the automatic interface scale (needs a dead zone).
+- ~~The collapsing address bar flipping the automatic interface scale~~ (a dead zone built 2026-11-24, untried on a phone); tablet rotation still flips it between 2x portrait and 1x landscape.
 - Frame rate of the world map and the rock game on a low-end phone.
 - Done when: each screen has been used on a real phone and the problems found are either fixed or listed.
 
@@ -82,23 +81,23 @@ Why: the planner is new and is the part meant to tie the app together; the first
 Why: these are the screens used every day, and several Android features are still missing from them.
 
 - ~~Custom task categories~~ (built 2026-11-17: name and frame, manager, filter; they group tasks and do not change the stats).
-- ~~Task form: several core attributes at once~~ (built 2026-11-17). Quick-create with presets is open.
-- Tags: manage them and filter by them. (Sort options "No sort" and "Created date" were built 2026-11-17.)
-- Task detail screen (full description, "Done N times", previous and next).
+- ~~Task form: several core attributes at once~~ (built 2026-11-17), ~~quick-create with presets~~ (built 2026-11-17).
+- ~~Tags: manage them and filter by them~~ and ~~sort options~~ (built 2026-11-17).
+- ~~Task detail screen~~ (built 2026-11-17: full description, "Done N times", previous and next).
 - ~~Habits: real weekly and monthly rules~~ (built 2026-11-17: once per week or month, streak counts periods; "N times a week" targets built 2026-11-24). (The reward, streak multiplier, quick start and the 10-second undo were built 2026-11-17.)
-- Start Here: topic filter, hide what is too hard for a beginner, "add all easy ones".
+- ~~Start Here: topic filter, easy-only filter, "add all easy ones"~~ (built 2026-11-17).
 - Done when: the Android task and habit features are matched or deliberately dropped, each noted in `BACKLOG.md`.
 
 ## Phase 5: Bóbr and Home life
 
 Why: Bóbr is the heart of the app and is simpler on the web than on Android.
 
-- Mood as a state machine: the EXCITED and MISCHIEVOUS moods and the mixed sad-and-hungry animation are missing.
+- Mood as a state machine: ~~the EXCITED and MISCHIEVOUS moods~~ (built 2026-11-17); the mixed sad-and-hungry animation is missing (needs art).
 - ~~Items from play~~ (built 2026-11-17): the rock game drops coin (score 1000, level 10), stone (level 5), hay (level 3), a stick (15 hits) and, in Time Trial, a berry (level 4). Drop levels are untuned; the other minigames have no scored result to hang drops on.
 - The extra items (acorn, feather, honey and others): sprites are in the atlas but have no slots or use.
 - ~~Stone cost on Home (long-press shows the price, "not enough stone")~~ (built 2026-11-24).
 - ~~Home: XP particles, ambient particles, rotating motivational messages~~ (built 2026-11-24: XP stars fly into the level bar, Bóbr's speech bubble every 30 s; the ambient pollen and leaves were already there).
-- Wandering animation with a facing direction, the ancient-stage sprite, the feeding count.
+- ~~Wandering with a facing direction~~ (built 2026-11-17) and ~~the feeding count~~ (built 2026-11-24); the ancient-stage sprite is open.
 - Done when: Bóbr's mood changes visibly with what you do, and playing a game earns something he can use.
 
 ## Phase 6: mind map, second round
@@ -145,13 +144,15 @@ Small items to pick up while touching a screen; the detail is in `BACKLOG.md`.
 
 - **Themes:** more elements customisable (achievement cards, chat bubbles, event dialogs), translated style names, an inventory slot picker, the `gameover` frame.
 - **Languages:** ~~Polish plural forms~~ (built 2026-11-24), a native-speaker review of the Latin and Polish written for the web, translated labels on the Body / Mind / Soul sprites.
-- **Accessibility:** ~~a reduced-motion switch~~ (built 2026-11-17), ~~a high-contrast palette~~ (built 2026-11-17), text and interface size in onboarding, a screen-reader pass on a real device.
+- **Accessibility:** ~~a reduced-motion switch~~ (built 2026-11-17), ~~a high-contrast palette~~ (built 2026-11-17), ~~text and interface size in onboarding~~ (built 2026-11-24), a screen-reader pass on a real device.
 - **Layouts:** Settings, Chat, habit detail and Start Here stay one narrow column on wide screens.
-- **Settings:** ~~reordering navigation items~~ (built 2026-11-24). (Name editing was built 2026-11-17.)
+- **Settings:** ~~reordering navigation items~~ (built 2026-11-24); the bottom bar drops its labels by itself when they would wrap it into three rows (2026-11-24). (Name editing was built 2026-11-17.)
+- **Crash screen:** ~~English only~~ translated 2026-11-24 (Latin and Polish unreviewed).
+- **Notes:** search built 2026-11-24.
 - **Developer pages:** `/kit` does not show the newer pieces.
 
 ## Suggested order
 
-Phase 1 first, because nothing is committed. Then phase 2, since it may change how the later ones are built. After that,
+Phase 1 is nearly done (only the Lighthouse check is left). Phase 2 next, since a real phone may change how the later ones are built. After that,
 phase 3 if the planner is what you use most, otherwise phase 4. Phases 5 to 9 can go in any order; phase 7 only after the
 decision above. Phase 11 never gets its own turn.

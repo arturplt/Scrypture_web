@@ -5,7 +5,7 @@
  *
  * All lengths are interface units (one unit = one sprite pixel at zoom 1), the same unit the rest of the UI is drawn in.
  *
- * Deliberate differences from Android (see BACKLOG.md): a box is as big as its text (Android: fixed 200x50 that could only
+ * Deliberate differences from Android (see BACKLOG.md and BACKLOG_DONE.md): a box is as big as its text (Android: fixed 200x50 that could only
  * grow, in steps of 50), the grid is 8 units (Android: 50), a link leaves a box straight out of its side (Android: an S-curve),
  * and two boxes can be linked only once.
  */

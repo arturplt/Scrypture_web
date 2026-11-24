@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { DEFAULT_NOTE_SIZE, MAX_NOTES, NOTE_BODY_MAX, NOTE_SIZES, NOTE_TITLE_MAX, NOTE_ALIGNS, UI_COLORS, alignLines, applyFormat, linesOf, type NoteAlign, clampNoteSize, colorAt, noteRuns, notePalette, runsText, sizeAt } from '../domain';
+import { DEFAULT_NOTE_SIZE, MAX_NOTES, NOTE_BODY_MAX, NOTE_SIZES, NOTE_TITLE_MAX, NOTE_ALIGNS, UI_COLORS, alignLines, applyFormat, linesOf, type NoteAlign, clampNoteSize, colorAt, noteRuns, notePalette, runsText, searchNotes, sizeAt } from '../domain';
 import { actions, useAppState } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
 import { navigate } from '../router';
@@ -26,8 +26,10 @@ function NoteList() {
   const { t } = useI18n();
   const notes = useAppState(s => s.notes.list);
   const [naming, setNaming] = useState(false);
+  const [q, setQ] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
   const full = notes.length >= MAX_NOTES;
+  const shown = searchNotes(notes, notes.length > 3 ? q : '');   // the search box only shows from 4 notes up
   const doomed = notes.find(n => n.id === deleting);
   const create = (title: string) => { setNaming(false); const made = actions.createNote(title); if (made) navigate(notePath(made)); };
   return (
@@ -37,12 +39,14 @@ function NoteList() {
       <div className="muted small">{t('notesHint')}</div>
       <div className="row"><PixelButton scale={1} disabled={full} onClick={() => setNaming(true)}>{t('noteNew')}</PixelButton></div>
       {full && <div className="muted small" role="status">{t('noteFull', { n: MAX_NOTES })}</div>}
+      {notes.length > 3 && <input type="search" value={q} aria-label={t('noteSearch')} placeholder={t('noteSearch')} onChange={e => setQ(e.target.value)} />}
       <PixelFrame theme="gold_thick" scale={1} className="card">
         <h2 className="subtitle">{t('notes')} ({notes.length}/{MAX_NOTES})</h2>
         {notes.length === 0 && <div className="muted small">{t('noteNone')}</div>}
-        {[...notes].sort((a, b) => b.updatedAt - a.updatedAt).map(n => (
+        {notes.length > 0 && shown.length === 0 && <div className="muted small" role="status">{t('noteNoMatch')}</div>}
+        {shown.map(({ note: n, snippet }) => (
           <div key={n.id} className="row between note-row">
-            <div className="note-row-name"><strong>{n.title || t('noteUntitled')}</strong><div className="muted small note-snip">{n.body.split('\n')[0].slice(0, 60)}</div></div>
+            <div className="note-row-name"><strong>{n.title || t('noteUntitled')}</strong><div className="muted small note-snip">{snippet}</div></div>
             <div className="row">
               <PixelButton scale={1} onClick={() => navigate(notePath(n.id))}>{t('openApp')}</PixelButton>
               <PixelButton scale={1} variant="red" onClick={() => setDeleting(n.id)}>{t('delete')}</PixelButton>

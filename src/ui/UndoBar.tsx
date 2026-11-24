@@ -23,7 +23,7 @@ export function UndoBar() {
         <span className="undo-text"><b>{t(habitId ? 'habitCompleted' : 'chatTaskCompleted')}</b>{title ? <span className="muted"> {title}</span> : null}</span>
         <button type="button" className="seg on" onClick={() => (habitId ? actions.undoHabit(habitId) : actions.uncompleteTask(taskId!))}>{t('undo')}</button>
       </div>
-      <i className="undo-drain" style={{ animationDuration: `${UNDO_WINDOW_MS}ms` }} />
+      <i className="undo-drain" style={{ animationDuration: `${Math.min(UNDO_WINDOW_MS, Math.max(0, undo.until - Date.now()))}ms` }}   /* an older completion offered again has less than the full time left */ />
     </div>
   );
 }
