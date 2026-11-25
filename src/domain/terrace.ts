@@ -1012,11 +1012,13 @@ export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: 
  * terraces' own (`terraceH`), so near hills keep their shelves and ledges and meet the real chunks without a change of shape; without it they are the smooth elevation
  * (past a few hundred tiles the terraces are finer than a vertex). Built a few rows at a time (a generator), so building one never stalls a frame; the last value it yields is the mesh.
  */
-export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: number, half: number, stepped = false, open = 0, up = 1): Generator<null, TerraceFarMesh, void> {
+export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: number, half: number, stepped = false, open = 0, up = 1, inset = 0): Generator<null, TerraceFarMesh, void> {
   const cc = Math.floor((half * 2) / stepIn) + 1, x0 = cx - half, y0 = cy - half;   // (the elevations are sampled `stepIn` apart ...)
+  // (`inset`: the ground is read this far inside the square's edge. The edge of a planet's face is the edge of its cell: a point exactly on it is read as the next cell's, which on a cut edge is no face at all, so the face's edge row came out as the wrong ground, or off the planet and sunk, and left a crack between faces)
+  const CX = (d: number) => Math.min(Math.max(x0 + d, x0 + inset), x0 + half * 2 - inset), CY = (d: number) => Math.min(Math.max(y0 + d, y0 + inset), y0 + half * 2 - inset);
   const ec = new Float32Array(cc * cc), lakes = lakeScalesFor(stepIn);
   for (let j = 0; j < cc; j++) {
-    for (let i = 0; i < cc; i++) ec[j * cc + i] = elevation(x0 + i * stepIn, y0 + j * stepIn, seed, lakes);
+    for (let i = 0; i < cc; i++) ec[j * cc + i] = elevation(CX(i * stepIn), CY(j * stepIn), seed, lakes);
     if ((j & 1) === 1) yield null;
   }
   // ... and with `up` > 1 the mesh has `up` vertices where they were one, on a smooth (cubic) curve through the samples: the contours, the coasts and the shading come out round, not as the straight edges of a coarse grid
@@ -1033,12 +1035,12 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: nu
     for (let i = 0; i < cols; i++) {
       const k = j * cols + i, e = ev[k], h = H(i, j);
       if (aux) { const i0 = Math.max(0, i - 1), i1 = Math.min(cols - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(rows - 1, j + 1); aux[k * 3] = (Hs(i1, j) - Hs(i0, j)) / ((i1 - i0) * step); aux[k * 3 + 1] = (Hs(i, j1) - Hs(i, j0)) / ((j1 - j0) * step); aux[k * 3 + 2] = Hs(i, j); }
-      pos[k * 3] = x0 + i * step; pos[k * 3 + 1] = y0 + j * step; pos[k * 3 + 2] = -h;
+      pos[k * 3] = CX(i * step); pos[k * 3 + 1] = CY(j * step); pos[k * 3 + 2] = -h;
       let r: number, g: number, b: number;
       if (aux && e < 0) { r = 0.91; g = 0.78; b = 0.54; }   // (the sea of an unstepped level: the shader draws it where the ground is below 0, so its vertices carry the shore's colour, and the coast is a clean curve, not a blend of blue and sand)
-      else if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
+      else if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(CX(i * step), CY(j * step), seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
       else {
-        const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
+        const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(CX(i * step), CY(j * step), seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
         if (lay === 0 || (bio === 3 && lay >= bareFrom())) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }   // (sand: the beach and the bare tops only; dry country above the beach is grass to the eye up close, so it is grass from afar too, not sand that turns green as you come)
         else {
           // each layer its own tint, as up close, where the terraces are wide enough to tell apart: the steeper the ground (layers a vertex), the less of it, so a hillside of thin layers is a plain ramp and not noise

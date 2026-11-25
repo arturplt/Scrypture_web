@@ -622,7 +622,7 @@ function WorldView({ id }: { id: string }) {
     const cubeWorld = s.world.size > 0, CUBE_RINGS = 4;   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
     const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : cubeWorld ? TERRACE_FAR_LODS_HILLS.slice(0, CUBE_RINGS) : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : cubeWorld ? FAR_LEVEL_FROM_HILLS.slice(0, CUBE_RINGS) : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
     const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    const faceDone = FACES.map(() => false), FACE_STEP = 96, FACE_UP = 2;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
+    const faceDone = FACES.map(() => false), FACE_STEP = 96, FACE_UP = 2, FACE_INSET = 0.02;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
     let farJob: { i: number; face?: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
@@ -1296,8 +1296,8 @@ function WorldView({ id }: { id: string }) {
           glr.ringCount = farLods.length;
           if (!farJob) { const fi = faceDone.indexOf(false); if (fi >= 0) {
             const F = FACES[fi], N = s.world.size, cx = F.ix * N, cy = F.iy * N;
-            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, N, FACE_UP); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
-            else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, FACE_UP) };
+            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, N, FACE_UP, FACE_INSET); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
+            else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, FACE_UP, FACE_INSET) };
           } }
         }
         const tf = performance.now(), farMs = loading ? 14 : farLo >= farCoarse ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)

@@ -38,7 +38,8 @@ in vec3 aPos; in vec2 aUv; in vec4 aCol;
 uniform float uFar, uFarSm, uHole, uBand, uTerrace, uSink; uniform vec2 uFarUv; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
 // (a far level is sunk a little where it overlaps the finer ground, see below)
 uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC, uPlanet, uCurveK, uCubeN; uniform vec3 uGS, uGE, uGSo, uFC[6], uFA[6], uFB[6]; uniform vec2 uFCell[6], uXT[24]; uniform vec4 uXA[24];   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down). A cube-planet world is a true ball instead: uPlanet its radius in tiles (0 = no ball), uCurveK how far the ground has been bent onto it (0 flat .. 1), uCubeN a face's width in tiles; uFC/uFA/uFB/uFCell the six faces (centre, net-x axis, net-y axis, net cell), uXA/uXT the 24 extensions past a face's side (see cube.ts), uGS/uGE/uGSo the eye's up, east and south on the ball
-out vec2 vUv; out vec4 vCol; out vec3 vPos; out float vSD; out vec3 vSl;   // vSl: (a far level of smooth ground) the height's slope east and south at the vertex, and the height's plane at the origin, see the fragment shader   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
+out vec2 vUv; out vec4 vCol; out vec3 vPos, vW; out float vSD; out vec3 vSl;   // vW: where the point is in the plane's own space once it is wrapped onto the ball (vPos is its place on the net, which for another face is thousands of tiles from the eye)
+   // vSl: (a far level of smooth ground) the height's slope east and south at the vertex, and the height's plane at the origin, see the fragment shader   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
 int faceAt(vec2 q) { vec2 c = floor(q / uCubeN + 0.5); for (int i = 0; i < 6; i++) if (uFCell[i] == c) return i; return -1; }
 // the direction of a net point that is inside a face's rect (w is 0 where it is not)
 vec4 faceDir(vec2 q) {
@@ -74,11 +75,11 @@ void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
     float len = length(d), edge = max(uHole + uBand, uSink), deep = 1.0 - smoothstep(0.55 * uSink, uSink, len);
     p.z += uTerrace * ((uFarSm > 0.5 ? 1.1 : 0.7) + 5.0 * deep) * (1.0 - smoothstep(edge, edge + 24.0, len));
   }
- gl_Position = uVP * vec4(p, 1.0); vPos = aPos;
+ gl_Position = uVP * vec4(p, 1.0); vPos = aPos; vW = uPlanet > 0.0 ? p : aPos;
   if (uFar > 0.5) { vUv = uFarUv; vCol = vec4(aCol.rgb, 1.0); vSl = vec3(aUv, aCol.a - dot(aUv, aPos.xy)); } else { vUv = aUv; vCol = aCol; vSl = vec3(0.0); } }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D; precision highp int;
-in vec2 vUv; in vec4 vCol; in vec3 vPos; in float vSD; in vec3 vSl;
+in vec2 vUv; in vec4 vCol; in vec3 vPos, vW; in float vSD; in vec3 vSl;
 uniform float uCubeN, uFarSm;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
 uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
@@ -140,8 +141,9 @@ void main() {
     c.a = 1.0;
   }
   if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), bedK * 0.8), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
-  float vDist = distance(vPos, uEye), nk = clamp(uNight.a / 0.7, 0.0, 1.0);
-  vec3 V = (vPos - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
+  vec3 vE = uFar > 0.5 && uCubeN > 0.0 ? vW : vPos;   // (a planet's far ground: its distance, fog and view angle are those of the ball, not of the net)
+  float vDist = distance(vE, uEye), nk = clamp(uNight.a / 0.7, 0.0, 1.0);
+  vec3 V = (vE - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
   if (fxq > 0.5) {
     float k = tint.g, sd = tint.b, t = uTime;
     vec2 ap = floor(vPos.xy * 16.0);                                        // the art pixel on the ground (16 to a tile), so the effects are as blocky as the tiles
