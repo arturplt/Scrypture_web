@@ -69,7 +69,9 @@ export interface SavedWorld {
   kind?: 'procedural' | 'lakedistrict' | 'terraced';   // the Lake District is a real map (see lakedistrict.ts), 'terraced' the stepped hills (terrace.ts); a world without this is procedural (flat)
   changes: SavedTile[];
   relief?: SavedRelief[];         // a terraced world's sculpting: tiles raised or lowered by whole layers
-  hour: number; wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
+  hour: number;                   // the local solar time of the plane when it was saved (on a planet, `days` is the clock and this is only a fallback)
+  days?: number;                  // a planet's clock: solar days since the world began (the sun, moon and seasons follow it, see celestial.ts); none = an old save, opened at its `hour`
+  wind: Wind; plane: { x: number; y: number; heading: number; pitch: number; landed?: boolean };   // landed: it was on the ground when saved (the Lake District then opens on foot there, not in the air)
   explored: number[];             // chunk keys the plane has seen (the minimap is redrawn from the seed, not stored)
   scores?: RunScore[];            // this world's leaderboard (best runs first)
   orbit?: SavedOrbit;             // the world's orbit record: how many flights reached orbit, and the best orbit (heights above sea level, m)
@@ -194,6 +196,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
       id: w.id, name: (typeof w.name === 'string' ? w.name.trim().slice(0, 40) : '') || 'World', seed: fin(w.seed, 0) >>> 0,
       createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes, ...(w.kind === 'terraced' && sanitizeRelief(w.relief).length ? { relief: sanitizeRelief(w.relief) } : {}),
       hour: clamp(fin(w.hour, 12), 0, 23.999),
+      ...(typeof w.days === 'number' && Number.isFinite(w.days) && w.days >= 0 ? { days: Math.min(w.days, 1e7) } : {}),
       wind: { enabled: wind.enabled !== false, strength: clamp(fin(wind.strength, dw.strength), 0, 10), dir: fin(wind.dir, dw.dir) },
       plane: { x: clamp(fin(plane.x, 0), -1e6, 1e6), y: clamp(fin(plane.y, 0), -1e6, 1e6), heading: fin(plane.heading, Math.PI / 2), pitch: clamp(fin(plane.pitch, 0), -45, 45), ...(plane.landed === true ? { landed: true } : {}) },
       scores: sanitizeScores(w.scores), coins: clamp(Math.round(fin(w.coins, 0)), 0, 1e6), boosts: clamp(Math.round(fin(w.boosts, 1)), 0, MAX_BOOSTS), burned: clamp(Math.round(fin(w.burned, 0)), 0, 1e6), shop: sanitizeShop(w.shop), ...(sanitizeOrbit(w.orbit) ? { orbit: sanitizeOrbit(w.orbit) } : {}),

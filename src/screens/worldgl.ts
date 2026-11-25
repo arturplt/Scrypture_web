@@ -16,6 +16,7 @@
  */
 import type { TerraceMesh } from '../domain/terrace';
 import { shaderTables, eyeFrame } from '../domain/cube';
+import type { SkyState } from '../domain/celestial';
 import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl } from '../domain/terrace';
 import { dbgBits, dbgOn } from '../domain/dbg';
@@ -33,12 +34,30 @@ import STARS_URL from '../assets/milkyway.png';   // a square night sky, seen fr
 import MOUNTAIN_URL from '../assets/mountainrange.png';
 import TREELINE_URL from '../assets/treeline.png';
 
+/** Atmospheric scattering, the same in the sky and in the haze on the ground: single scattering of the sun's light (Rayleigh, which makes the sky blue, and Mie, the glow round the sun) through an air that thins with height, with the light's own path through the air (it goes red as the sun sinks). It is an analytic stand-in, not a ray march: the airmass of a ray is 1 / (its height over the horizon), capped. */
+const SCATTER_GLSL = `
+const vec3 TAU_R = vec3(0.04, 0.10, 0.25);   // the air's optical depth straight up, for red, green and blue (blue scatters most)
+const float TAU_M = 0.03;                    // and the haze's (Mie: it scatters all colours alike, forward, towards the sun)
+float airmass(float s) { return min(1.0 / (max(s, 0.0) + 0.06), 9.0); }
+// the light the air scatters towards the eye along a ray of am airmasses (one airmass = the air straight up), cg = the cosine of its angle to the sun, the sun standing se over the horizon where the light is scattered, e = the ray's height over the horizon
+vec3 inscatter(float am, float cg, float se, float e) {
+  float g = 0.76, pr = 0.75 * (1.0 + cg * cg), pm = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cg, 1.5);
+  vec3 tot = TAU_R + TAU_M;
+  // the sunlight that reaches the air along the ray: through the air on its way (long when the sun is low), less of it the higher up the ray goes (up high the air it passes is only the thin top of it)
+  vec3 sl = exp(-tot * airmass(se) * (0.25 + 0.75 * (1.0 - clamp(e, 0.0, 1.0)))) * smoothstep(-0.28, 0.02, se);
+  return (TAU_R * pr + TAU_M * pm) / tot * (1.0 - exp(-tot * am)) * sl * 3.5;
+}
+// the colour of the air looking along a ray that stands e (sine of its angle) over the horizon, from inside the air
+vec3 scatter(float e, float cg, float se) { return 1.0 - exp(-inscatter(airmass(e), cg, se, e)); }
+`;
+
 const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
-uniform float uFar, uHole, uBand, uTerrace; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
+uniform float uFar, uFarSm, uHole, uBand, uTerrace, uSink; uniform vec2 uFarUv; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
 // (a far level is sunk a little where it overlaps the finer ground, see below)
 uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC, uPlanet, uCurveK, uCubeN; uniform vec3 uGS, uGE, uGSo, uFC[6], uFA[6], uFB[6]; uniform vec2 uFCell[6], uXT[24]; uniform vec4 uXA[24];   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down). A cube-planet world is a true ball instead: uPlanet its radius in tiles (0 = no ball), uCurveK how far the ground has been bent onto it (0 flat .. 1), uCubeN a face's width in tiles; uFC/uFA/uFB/uFCell the six faces (centre, net-x axis, net-y axis, net cell), uXA/uXT the 24 extensions past a face's side (see cube.ts), uGS/uGE/uGSo the eye's up, east and south on the ball
-out vec2 vUv; out vec4 vCol; out vec3 vPos; out float vSD;   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
+out vec2 vUv; out vec4 vCol; out vec3 vPos, vW; out float vSD; out vec3 vSl;   // vW: where the point is in the plane's own space once it is wrapped onto the ball (vPos is its place on the net, which for another face is thousands of tiles from the eye)
+   // vSl: (a far level of smooth ground) the height's slope east and south at the vertex, and the height's plane at the origin, see the fragment shader   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
 int faceAt(vec2 q) { vec2 c = floor(q / uCubeN + 0.5); for (int i = 0; i < 6; i++) if (uFCell[i] == c) return i; return -1; }
 // the direction of a net point that is inside a face's rect (w is 0 where it is not)
 vec4 faceDir(vec2 q) {
@@ -70,14 +89,18 @@ void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
   }
   else p.z += uCurveC * dot(d, d);
   // The far levels' coarse triangles run in slopes from one terrace to the next, so over a ledge they lie above the finer ground they are meant to sit under, and show through it as wedges that flicker as the view moves (worse where the depth buffer is short on precision: phones). Where a far level overlaps the finer ground, and for a few tiles past it, it is sunk most of a layer, so it lies under that ground; beyond that it fades back up to its own height.
-  if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) p.z += uTerrace * 0.7 * (1.0 - smoothstep(uHole + uBand, uHole + uBand + 24.0, length(d)));
- gl_Position = uVP * vec4(p, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
+  if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) {   // (and the far ground lies under all of the real chunks' reach, deep inside it: it is drawn everywhere, so that a chunk that is not there yet shows the far ground and not a hole, and where the chunk is there, it is in front)
+    float len = length(d), edge = max(uHole + uBand, uSink), deep = 1.0 - smoothstep(0.55 * uSink, uSink, len);
+    p.z += uTerrace * ((uFarSm > 0.5 ? 1.1 : 0.7) + 5.0 * deep) * (1.0 - smoothstep(edge, edge + 24.0, len));
+  }
+ gl_Position = uVP * vec4(p, 1.0); vPos = aPos; vW = uPlanet > 0.0 ? p : aPos;
+  if (uFar > 0.5) { vUv = uFarUv; vCol = vec4(aCol.rgb, 1.0); vSl = vec3(aUv, aCol.a - dot(aUv, aPos.xy)); } else { vUv = aUv; vCol = aCol; vSl = vec3(0.0); } }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D; precision highp int;
-in vec2 vUv; in vec4 vCol; in vec3 vPos; in float vSD;
-uniform float uCubeN;
-uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+in vec2 vUv; in vec4 vCol; in vec3 vPos, vW; in float vSD; in vec3 vSl;
+uniform float uCubeN, uFarSm, uPlanet, uSpaceK;   // uSpaceK: 0 in the air .. 1 in space
+${SCATTER_GLSL}uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
+uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight, uMoonD; uniform float uMoonK;   // uMoonD: the moon's direction, uMoonK its lit part (-1: no phases, a full moon). uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -90,13 +113,19 @@ void main() {
   // pixel), and the share goes from all the finer one to all the coarser one across it. A ring edge, where the coarse ground is a different shape, shade and detail, is then a stipple, not a seam.
   // (the screen derivatives and every texture read that needs them come first, before any discard: a pixel thrown away below is a quad-mate whose derivatives the others still need, and phones' GPUs, which end a discarded pixel at once, give the rest of its quad garbage for them: texture shimmer along the rings' stipple, moving with the view)
   vec2 dUx = dFdx(vUv), dUy = dFdy(vUv), fw = fwidth(vPos.xy);
-  float fwLv = fwidth(-vPos.z / max(uTerrace, 1e-3));
+  // the height of this pixel. A far level of smooth ground: every vertex lays a plane of its own slope through its height; the three planes of a triangle are blended by the pixel's weights, and since the blend of vertex values (vSl) is all the shader sees, that is h = interpolated height + slope . position - interpolated (slope . vertex position): a curve between the vertices, with no more vertices
+  float hp = uFarSm > 0.5 ? dot(vSl.xy, vPos.xy) + vSl.z : -vPos.z;
+  float fwLv = fwidth(hp / max(uTerrace, 1e-3));
   vec4 tex0 = textureGrad(uTex, vUv, dUx, dUy);
   float dn = (uDbg & 8) != 0 ? 0.5 : fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));   // (nostipple: every pixel has the same share, so the hand-over is a clean cut half way across the band)
   if (uFar > 0.5) {          // a far level: from uHole (where it starts to show through the finer one) to uHoleMax (where it has given way to the next, coarser, one)
-    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
-    if (fd < uHole || fd > uHoleMax) discard;
-    if (dn >= smoothstep(uHole, uHole + uBand, fd)) discard;
+    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy), lo = uHole, bn = uBand;
+    if (uCubeN > 0.0 && uHoleMax > 1e8) {   // a face of the planet: near a cube corner it is drawn at every distance. The plane's chart is a cone unrolled there (a quarter turn short), so some ground near the corner is in none of the rings' squares however wide they are, and the rings alone leave a hole to the sky; the face fills it, and where a ring is drawn too the ring is in front (it is the finer one, see drawFar)
+      vec2 fc = floor(vPos.xy / uCubeN + 0.5), fuv = vPos.xy - fc * uCubeN;
+      if (length(0.5 * uCubeN - abs(fuv)) < 7000.0) { lo = -1.0; bn = 1.0; }
+    }
+    if (fd < lo || fd > uHoleMax) discard;
+    if (dn >= smoothstep(lo, lo + bn, fd)) discard;
     if (uBandOut > 0.0 && dn < smoothstep(uHoleMax - uBandOut, uHoleMax, fd)) discard;   // (the last level has no coarser one to give way to)
   } else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0) {   // a real chunk (the ground of the near ring): it gives way to the far mesh across uHole .. uHole + uBand, the first far level's own entry band
     float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
@@ -113,6 +142,7 @@ void main() {
   if (tint.a > 3.5) { fxq = 1.0; tint.a -= 4.0; }                           // alpha + 4 marks a drawn effect (see FX_*): the quad has no picture, its colour is worked out here; r = which, g and b = its numbers
   if (tint.a > 1.5) { lit = 1.0; tint.a -= 2.0; }                           // alpha + 2 marks a sprite that gives its own light (fire, lightning): no sun tint, no night
   vec4 c = tex0 * tint;
+  if (uFarSm > 0.5) { float fwH = max(fwidth(hp) * 0.7, 1e-4); c.rgb = mix(c.rgb, tex0.rgb * vec3(0.06, 0.42, 0.55), 1.0 - smoothstep(-fwH, fwH, hp)); }   // (the sea: wherever the smooth ground is below 0, so a coast is a curve)
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0 && uSurf < 0.5 && uFar < 0.5) {   // a terraced chunk's picture: each tile's layer rides in its alpha. A pixel belongs to its tile's shelf; where the ground it lands on is another shelf (the contours cut across the tiles' squares), take the same pixel of the nearest tile on this shelf instead (up to two tiles out), so the texture fills every terrace and never spills over a wall
     vec2 gx = dUx, gy = dUy;
     float fl = floor(-vPos.z / uTerrace + 0.04), want = mod(fl + (abs(tn.z) < 0.5 ? 1.0 : 0.0), 16.0);   // (a wall belongs to the shelf it climbs to: it takes that shelf's picture)
@@ -129,8 +159,15 @@ void main() {
     c.a = 1.0;
   }
   if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), bedK * 0.8), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
-  float vDist = distance(vPos, uEye), nk = clamp(uNight.a / 0.7, 0.0, 1.0);
-  vec3 V = (vPos - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
+  vec3 vE = uFar > 0.5 && uCubeN > 0.0 ? vW : vPos;   // (a planet's far ground: its distance, fog and view angle are those of the ball, not of the net)
+  float nA = uNight.a; vec3 nCol = uNight.rgb;
+  float eF = -uSun.z;   // (the sun's height over this ground)
+  if (uCubeN > 0.0 && uPlanet > 0.0) {   // a planet has a day side and a night side: how dark it is here is the sun's height over THIS ground (the ball's up at the point), not over the eye: the dusk line sweeps across the land, and from orbit it is a terminator
+    eF = dot(normalize(vW - vec3(uEye.xy, uPlanet)), uSun);
+    nA = 0.7 * (1.0 - smoothstep(-0.1, 0.1, eF)); nCol = vec3(6.0, 10.0, 36.0) / 255.0;
+  }
+  float vDist = distance(vE, uEye), nk = clamp(nA / 0.7, 0.0, 1.0);
+  vec3 V = (vE - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
   if (fxq > 0.5) {
     float k = tint.g, sd = tint.b, t = uTime;
     vec2 ap = floor(vPos.xy * 16.0);                                        // the art pixel on the ground (16 to a tile), so the effects are as blocky as the tiles
@@ -209,9 +246,9 @@ void main() {
         w = mix(wx, w, clamp(texel - 1.0, 0.0, 1.0));
       }
       float sp = mix(step(0.6, hash(floor(wq * 16.0) + floor(t * 8.0) * 7.0)), 0.4, clamp(texel - 1.0, 0.0, 1.0));   // glitter: art pixels that flash, evened out far away
-      float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, -uSun), 0.0);
+      float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, uMoonD), 0.0);
       w += vec3(1.0, 0.86, 0.6) * (pow(sd, 60.0) * (0.25 + 1.75 * sp) + 3.0 * pow(sd, 400.0)) * uDay;
-      moon = vec3(0.75, 0.85, 1.0) * pow(md, 80.0) * (0.2 + 0.8 * sp) * nk * wm * 0.8;
+      moon = vec3(0.75, 0.85, 1.0) * pow(md, 80.0) * (0.2 + 0.8 * sp) * nk * wm * 0.8 * (uMoonK < 0.0 ? 1.0 : uMoonK);
       c.rgb = mix(c.rgb, w, wm);
     }
   }
@@ -243,7 +280,7 @@ void main() {
     c.rgb = mix(c.rgb, bedC * mix(1.0, 0.74, cliff), bedK * (1.0 - step(0.5, uSurf)));
   }
   if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world are too coarse to be cut into steps, so the terraces are drawn instead: a thin dark line (and every other band a shade darker) wherever the height crosses a layer. At every distance, in steps of 1, 2, 4 ... layers, whichever keeps a band at least about seven pixels wide, so a far mountain is terraced like the ground near it (fewer, wider steps), not smooth where the bands would be thinner than a pixel; the next size cross-fades in as the view opens or closes
-    float lvf = -vPos.z / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
+    float lvf = hp / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
     float lineF = 0.0, shadeF = 1.0;
     for (int k = 0; k < 2; k++) {
       float m = exp2(j + float(k)), wk = k == 0 ? 1.0 - tj : tj, u = lvf / m + 0.04 / m, wm = wf / m;
@@ -283,10 +320,15 @@ void main() {
   if (onGround) fog = vec3(0.30, 0.46, 0.13) * (0.45 + 0.55 * uDay);          // the ground and what stands on it fade into the endless grass plane of the sky (same colour), never into grey sky: that left a grey line at its far edge
   if (uFx > 0.5) {
     if (lit < 0.5) c.rgb *= uLight;                                                           // warm light when the sun is low
-    if (!onGround) fog += vec3(1.0, 0.78, 0.45) * 0.30 * pow(max(dot(V, uSun), 0.0), 14.0) * uDay;   // the haze glows towards the sun, as the sky behind it does
+    if (!onGround) fog = scatter(0.04, dot(normalize(vec3(V.xy, -0.04)), uSun), eF) * (1.0 - 0.45 * uSpaceK);   // far ground and what stands on it fades into the colour of the air at the horizon in its direction: the same as the sky's there (blue away from the sun, golden and glowing towards it, red at sunset)
   }
   c.rgb = mix(c.rgb, fog, clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0));
-  if (lit < 0.5) c.rgb = mix(c.rgb, uNight.rgb, uNight.a);                  // night: the same tint the flat map lays over everything, done here
+  if (uFx > 0.5 && uSpaceK > 0.0 && uCubeN > 0.0 && uPlanet > 0.0 && lit < 0.5) {   // seen from above the air, the ground is behind a column of it that is longer the more slanting the view: towards the planet's edge it fades into the scattered light (blue by day, red at the terminator)
+    float amG = airmass(max(dot(normalize(vW - vec3(uEye.xy, uPlanet)), -V), 0.0));
+    vec3 tt = TAU_R + TAU_M;
+    c.rgb = mix(c.rgb, 1.0 - exp(-inscatter(amG, dot(V, uSun), eF, 0.0)), (1.0 - exp(-dot(tt, vec3(0.3333)) * amG)) * uSpaceK);
+  }
+  if (lit < 0.5) c.rgb = mix(c.rgb, nCol, nA);                  // night: the same tint the flat map lays over everything, done here
   c.rgb += moon;                                                             // (the moon's path on the water stays bright)
   o = c;
   if (uSurf > 0.5) o.a = (uDbg & 16) != 0 && abs(vPos.z) < 1e-4 ? 1.0 : mix(0.45, 0.92, cur);   // a sheet of inland water: see-through (several lie over a deep bed, so it darkens with the depth)
@@ -299,9 +341,24 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
-uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh, uDip;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
+uniform vec3 uF, uR, uU, uHor, uZen, uSun, uMoonD, uMoonR, uMoonU; uniform float uMoonK; uniform vec3 uAtm; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh, uDip;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
 uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas, uDrop; uniform float uHasT, uSea;   // uDrop: how far (degrees) the mountains, then the far, middle and near tree lines have sunk, the higher the eye   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
+${SCATTER_GLSL}
+float mh3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float mvn3(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(mh3(i), mh3(i + vec3(1.0, 0.0, 0.0)), f.x), mix(mh3(i + vec3(0.0, 1.0, 0.0)), mh3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(mh3(i + vec3(0.0, 0.0, 1.0)), mh3(i + vec3(1.0, 0.0, 1.0)), f.x), mix(mh3(i + vec3(0.0, 1.0, 1.0)), mh3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
+// the centre of the cell of a cube-sphere (the planet's own kind: six faces of n x n cells, equal-angle) that a direction falls in
+vec3 cubeCell(vec3 d, float n) {
+  vec3 a = abs(d); float m = max(a.x, max(a.y, a.z));
+  vec3 u = atan(d / m) / 0.7853982;                                          // each component -1..1 across a face
+  vec3 p = tan(((floor((u * 0.5 + 0.5) * n) + 0.5) / n * 2.0 - 1.0) * 0.7853982);
+  if (a.x >= a.y && a.x >= a.z) p.x = sign(d.x); else if (a.y >= a.z) p.y = sign(d.y); else p.z = sign(d.z);   // (the face's own axis stays on the cube)
+  return normalize(p);
+}
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
 // one band of picture: it runs from elevation eb (the picture's row vb) up by hDeg degrees to the top row, and repeats every span degrees round the horizon
 vec4 band(sampler2D tex, float az, float elDeg, float span, float hDeg, float vb, float eb, float drift, float far) {
@@ -317,16 +374,30 @@ vec4 band(sampler2D tex, float az, float elDeg, float span, float hDeg, float vb
 void main() {
   vec3 ray = normalize(uF + uR * (vN.x * uTan.x) + uU * (vN.y * uTan.y));
   float e = clamp(-ray.z + uDip, 0.0, 1.0);                                   // height of the ray over the horizon (z is down). High up the horizon is the planet's rim, uDip below level: the whole sky (its colours, the stars' dome, the picture bands) stands on the rim, or the rays between the rim and level would all sample one row of it and streak
-  vec3 c = mix(uHor, uZen, pow(e, 0.5));
+  float d = dot(ray, uSun), se = clamp(-uSun.z + uDip, -1.0, 1.0);   // (se: the sun's height over the rim, which is the horizon of the sky)
+  vec3 c = uFx > 0.5 ? scatter(e, d, se) : mix(uHor, uZen, pow(e, 0.5));   // (with the shaders on, the sky is the air scattering the sun's light)
   float nk = max(clamp(uNight.a / 0.7, 0.0, 1.0), uSpace);
+  // from space the air is a shell round the planet (uAtm = the planet's radius, the eye's distance from its centre, the shell's scale height, in tiles): a ray that misses the ball passes through it, nearest the ball at its tangent point, where the air is thickest. It shines with the scattered sunlight of that spot (blue by day, red where the sun is setting over it, dark on the night side) and thins out exponentially with the height of the tangent point
+  float amSh = 0.0; vec3 shell = vec3(0.0);
+  if (uFx > 0.5 && uAtm.x > 0.0 && ray.z > 0.0) {
+    float ht = uAtm.y * sqrt(1.0 - ray.z * ray.z) - uAtm.x;
+    if (ht > 0.0) {
+      amSh = 0.35 * sqrt(6.2831853 * uAtm.x / uAtm.z) * exp(-ht / uAtm.z);
+      shell = 1.0 - exp(-inscatter(amSh, d, dot(normalize(ray.z * ray - vec3(0.0, 0.0, 1.0)), uSun), 0.0));
+    }
+  }
+  vec3 Tr = uFx > 0.5 ? exp(-(TAU_R + TAU_M) * mix(airmass(e), amSh, uSpace)) : vec3(1.0);   // what gets through the air along this ray: the sun, the moon and the stars behind it go red and dim towards the horizon, and are seen through its glow, not in front of it
   c = mix(c, vec3(0.004, 0.006, 0.016), uSpace * smoothstep(-0.1, 0.5, e + 0.35 * uSpace));           // space: black above, the air's blue left only low down
-  c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(-ray.z + uDip) * 22.0);      // and a thin blue limb of air along the rim
-  float d = dot(ray, uSun);
-  c += vec3(1.0, 0.78, 0.45) * (0.30 * pow(max(d, 0.0), 14.0) + 0.25 * pow(max(d, 0.0), 120.0)) * uDay;   // the sun's glow
-  c += vec3(1.0, 0.55, 0.25) * 0.22 * pow(max(d, 0.0), 4.0) * pow(1.0 - e, 6.0) * uDay * uFx;               // and the haze low on its side of the horizon
+  if (uFx > 0.5) {
+    c += shell * uSpace;   // (the shell of air round the planet, from space)
+    c += vec3(1.0, 0.78, 0.45) * 0.25 * pow(max(d, 0.0), 120.0) * uDay;   // the sun's own glow (the wider glow is the haze scattering forward, above)
+  } else {
+    c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(-ray.z + uDip) * 22.0);      // and a thin blue limb of air along the rim
+    c += vec3(1.0, 0.78, 0.45) * (0.30 * pow(max(d, 0.0), 14.0) + 0.25 * pow(max(d, 0.0), 120.0)) * uDay;   // the sun's glow
+  }
   float sunMask = smoothstep(0.9990, 0.9994, d) * uDay;
   vec3 S = vec3(1.0, 0.96, 0.8) * (1.0 + 3.0 * uFx) * sunMask; c *= 1.0 - sunMask;   // the sun's disc (brighter than white when the glow pass is on, so it blooms) goes in the layer that everything in front dims: stars and moon behind it too
-  float m = dot(ray, -uSun);
+  float m = dot(ray, uMoonD);
   c = mix(c, uNight.rgb, uNight.a);
   vec3 q = floor(ray * 150.0);
   float h = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -336,16 +407,37 @@ void main() {
     vec2 suv = 0.5 + 0.5 * r * vec2(cos(az2), sin(az2));
     S += texture(uStars, suv).rgb * 1.15 * nk * mix(smoothstep(0.04, 0.35, e), 1.0, uSpace) * (1.0 + uFx * 0.25 * sin(uTime * 2.3 + h * 60.0));   // (they twinkle)
   }                                         // stars, only up high at night
-  if (uHasMoon > 0.5) {                                                                                      // the moon opposite the sun, in front of the stars and the Milky Way: its picture laid across the sky, about seven degrees wide
-    // the picture's up is the normal of the sun's orbit plane (north and a little up, for the 75 degree arc in setHour): always at right angles to the moon, so there is no overhead spot where it breaks, and it turns smoothly with the night like a real moon
-    vec3 md = -uSun, up2 = vec3(0.0, -0.96593, -0.25882), rt = normalize(cross(up2, md));
+  if (uMoonK >= 0.0) {   // a planet's moon is a ball of the same chunky cube-sphere cells as the planet, lit by the sun: each phase has its own natural terminator, and the one face always looks at the planet
+    vec3 md = uMoonD, up2 = uMoonU, rt = uMoonR;
     vec2 q = vec2(dot(ray, rt), dot(ray, up2)) / 0.062;
-    if (dot(ray, md) > 0.0 && abs(q.x) < 1.0 && abs(q.y) < 1.0) { vec4 mt = texture(uMoon, vec2(0.5 + 0.5 * q.x, 0.5 - 0.5 * q.y)); c = mix(c, mt.rgb * 1.08, mt.a * nk); S *= 1.0 - mt.a * nk; }
+    float r2 = dot(q, q);
+    if (dot(ray, md) > 0.0 && r2 < 1.0) {
+      vec3 cc = cubeCell(vec3(q, sqrt(1.0 - r2)), 14.0);                       // the cell on the near side (x right, y up, z towards the viewer: the moon's own frame)
+      vec3 nw = rt * cc.x + up2 * cc.y - md * cc.z;                              // its normal in the sky: the whole cell is lit alike, so the terminator steps along the cells
+      float mare = smoothstep(0.50, 0.60, mvn3(cc * 2.3 + 1.7) * 0.7 + mvn3(cc * 5.1 + 9.2) * 0.3);   // dark seas and pale highlands
+      vec3 alb = mix(vec3(0.86, 0.84, 0.90), vec3(0.46, 0.47, 0.60), mare);
+      alb *= 1.0 - 0.30 * step(0.955, mh3(floor(cc * 31.0))) + 0.10 * step(0.97, mh3(floor(cc * 17.0) + 5.0));   // a few darker and brighter cells for craters
+      float lit = smoothstep(-0.04, 0.28, dot(nw, uSun));
+      vec3 mc = alb * (vec3(0.07, 0.09, 0.14) + lit * vec3(1.06, 1.03, 0.98));   // (the dark side keeps a faint earthshine)
+      float vis = mix(0.55, 1.0, nk);                                            // (it shows in the daytime sky too, paler)
+      S = S * (1.0 - vis) + mc * vis;                                            // (in the layer behind the air, with the sun and the stars: seen through the haze, dimmed by clouds, not painted over them)
+    }
+  } else if (uHasMoon > 0.5) {                                                                               // the moon opposite the sun (worlds that are not a planet), in front of the stars and the Milky Way: its picture laid across the sky, about seven degrees wide
+    vec3 md = uMoonD, up2 = uMoonU, rt = uMoonR;
+    vec2 q = vec2(dot(ray, rt), dot(ray, up2)) / 0.062;
+    if (dot(ray, md) > 0.0 && abs(q.x) < 1.0 && abs(q.y) < 1.0) {
+      vec4 mt = texture(uMoon, vec2(0.5 + 0.5 * q.x, 0.5 - 0.5 * q.y));
+      c = mix(c, mt.rgb * 1.08, mt.a * nk); S *= 1.0 - mt.a * nk;
+    }
   } else c = mix(c, vec3(0.88, 0.92, 1.0), smoothstep(0.9989, 0.9993, m) * nk);                              // (until the picture loads)
   // the layers, far to near, over the sun and the stars: so the sun sets behind the mountains and the clouds drift across it
   float az = atan(ray.y, ray.x), el = degrees(asin(clamp(-ray.z + uDip, -1.0, 1.0)));
   if (el > -91.0) {
     vec3 night = mix(uNight.rgb, vec3(0.03, 0.04, 0.10), 0.6);
+    // the light on the far mountains and trees: the pictures are painted in dusk light, so what lights them is worked out here. Direct sunlight only while the sun is over the rim; it lights the slopes that face the viewer when the sun is behind the viewer (the far side from the sun), and leaves those between the viewer and the sun in shade, as silhouettes (up high, with the sun overhead, it lights them all)
+    float sunUp = smoothstep(-0.06, 0.08, se);
+    float face = clamp(0.5 + 0.5 * dot(-normalize(ray.xy + vec2(1e-5)), normalize(uSun.xy + vec2(1e-5))), 0.0, 1.0);
+    vec3 slope = mix(vec3(0.30, 0.34, 0.50), vec3(1.0), sunUp * mix(0.25, 1.0, mix(1.0, face, smoothstep(0.1, 0.8, length(uSun.xy)))));
     // clouds: the art is dusk light (peach and violet); at midday it turns white and bluish, at night dark
     vec3 whiteCloud = vec3(1.0, 1.0, 1.04);
     for (int i = 0; i < 3; i++) {
@@ -366,7 +458,7 @@ void main() {
       t.a *= 1.0 - uSpace;
       if (t.a > 0.01) {
         float lum = dot(t.rgb, vec3(0.3, 0.59, 0.11));
-        vec3 col = mix(t.rgb, vec3(0.40, 0.52, 0.72) * (0.5 + 1.1 * lum), uNoon * 0.55);   // midday haze
+        vec3 col = mix(t.rgb, vec3(0.40, 0.52, 0.72) * (0.5 + 1.1 * lum), uNoon * 0.55) * slope;   // midday haze, and the sun's light on the slopes
         col = mix(col, night * 0.8 + 0.15 * col, nk * 0.9);
         c = mix(c, col, t.a);
         S *= 1.0 - t.a;
@@ -387,7 +479,7 @@ void main() {
         vec4 t = band(uTrees, az + shift * 6.2831853 / (360.0 / (20.0 * sc)), el + dr, 20.0 * sc, 6.6667 * sc, 0.80, -0.7 * sc, 0.0, i == 0 ? 4500.0 : (i == 1 ? 1800.0 : 700.0));   // (360 / span stays whole: 36, 24, 18)
         t.a *= 1.0 - uSpace;
         if (t.a < 0.01) continue;
-        vec3 col = mix(t.rgb, t.rgb * vec3(0.9, 1.0, 1.0) + 0.04, uNoon * 0.3);
+        vec3 col = mix(t.rgb, t.rgb * vec3(0.9, 1.0, 1.0) + 0.04, uNoon * 0.3) * mix(vec3(1.0), slope, 0.7);
         col = mix(col, mix(col, uHor * 0.8, 0.5), i == 0 ? 0.55 : (i == 1 ? 0.28 : 0.0));   // distance haze
         col = mix(col, night * 0.5 + 0.1 * col, nk * 0.9);
         c = mix(c, col, t.a);
@@ -400,7 +492,7 @@ void main() {
     vec3 hz = mix(uHor * (1.0 - 0.45 * uSpace), uNight.rgb, uNight.a);
     c = mix(c, hz, k); S *= 1.0 - k;
   }
-  c += S;
+  c += S * Tr;
   o = vec4(c, 1.0);
 }`;
 
@@ -527,13 +619,24 @@ export class WorldGL {
     const H = Math.max(0, -this.eye[2]);
     if (this.planet > 0) { if (!(this.curveK > 0) || !(H > 0)) return 0; const q = this.planet / (this.planet + H); return this.curveK * Math.sqrt(1 - q * q); }   // (a ball: the tangent from the eye to it dips by acos(R / (R + H)) below level)
     if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
+  /**
+   * How much daylight the sky shows for this eye (0..1) and how far the eye is above the rim (0..1). `dayK` is the sun's height at the eye's own level; from up high the horizon is the planet's rim, sunk below level
+   * (dipSin), so the sun is still up over it after it has set at the eye's level, and it must go down AT the rim, behind the planet, and not fade out in the open sky first.
+   */
+  private seenDay(): { day: number; high: number } {
+    const dip = this.dipSin(), high = Math.max(0, Math.min(1, dip * 20)), h = -this.sunDir[2] + dip;
+    const t = Math.max(0, Math.min(1, (h + 0.07) / 0.04)), up = t * t * (3 - 2 * t);   // (a disc is about 0.04 across: it is gone when it is wholly under the rim)
+    return { day: this.dayK + (Math.max(this.dayK, up) - this.dayK) * high, high };
+  }
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
   private post: { w: number; h: number; sw: number; sh: number; hdr: boolean; depth: WebGLRenderbuffer; depthBits: number; wantMs: boolean; ms?: { fb: WebGLFramebuffer; color: WebGLRenderbuffer; depth: WebGLRenderbuffer; samples: number }; scene: Target; a: Target; b: Target } | null = null;
   private postBroken = false; private postOn = false;
   private layerTex: (WebGLTexture | null)[] = [null, null, null, null, null]; private starsTex: WebGLTexture | null = null; private moonTex: WebGLTexture | null = null; private spin = 0; private noonK = 0;
-  private sunDir: Vec3 = [0, 0, -1]; private dayK = 1; private zenith: [number, number, number] = [0.3, 0.52, 0.85];                    // how much the camera stands on the ground (0 = the chase camera)
+  /** The Milky Way's picture in the night sky (a setting); off, only the scattered stars are drawn. */
+  milkyway = true;
+  private sunDir: Vec3 = [0, 0, -1]; private moonD: Vec3 = [0, 0, 1]; private moonR: Vec3 = [1, 0, 0]; private moonU: Vec3 = [0, 1, 0]; private moonK = -1; private dayK = 1; private zenith: [number, number, number] = [0.3, 0.52, 0.85];                    // how much the camera stands on the ground (0 = the chase camera)
   readonly gl: WebGL2RenderingContext;
   private prog: WebGLProgram;
   private loc: Record<string, WebGLUniformLocation | null> = {};
@@ -563,7 +666,7 @@ export class WorldGL {
   skyMode = false;
   private terrIbo: WebGLBuffer | null = null;
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
-  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** its vertices carry slopes and signed heights (see the vertex shader) */ smooth: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
   private farIbos = new Map<Uint32Array, WebGLBuffer>();   // the terraced far levels share their index arrays (see terrace.ts farIndices), so each size has one GPU buffer for good
   private farStage = new Float32Array(0);                   // where a far level's vertices are interleaved before the upload (kept for the next one)
   private farOn = false;
@@ -585,6 +688,7 @@ export class WorldGL {
   /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
   capD = 1e5;
   private coverSm = Infinity;
+  private holeNom = Infinity;
   /** For the ?perf readout: where the far mesh began last frame (tiles from the eye), and how far the chunks were meant to reach. */
   private zNear = 0; private zFar = 0;
   /** (?perf) What the GPU gave us: the depth buffer's bits (the scene's own when the glow pass draws it), the near and far planes, the resolution scale, and the renderer's name. A phone that z-fights where a desktop does not shows here. */
@@ -660,8 +764,8 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uMoonD', 'uMoonR', 'uMoonU', 'uMoonK', 'uAtm', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uMoonD', 'uMoonK', 'uSpaceK', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -927,13 +1031,25 @@ export class WorldGL {
 
   // ---- drawing ------------------------------------------------------------------------------------------------------
 
-  /** Set the sun for the time of day (hours): its direction, a warmer horizon at dawn and dusk, and the sky colour the ground fades into. */
+  /** Set the sun for the time of day (hours), on a world that is not a planet: its direction, a warmer horizon at dawn and dusk, and the sky colour the ground fades into. The moon is opposite it, always full. */
   setHour(hour: number) {
-    const e = sunElevation(hour);
     // the sun's path is one great circle, turned at a steady rate: up in the east at 6h, highest in the south (75 degrees) at noon, down in the west at 18h,
     // and on under the ground to the north and back (so the moon, opposite it, takes the same smooth path across the night sky). No kinks, no jump at midnight.
     const th = ((hour - 6) / 24) * Math.PI * 2, dl = (75 * Math.PI) / 180;
     this.sunDir = [Math.cos(th), Math.sin(th) * Math.cos(dl), -Math.sin(th) * Math.sin(dl)];
+    this.applySun(sunElevation(hour), hour);
+    // the moon's picture: its up is the normal of the sun's orbit plane (north and a little up, for the 75 degree arc): always at right angles to the moon, so there is no overhead spot where it breaks
+    const md: Vec3 = [-this.sunDir[0], -this.sunDir[1], -this.sunDir[2]], up2: Vec3 = [0, -0.96593, -0.25882];
+    const rx = up2[1] * md[2] - up2[2] * md[1], ry = up2[2] * md[0] - up2[0] * md[2], rz = up2[0] * md[1] - up2[1] * md[0], rl = Math.hypot(rx, ry, rz) || 1;
+    this.moonD = md; this.moonU = up2; this.moonR = [rx / rl, ry / rl, rz / rl]; this.moonK = -1;
+  }
+  /** Set the sky of a planet: where the sun and the moon stand over the eye (see celestial.ts), and the local solar time (for the stars' slow sway). */
+  setCelestial(sky: SkyState, hour: number) {
+    this.sunDir = sky.sun; this.moonD = sky.moon; this.moonR = sky.moonRt; this.moonU = sky.moonUp; this.moonK = sky.moonK;
+    this.applySun(-sky.sun[2], hour);
+  }
+  /** What follows from the sun's height `e` (sine of its elevation, -1 .. 1): day and noon light, the warmth at dawn and dusk, and the colours of the sky. */
+  private applySun(e: number, hour: number) {
     this.dayK = Math.max(0, Math.min(1, (e + 0.1) / 0.2));
     this.spin = Math.sin((hour / 24) * Math.PI * 2) * 0.1;   // (it only sways a few degrees to and fro over the day, so it never jumps at midnight)
     { const t = Math.max(0, Math.min(1, (e - 0.15) / 0.45)); this.noonK = t * t * (3 - 2 * t); }
@@ -1010,10 +1126,11 @@ export class WorldGL {
     // where the sun is on the screen: the rays fade out as it leaves the picture, and there are none when it is behind the camera or down
     const s = this.sunDir, e = this.eye, at = this.project(e[0] + s[0] * 1e4, e[1] + s[1] * 1e4, e[2] + s[2] * 1e4);
     let rays = 0, su = 0.5, sv = 0.5;
-    if (at && this.dayK > 0) {
+    const seen = this.seenDay();
+    if (at && seen.day > 0) {
       su = at[0] / this.W; sv = 1 - at[1] / this.H;
       const out = Math.max(0, -su, su - 1, -sv, sv - 1);
-      rays = this.fx ? this.dayK * (1 - this.night[3]) * 0.55 * Math.max(0, 1 - out / 0.5) : 0;
+      rays = this.fx ? seen.day * (1 - this.night[3] * (1 - seen.high)) * 0.55 * Math.max(0, 1 - out / 0.5) : 0;
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, p.w, p.h); gl.useProgram(pp.comp);
     gl.bindTexture(gl.TEXTURE_2D, p.scene.tex); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, p.a.tex); gl.activeTexture(gl.TEXTURE0);
@@ -1038,8 +1155,10 @@ export class WorldGL {
       gl.uniform3f(L.uF, this.F[0], this.F[1], this.F[2]); gl.uniform3f(L.uR, this.R[0], this.R[1], this.R[2]); gl.uniform3f(L.uU, this.U[0], this.U[1], this.U[2]);
       gl.uniform3f(L.uHor, this.sky[0], this.sky[1], this.sky[2]); gl.uniform3f(L.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
       gl.uniform3f(L.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform2f(L.uTan, this.tanX, this.tanY);
-      gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.dayK); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
-      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uDip, this.dipSin()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
+      gl.uniform3f(L.uMoonD, this.moonD[0], this.moonD[1], this.moonD[2]); gl.uniform3f(L.uMoonR, this.moonR[0], this.moonR[1], this.moonR[2]); gl.uniform3f(L.uMoonU, this.moonU[0], this.moonU[1], this.moonU[2]); gl.uniform1f(L.uMoonK, this.moonK);
+      { const R = this.planet, ok = R > 0 && this.curveK > 0, H = Math.max(0, -this.eye[2]); gl.uniform3f(L.uAtm, ok ? R : 0, R + H, 0.06 * Math.max(R, 1)); }   // (the shell of air: scale height 6 % of the radius)
+      gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.seenDay().day); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
+      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uDip, this.dipSin()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex && this.milkyway ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
       gl.uniform2f(L.uPos, Math.tanh(this.eye[0] / 400) * 400, Math.tanh(this.eye[1] / 400) * 400);   // (the position is squashed to +-400 tiles: the shift changes with the azimuth, so a big shift would squeeze and stretch the clouds; this keeps every layer within about 9% of its width)
       gl.uniform1f(L.uHasMoon, this.moonTex ? 1 : 0);
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
@@ -1068,7 +1187,7 @@ export class WorldGL {
     gl.uniform1i(this.loc.uTex, 0);
     gl.uniform4f(this.loc.uNight, nt[0], nt[1], nt[2], nt[3]);
     gl.uniform1f(this.loc.uFx, this.fx ? 1 : 0); gl.uniform1f(this.loc.uTime, (performance.now() / 1000) % 3600); gl.uniform1f(this.loc.uDay, this.dayK);
-    gl.uniform3f(this.loc.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform3f(this.loc.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
+    gl.uniform3f(this.loc.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform3f(this.loc.uMoonD, this.moonD[0], this.moonD[1], this.moonD[2]); gl.uniform1f(this.loc.uMoonK, this.moonK); gl.uniform1f(this.loc.uSpaceK, this.space); gl.uniform3f(this.loc.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
     gl.uniform3f(this.loc.uLight, this.light[0], this.light[1], this.light[2]);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
     const stride = FLOATS * 4;
@@ -1106,7 +1225,7 @@ export class WorldGL {
       this.undrawn = Math.max(0, this.undrawn);
     }
     gl.bindVertexArray(null);   // (a chunk made just now has its vertex array bound: the far mesh must not rewrite it)
-    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.coverSm * 0.9); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
+    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.holeNom); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);   // the flat map's water colour, under every ground tile
     gl.uniform1i(this.loc.uDbg, dbgBits());   // (the bisect switches of the Debug section, read every frame so a click shows at once)
@@ -1235,7 +1354,7 @@ export class WorldGL {
   }
 
   /** Give a hilly world its far meshes, finest first (see lakeFarLods): positions, colours and indices of each. */
-  setFar(lods: { pos: Float32Array; col: Float32Array; idx: Uint32Array }[] | null) {
+  setFar(lods: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }[] | null) {
     const gl = this.gl;
     if (this.farMesh) for (const m of this.farMesh) if (m) { gl.deleteBuffer(m.vbo); if (!m.shared) gl.deleteBuffer(m.ibo); }
     this.farMesh = null;
@@ -1248,15 +1367,15 @@ export class WorldGL {
    * vertices are interleaved a slice at a time, then uploaded in one go, over the old buffer's storage when the size is the same (it always is), and with the index buffer the
    * level already has. The old level keeps drawing until the swap.
    */
-  *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
-    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
+  *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
+    const gl = this.gl, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
     if (this.farStage.length !== len) this.farStage = new Float32Array(len);
     const v = this.farStage;
     // a new buffer, filled a slice a frame and swapped in at the end: one upload of the whole level is several MB, a long stall on a phone, and writing into the buffer being drawn would show half a level
     const vbo = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v.byteLength, gl.STATIC_DRAW); this.endTerrain();
     for (let a = 0; a < n; a += SLICE) {
       const e = Math.min(n, a + SLICE);
-      for (let k = a; k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = 1; }
+      for (let k = a; k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = m.aux ? m.aux[k * 3] : 0; v[o + 4] = m.aux ? m.aux[k * 3 + 1] : 0; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = m.aux ? m.aux[k * 3 + 2] : 0; }   // (a far level's picture coordinates are one dot's, a uniform; its vertices carry the slope and signed height in their place, see the vertex shader)
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, a * FLOATS * 4, v, a * FLOATS, (e - a) * FLOATS); this.endTerrain();   // (the usual buffers bound again for whatever draws next)
       yield;
     }
@@ -1266,26 +1385,28 @@ export class WorldGL {
     if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
     if (old) gl.deleteBuffer(old.vbo);
     const cols = Math.round(Math.sqrt(n));
-    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
+    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, smooth: !!m.aux, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
     this.endTerrain();
   }
-  private uploadFar(m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }) {
-    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2;
+  private uploadFar(m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }) {
+    const gl = this.gl;
     const n = m.pos.length / 3, v = new Float32Array(n * FLOATS);
-    for (let i = 0; i < n; i++) { const o = i * FLOATS; v[o] = m.pos[i * 3]; v[o + 1] = m.pos[i * 3 + 1]; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[i * 3]; v[o + 6] = m.col[i * 3 + 1]; v[o + 7] = m.col[i * 3 + 2]; v[o + 8] = 1; }
+    for (let i = 0; i < n; i++) { const o = i * FLOATS; v[o] = m.pos[i * 3]; v[o + 1] = m.pos[i * 3 + 1]; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = m.aux ? m.aux[i * 3] : 0; v[o + 4] = m.aux ? m.aux[i * 3 + 1] : 0; v[o + 5] = m.col[i * 3]; v[o + 6] = m.col[i * 3 + 1]; v[o + 7] = m.col[i * 3 + 2]; v[o + 8] = m.aux ? m.aux[i * 3 + 2] : 0; }
     const vbo = gl.createBuffer()!, ibo = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
-    return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false };
+    return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false, smooth: !!m.aux };
   }
   private drawFar() {
     const gl = this.gl, stride = FLOATS * 4;
     const want = Math.min(this.nearReach, this.cover, this.undrawn);
     this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
-    const hole = this.coverSm * 0.9;
-    this.nearBand = Math.max(1, Math.min(40, this.coverSm * 0.1));   // (the real chunks are built out to coverSm, so the band between 0.9 and 1.0 of it is ground they can still draw)
+    // The far ground is no longer held back inside the chunks that happen to be built: it is drawn all the way in, sunk deep under the real ground (see the vertex shader), so a chunk that is missing shows it, and a chunk that is built is never hidden by it. The chunks' own edge is where they are meant to reach (nearReach), not where the nearest gap is.
+    const nom = this.nearReach > 0 ? this.nearReach : this.coverSm, hole = nom * 0.9;
+    this.nearBand = Math.max(1, Math.min(40, nom * 0.1)); this.holeNom = hole;
+    gl.uniform1f(this.loc.uSink, hole + this.nearBand);   
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
-    gl.uniform1f(this.loc.uFar, 1); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
+    gl.uniform1f(this.loc.uFar, 1); gl.uniform2f(this.loc.uFarUv, (this.cells.dot.u0 + this.cells.dot.u1) / 2, (this.cells.dot.v0 + this.cells.dot.v1) / 2); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
     const kk = Math.max(1, this.drawK), E = this.farRing ? this.farRing.map((v, i) => (i === 1 || i === 2 ? v * kk : v)) : [260 * kk, 820 * kk, 2600, 8000];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)
     // the levels in use: from the finest one wanted (and built) to the coarsest. The first starts at the hole; each next one a little inside where the one before ends (no crack)
@@ -1296,8 +1417,8 @@ export class WorldGL {
     this.farMesh!.forEach((f, i) => {
       const face = i >= rc;
       if ((i < lo && !face) || !f) return;
-      const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
-      const bandIn = prevEnd < 0 ? this.nearBand : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
+      const s0 = prevEnd < 0 ? 0 : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
+      const bandIn = prevEnd < 0 ? 1 : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
       if (!face) prevEnd = e0;   // (faces all begin where the last ring ends)
       gl.polygonOffset(1 + i * 1.5, 1 + i * 1.5);                         // (where two levels overlap the finer one wins every pixel, so they never fight; and all of them give way to the real ground in the ring where it overlaps the first: it was pulled in front of it, and its coarse triangles showed through beside the ledges)
       gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, e0 >= 1e8 ? 0 : 20 * kk);
@@ -1308,10 +1429,11 @@ export class WorldGL {
         const { cols, y0, step } = f.grid, r0 = Math.max(0, Math.min(cols - 2, Math.floor((this.eye[1] - e0 - 40 - y0) / step))), r1 = Math.max(r0 + 1, Math.min(cols - 1, Math.ceil((this.eye[1] + e0 + 40 - y0) / step)));
         first = r0 * (cols - 1) * 6 * 4; count = (r1 - r0) * (cols - 1) * 6;
       }
+      gl.uniform1f(this.loc.uFarSm, f.smooth ? 1 : 0);
       gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
     });
     gl.disable(gl.POLYGON_OFFSET_FILL);
-    gl.uniform1f(this.loc.uFar, 0);
+    gl.uniform1f(this.loc.uFar, 0); gl.uniform1f(this.loc.uFarSm, 0);
     this.endTerrain();
   }
 

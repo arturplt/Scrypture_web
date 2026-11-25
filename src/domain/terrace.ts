@@ -1005,32 +1005,42 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
 /** The far view's base colour of grass by biome (index into BIOME_LIST): grassland, forest, wetland; the tint of the layer is multiplied in. */
 const BIOME_FAR: [number, number, number][] = [[0.30, 0.46, 0.13], [0.13, 0.31, 0.11], [0.22, 0.40, 0.25]];
 
-export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; idx: Uint32Array }
+export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; idx: Uint32Array; /** (an unstepped level only) per vertex: the height's slope east and south, and its signed height (below 0 at sea), so the shader can work out the ground between the vertices, see `aux` of TerraceFarMesh */ aux?: Float32Array }
 
 /**
  * A coarse mesh for the far view, `step` tiles a vertex, `half` tiles each way from (cx, cy), coloured by band and lit from the north-west. With `stepped` the heights are the
  * terraces' own (`terraceH`), so near hills keep their shelves and ledges and meet the real chunks without a change of shape; without it they are the smooth elevation
  * (past a few hundred tiles the terraces are finer than a vertex). Built a few rows at a time (a generator), so building one never stalls a frame; the last value it yields is the mesh.
  */
-export function* terraceFarMesh(seed: number, cx: number, cy: number, step: number, half: number, stepped = false, open = 0): Generator<null, TerraceFarMesh, void> {
-  const cols = Math.floor((half * 2) / step) + 1, rows = cols, n = cols * rows, x0 = cx - half, y0 = cy - half;
-  const ev = new Float32Array(n), lakes = lakeScalesFor(step);
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) ev[j * cols + i] = elevation(x0 + i * step, y0 + j * step, seed, lakes);
+export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: number, half: number, stepped = false, open = 0, up = 1, inset = 0): Generator<null, TerraceFarMesh, void> {
+  const cc = Math.floor((half * 2) / stepIn) + 1, x0 = cx - half, y0 = cy - half;   // (the elevations are sampled `stepIn` apart ...)
+  // (`inset`: the ground is read this far inside the square's edge. The edge of a planet's face is the edge of its cell: a point exactly on it is read as the next cell's, which on a cut edge is no face at all, so the face's edge row came out as the wrong ground, or off the planet and sunk, and left a crack between faces)
+  const CX = (d: number) => Math.min(Math.max(x0 + d, x0 + inset), x0 + half * 2 - inset), CY = (d: number) => Math.min(Math.max(y0 + d, y0 + inset), y0 + half * 2 - inset);
+  const ec = new Float32Array(cc * cc), lakes = lakeScalesFor(stepIn);
+  for (let j = 0; j < cc; j++) {
+    for (let i = 0; i < cc; i++) ec[j * cc + i] = elevation(CX(i * stepIn), CY(j * stepIn), seed, lakes);
     if ((j & 1) === 1) yield null;
   }
+  // ... and with `up` > 1 the mesh has `up` vertices where they were one, on a smooth (cubic) curve through the samples: the contours, the coasts and the shading come out round, not as the straight edges of a coarse grid
+  const cols = up > 1 ? (cc - 1) * up + 1 : cc, rows = cols, n = cols * rows, step = stepIn / (up > 1 ? up : 1);
+  const ev = up > 1 ? upsampleCubic(ec, cc, up) : ec;
+  if (up > 1) yield null;
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
   const eh = open > 0 ? openGrid(ev, cols, rows, open) : ev;   // (the heights: the elevations with the peaks narrower than a few vertices shaved off, so the far tops are flat shelves, not spikes)
-  const H = (i: number, j: number) => { const e = eh[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))]; return e <= 0 ? 0 : stepped ? terraceH(e) : e * TERRACE_STEP; };
+  const H = (i: number, j: number) => { const e = eh[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))]; return e <= 0 ? 0 : stepped ? terraceH(e) : Math.max(0, e - 0.5) * TERRACE_STEP; };   // (smooth ground stands half a layer lower than the elevation: the real chunks' shelves are the elevation rounded down, so on average half a layer below it, and a smooth level at the full elevation would stand over them. The shader still draws the layer lines at the true height)
   const L = [-0.55, -0.55, 0.63];
+  // An unstepped level also gives each vertex the slope of the ground and its signed height. The shader lays a plane of that slope through every vertex and blends the three of a triangle, so the height between vertices is a smooth curve: the contour lines, the coasts and the shading come out round at any size of cell, not as the straight edges of the triangles.
+  const aux = stepped ? undefined : new Float32Array(n * 3), Hs = (i: number, j: number) => eh[Math.max(0, Math.min(rows - 1, j)) * cols + Math.max(0, Math.min(cols - 1, i))] * TERRACE_STEP;
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const k = j * cols + i, e = ev[k], h = H(i, j);
-      pos[k * 3] = x0 + i * step; pos[k * 3 + 1] = y0 + j * step; pos[k * 3 + 2] = -h;
+      if (aux) { const i0 = Math.max(0, i - 1), i1 = Math.min(cols - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(rows - 1, j + 1); aux[k * 3] = (Hs(i1, j) - Hs(i0, j)) / ((i1 - i0) * step); aux[k * 3 + 1] = (Hs(i, j1) - Hs(i, j0)) / ((j1 - j0) * step); aux[k * 3 + 2] = Hs(i, j); }
+      pos[k * 3] = CX(i * step); pos[k * 3 + 1] = CY(j * step); pos[k * 3 + 2] = -h;
       let r: number, g: number, b: number;
-      if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
+      if (aux && e < 0) { r = 0.91; g = 0.78; b = 0.54; }   // (the sea of an unstepped level: the shader draws it where the ground is below 0, so its vertices carry the shore's colour, and the coast is a clean curve, not a blend of blue and sand)
+      else if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(CX(i * step), CY(j * step), seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
       else {
-        const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
+        const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(CX(i * step), CY(j * step), seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
         if (lay === 0 || (bio === 3 && lay >= bareFrom())) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }   // (sand: the beach and the bare tops only; dry country above the beach is grass to the eye up close, so it is grass from afar too, not sand that turns green as you come)
         else {
           // each layer its own tint, as up close, where the terraces are wide enough to tell apart: the steeper the ground (layers a vertex), the less of it, so a hillside of thin layers is a plain ramp and not noise
@@ -1045,7 +1055,25 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
     }
     yield null;   // (a row a slice: the colouring reads the lakes and the moisture, several times the cost of the heights)
   }
-  return { cols, rows, step, cx, cy, pos, col, idx: farIndices(cols) };
+  return { cols, rows, step, cx, cy, pos, col, idx: farIndices(cols), aux };
+}
+/** A square grid of `cc` x `cc` samples made `up` times finer (cubic Catmull-Rom through the samples, along x then along y; each new value is kept within the range of the four samples it comes from, so there is no ringing at a coast or a cliff). */
+function upsampleCubic(g: Float32Array, cc: number, up: number): Float32Array {
+  const m = (cc - 1) * up + 1, tmp = new Float32Array(m * cc), out = new Float32Array(m * m);
+  const cr = (p0: number, p1: number, p2: number, p3: number, t: number) => {
+    const v = p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+    const lo = Math.min(p0, p1, p2, p3), hi = Math.max(p0, p1, p2, p3);
+    return v < lo ? lo : v > hi ? hi : v;
+  };
+  for (let j = 0; j < cc; j++) for (let i = 0; i < m; i++) {
+    const a = Math.min(cc - 2, Math.floor(i / up)), t = i / up - a, r = j * cc, c = (k: number) => g[r + Math.max(0, Math.min(cc - 1, k))];
+    tmp[j * m + i] = t === 0 && i === (cc - 1) * up ? c(cc - 1) : cr(c(a - 1), c(a), c(a + 1), c(a + 2), t);
+  }
+  for (let j = 0; j < m; j++) {
+    const a = Math.min(cc - 2, Math.floor(j / up)), t = j / up - a, c = (k: number) => Math.max(0, Math.min(cc - 1, k)) * m;
+    for (let i = 0; i < m; i++) out[j * m + i] = cr(tmp[c(a - 1) + i], tmp[c(a) + i], tmp[c(a + 1) + i], tmp[c(a + 2) + i], t);
+  }
+  return out;
 }
 /** A grid opened: eroded then dilated by a square window `r` vertices each way (min, then max), which cuts off every bump narrower than 2r + 1 vertices at the height of what it stands on (and so leaves wider tops as they are). */
 function openGrid(g: Float32Array, cols: number, rows: number, r: number): Float32Array {
@@ -1070,7 +1098,7 @@ export function farIndices(cols: number): Uint32Array {
   return idx;
 }
 /** The far levels for a terraced world: fine, medium, coarse, then two for height (step, half-size in tiles, and how far the eye may move before it is rebuilt). Each is about the same number of vertices: the higher the eye, the coarser and wider the ground, so it costs no more to build. */
-export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true, open: 2 }, { step: 12, half: 2400, moveBy: 480, stepped: true, open: 2 }, { step: 32, half: 4000, moveBy: 800, stepped: true, open: 1 }, { step: 128, half: 12000, moveBy: 2400, stepped: false, open: 0 }, { step: 400, half: 40000, moveBy: 8000, stepped: false, open: 0 }] as const;
+export const TERRACE_FAR_LODS = [{ step: 5, half: 1000, moveBy: 200, stepped: true, open: 2, up: 1 }, { step: 12, half: 2400, moveBy: 480, stepped: true, open: 2, up: 1 }, { step: 32, half: 4000, moveBy: 800, stepped: true, open: 1, up: 1 }, { step: 128, half: 12000, moveBy: 2400, stepped: false, open: 0, up: 1 }, { step: 400, half: 40000, moveBy: 8000, stepped: false, open: 0, up: 1 }] as const;
 /** The finest far level worth having when the eye is this high (tiles above the ground) or this far from where it will be when a level is rebuilt (the flying speed, tiles a second, times about 25 s): from up there the finer ones are pixels, or the plane is off their edge before they are ready, so they are neither built nor drawn. */
 export const FAR_LEVEL_FROM = [0, 500, 1600, 5000, 16000] as const;
 export const farLevelFor = (eyeH: number, from: readonly number[] = FAR_LEVEL_FROM) => { let lo = 0; for (let i = 0; i < from.length; i++) if (eyeH >= from[i]) lo = i; return lo; };
@@ -1079,7 +1107,7 @@ export const farLevelFor = (eyeH: number, from: readonly number[] = FAR_LEVEL_FR
  * cut exactly along every contour, and on steep range country that is up to ten thousand triangles a chunk; this level shows the same terraces from two-tile vertices for a few tens of thousands in all.
  * (A real map keeps TERRACE_FAR_LODS and the real chunks out to their old reach.)
  */
-export const TERRACE_FAR_LODS_HILLS = [{ step: 2, half: 220, moveBy: 60, stepped: true, open: 1 }, ...TERRACE_FAR_LODS] as const;
+export const TERRACE_FAR_LODS_HILLS = [{ step: 2, half: 220, moveBy: 60, stepped: true, open: 1, up: 1 }, { step: 5, half: 1000, moveBy: 200, stepped: false, open: 0, up: 1 }, { step: 12, half: 2400, moveBy: 480, stepped: false, open: 0, up: 1 }, { step: 32, half: 4000, moveBy: 800, stepped: false, open: 0, up: 1 }, TERRACE_FAR_LODS[3], TERRACE_FAR_LODS[4]] as const;   // (past the finest ring, which meets the real chunks, the ground is the smooth elevation, not the stepped one, and the shader works out its shape between the vertices (see `aux` of TerraceFarMesh): round hills, round coasts; the contour lines in the shader still show the layers)
 export const FAR_LEVEL_FROM_HILLS = [0, 60, 500, 1600, 5000, 16000] as const;
 /** How far (tiles, times the draw distance setting) the real chunks reach in the seeded hills; beyond it the fine far level draws. */
 export const HILLS_NEAR = 64;
