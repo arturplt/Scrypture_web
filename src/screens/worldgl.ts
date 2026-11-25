@@ -16,7 +16,7 @@
  */
 import type { TerraceMesh } from '../domain/terrace';
 import { TILE_PX, sunElevation } from '../domain';
-import { bandGlsl, BAND_ALT } from '../domain/terrace';
+import { bandGlsl } from '../domain/terrace';
 import { CLOUD_W, CLOUD_H, loadSkyBands, silhouette } from './cloudsprites';
 import { FLAME_W, FLAME_H, BOLT_W, BOLT_H } from './firesprites';
 import { BEAVER_W, BEAVER_H } from './beaversprites';
@@ -158,26 +158,25 @@ void main() {
     }
   }
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0) {   // a terraced world (terrace.ts): every layer a band of its own colour, the ledges between them earth walls with a light lip and a dark foot, after Godus
-    float hgt = -vPos.z, lv = hgt / uTerrace + 0.04, lay = floor(lv), fr = fract(lv), up = -tn.z;   // (+0.04: a shelf sits exactly on a multiple of the step, so it must not flicker between two layers)
-    float wq = isWater(c.rgb), grassK = smoothstep(-0.02, 0.06, c.g - c.r);
-    vec3 bt = bandTint(lay), btUp = bandTint(lay + 1.0);   // (a ledge belongs to the shelf it climbs to: btUp)
-    float alt = mod(lay, 2.0) > 0.5 ? ${BAND_ALT.toFixed(2)} : 1.0;
-    vec3 land = c.rgb * mix(vec3(1.0), bt, grassK) * alt;
-    float cliff = 1.0 - smoothstep(0.84, 0.97, up), edge = 1.0 - smoothstep(0.975, 0.997, up);
-    vec3 earth = mix(vec3(0.80, 0.66, 0.45), vec3(0.86, 0.78, 0.55) * btUp, 0.35);   // warm sandy cream, with a hint of the shelf above it
-    vec3 wall = mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9;
-    wall *= (0.78 + 0.30 * fr) * (0.93 + 0.14 * hash(vec2(floor(hgt * 16.0), lay)));   // darker at the foot, lighter towards the lip; strata an art pixel high
-    land = mix(land, wall, cliff);
-    land = mix(land, land * 1.22 + 0.05, smoothstep(0.72, 0.9, fr) * edge);   // the lip: a light rim along the top of every ledge
-    land = mix(land, land * 0.68, (1.0 - smoothstep(0.04, 0.16, fr)) * edge * step(0.06, fr));   // the foot: a dark crease where the ledge meets the shelf below
-    // water lies on level ground only: a wall face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is an earth wall like any other, except where the water is on its high side and
+    float hgt = -vPos.z, lvs = hgt / uTerrace + 0.04, lay = floor(lvs), fr = clamp((lvs - lay - 0.04) / 0.96, 0.0, 1.0), up = -tn.z;   // (the ground is flat shelves joined by straight ramps: fr is how far up a ramp this pixel is, 0 on a shelf; +0.04 keeps a shelf from flickering between two layers)
+    vec4 sa = textureLod(uTex, vUv, 2.5); vec3 smo = mix(uBase.rgb, sa.rgb, sa.a);   // the picture softened: its speckle goes, its colours stay (low poly, flat colour)
+    vec3 base = mix(c.rgb, smo, 0.8);
+    float wq = isWater(c.rgb), grassK = smoothstep(-0.02, 0.06, base.g - base.r);
+    vec3 bt = mix(bandTint(lay), bandTint(lay + 1.0), fr);   // every layer its own colour, blending along the ramp to the next
+    vec3 land = base * mix(vec3(1.0), bt, grassK);
+    float cliff = 1.0 - smoothstep(0.84, 0.97, up), slope = 1.0 - smoothstep(0.90, 0.995, up);
+    vec3 earth = mix(vec3(0.80, 0.66, 0.45), vec3(0.86, 0.78, 0.55) * bt, 0.35);   // warm sandy cream, with a hint of the layer's colour
+    land = mix(land, mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9, (1.0 - smoothstep(0.80, 0.96, up)) * 0.5);   // the steep ramps go to earth, half way
+    land = mix(land, land * 1.14 + 0.03, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every ramp
+    land = mix(land, land * 0.78, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a ramp meets the shelf below
+    // water lies on level ground only: a ramp face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is ground like any other, except where the water is on its high side and
     // spills over (a few stretches of every rim, picked by a hash of the place): there it is a waterfall, falling streaks of foam and a white foot
     vec2 nd = normalize(tn.xy + vec2(1e-5)) * uTileUv * 0.45;
     float fallOn = cliff * step(0.5, waterAt(vUv - nd, dUx, dUy)) * (1.0 - step(0.5, waterAt(vUv + nd, dUx, dUy))) * step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 0.2), floor((vPos.x - vPos.y) * 0.2))));
     vec3 fallC = mix(vec3(0.12, 0.46, 0.64), vec3(0.88, 0.96, 1.0), step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 8.0), floor(hgt * 12.0 + uTime * 6.0)))) * 0.8 + (1.0 - smoothstep(0.0, 0.12, fr)) * 0.5);
     vec3 bedC = mix(texture(uTex, vUv).rgb * 0.5, vec3(0.05, 0.24, 0.32), 0.5);   // the ground under inland water: the picture's own sand, darkened and shifted to teal (water filters the light), so the see-through sheets over it read as depth
     c.rgb = mix(mix(land, c.rgb, wq * (1.0 - cliff)), fallC, fallOn);
-    c.rgb = mix(c.rgb, bedC * mix(vec3(1.0), bt, 0.0) * alt, bedK * (1.0 - cliff) * (1.0 - step(0.5, uSurf)));
+    c.rgb = mix(c.rgb, bedC, bedK * (1.0 - cliff) * (1.0 - step(0.5, uSurf)));
   }
   if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world: too coarse to be cut into steps, so each layer's contour is drawn instead, a thin dark line (and every other band a shade darker) wherever the height crosses a whole layer, which fades out once the bands are thinner than a few pixels
     float lvf = -vPos.z / uTerrace, wf = max(fwidth(lvf), 1e-4), frf = fract(lvf + 0.04), fadeF = 1.0 - smoothstep(0.2, 0.55, wf);
@@ -463,7 +462,7 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; used?: number }>();
+  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; used?: number; stale?: boolean }>();
   /** Chunk textures no chunk is using, kept to be written over: making and freeing textures as you fly makes the driver stall, writing into one that exists does not. */
   private texPool: WebGLTexture[] = [];
   /** How many chunk textures one frame may upload at most (also stops at ~3 ms). The upload and its mipmaps mostly cost GPU time the frame's own timers cannot see, so it is a count, set by the game: a few while the screen first fills, then one or two. */
@@ -981,12 +980,13 @@ export class WorldGL {
     // a new chunk costs a texture (read back, uploaded, mip-mapped) and, on hills, a mesh: far too much for one frame when a lot come in at once (flying fast, a camera jump).
     // So only a few are made each frame, the nearest first (at least one, then while ~3 ms last); the rest are skipped this frame and drawn once their turn comes.
     let pending: typeof list | null = null;
-    for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || ent.src !== c.src || (this.terrain && !ent.vao)) (pending ??= []).push(c); }
+    for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || ent.src !== c.src || (this.terrain && (!ent.vao || ent.stale))) (pending ??= []).push(c); }
     let made = 0;
     this.lastMade = 0;
     if (pending) {
       const ex = this.eye[0], ey = this.eye[1];
-      pending.sort((a, b) => Math.hypot((a.cx + 0.5) * chunkTiles - ex, (a.cy + 0.5) * chunkTiles - ey) - Math.hypot((b.cx + 0.5) * chunkTiles - ex, (b.cy + 0.5) * chunkTiles - ey));
+      const hole = (c: GroundChunk) => { const e = this.chunkTex.get(c.key); return !e || !e.vao ? 0 : 1; };   // (a chunk with nothing to draw before one that is only out of date: the hole first, whatever its distance)
+      pending.sort((a, b) => hole(a) - hole(b) || Math.hypot((a.cx + 0.5) * chunkTiles - ex, (a.cy + 0.5) * chunkTiles - ey) - Math.hypot((b.cx + 0.5) * chunkTiles - ex, (b.cy + 0.5) * chunkTiles - ey));
       const t0 = performance.now();
       for (const c of pending) { if (made > 0 && (made >= this.uploadMax || performance.now() - t0 > 3)) break; made++; const e0 = performance.now(); this.ensureChunk(c, chunkTiles); this.oneMs = Math.max(this.oneMs, performance.now() - e0); }
       this.madeMs = Math.max(this.madeMs, performance.now() - t0); this.madeN += made; this.oneN += made; this.lastMade = made;
@@ -1045,7 +1045,7 @@ export class WorldGL {
     if (!ent) { ent = { src: c.src, tex: this.chunkTexture(c.src, null) }; this.chunkTex.set(c.key, ent); }
     else if (ent.src !== c.src) { this.chunkTexture(c.src, ent.tex); ent.src = c.src; if (c.meshBox?.mesh && ent.vao) this.dropTerrainMeshes([c.key]); }   // (a changed chunk is written into its own texture; when the worker sent its mesh too, that one is cut in)
 
-    if (this.terrain && !ent.vao) this.prepTerrain(c, ent, chunkTiles);
+    if (this.terrain && (!ent.vao || ent.stale)) { if (ent.stale) this.freeMesh(ent); this.prepTerrain(c, ent, chunkTiles); }
   }
 
   /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. A terraced world brings its own mesh (`terraceMesh`) instead: level pieces and vertical walls. */
@@ -1100,17 +1100,19 @@ export class WorldGL {
       gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh!); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.ibo ?? this.terrIbo);
       gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
+      gl.bindVertexArray(null);   // (never leave the chunk's own vertex array bound: whatever binds buffers next (`endTerrain`, a far-mesh upload, the sprite pass) would change ITS index buffer, and the chunk could not be drawn again: the dark squares)
     }
   }
-  /** Forget the meshes of these chunks (their ground changed under water): each is built again, from the new ground, the next time it is drawn. */
+  /** Mark the meshes of these chunks as out of date (their ground changed under water): each keeps drawing as it is until its turn comes to be built again from the new ground (a few a frame, nearest first), so no chunk is ever a hole meanwhile. */
   dropTerrainMeshes(keys: number[]) {
+    for (const k of keys) { const e = this.chunkTex.get(k); if (e && e.vao) e.stale = true; }
+  }
+  /** Give back a chunk's mesh buffers (it is built again straight after, or the chunk is gone). */
+  private freeMesh(e: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; stale?: boolean }) {
     const gl = this.gl;
-    for (const k of keys) {
-      const e = this.chunkTex.get(k); if (!e || !e.vao) continue;
-      if (e.mesh) gl.deleteBuffer(e.mesh); if (e.ibo) gl.deleteBuffer(e.ibo); gl.deleteVertexArray(e.vao);
-      if (e.wmesh) gl.deleteBuffer(e.wmesh); if (e.wibo) gl.deleteBuffer(e.wibo); if (e.wvao) gl.deleteVertexArray(e.wvao);
-      e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined;
-    }
+    if (e.mesh) gl.deleteBuffer(e.mesh); if (e.ibo) gl.deleteBuffer(e.ibo); if (e.vao) gl.deleteVertexArray(e.vao);
+    if (e.wmesh) gl.deleteBuffer(e.wmesh); if (e.wibo) gl.deleteBuffer(e.wibo); if (e.wvao) gl.deleteVertexArray(e.wvao);
+    e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined; e.stale = false;
   }
   private drawTerrainChunk(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, n = tiles * this.terrainSub;
@@ -1216,9 +1218,10 @@ export class WorldGL {
     for (const c of list) {
       if (performance.now() - t0 > ms) break;
       const ent = this.chunkTex.get(c.key);
-      if (ent && ent.src === c.src && (!this.terrain || ent.vao)) { ent.used = this.groundFrames; continue; }
+      if (ent && ent.src === c.src && (!this.terrain || (ent.vao && !ent.stale))) { ent.used = this.groundFrames; continue; }
       this.ensureChunk(c, chunkTiles); const e2 = this.chunkTex.get(c.key); if (e2) e2.used = this.groundFrames;
     }
+    this.gl.bindVertexArray(null); this.endTerrain();   // (a chunk made just now: its vertex array must be unbound before the shared buffers are, or they replace its own)
   }
 
   /** A chunk's pixels into a texture: `into`, or one from the pool, or a new one (storage made once, at the chunk's size, with room for its mipmaps). */

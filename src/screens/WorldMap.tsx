@@ -1,3 +1,4 @@
+import { moveFill, NO_LAYER, type BigMapFill } from './bigmapfill';
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
 import { releaseWorldPortal } from '../ui/worldPortal';
 import { worldExitPath } from './worldEntry';
@@ -66,6 +67,10 @@ const TILT_RAD = 1.1;   // radians of tipping per unit of tilt (slider step / 10
 /** The slider's 0..16 as a tilt unit (x TILT_RAD radians): steps 1-8 are tenths (up to about 50 degrees), 9-16 go on to about 62 degrees. */
 const tiltUnit = (n: number) => (n <= 8 ? n / 10 : 0.8 + (n - 8) * 0.0225);
 const TILT_CAP = 0.98;
+/** How far the auto governor may shrink the ring of real (finest) chunks on slow frames, as a fraction of the draw distance: it went down to 0.3 (32 tiles), so the close ground was the coarse far mesh within seconds of the loading screen going. */
+const AUTO_DRAW_MIN = 0.75;
+/** On the seeded hills every chunk within this many tiles of the plane is built and drawn, seen from the camera or not (the view tips, turns and drops, and a chunk not there yet is a hole in the ground), whatever the draw distance or the auto governor say. */
+const NEAR_ALL = 80;
 const MAX_REAL = 320;   // chunks asked for at once in the 3D view (about 80 MB of pictures); past that the far mesh covers the ground
 const DECO_VIEW = 100;   // tiles: how far trees, bushes and rocks are built on a hilly world
 const HOOP_VIEW = 100;   // tiles: how far hoops, rain clouds and their rain are drawn, whatever the draw distance
@@ -731,35 +736,45 @@ function WorldView({ id }: { id: string }) {
     /** One frame of the full-screen map: fill more of it (a few ms), then build and upload the ground round the plane and read chunks for the small minimap, so closing the map finds them ready. */
     const mapFrame = (scale: number) => {
       const bc = bigMap.current!, t0 = performance.now(), f = s.flight;
-      const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2)), fx = Math.round(f.x + bigPan.current.x), fy = Math.round(f.y + bigPan.current.y);   // (the middle of the map: the plane, moved by the pan; a map pixel is 2 x 2 screen pixels)
+      const mw = Math.max(40, Math.round(bc.clientWidth / 2)), mh = Math.max(40, Math.round(bc.clientHeight / 2));
+      const fx = Math.round((f.x + bigPan.current.x) / scale) * scale, fy = Math.round((f.y + bigPan.current.y) / scale) * scale;   // (the middle of the map: the plane, moved by the pan, snapped to the map's own pixel grid so a pan is a whole number of pixels; a map pixel is 2 x 2 screen pixels)
       const g = bc.getContext('2d')!;
-      if (!bigFill || bigFill.w !== mw || bigFill.h !== mh || bigFill.scale !== scale || bigFill.x !== fx || bigFill.y !== fy) {
-        bc.width = mw; bc.height = mh; bigFill = { w: mw, h: mh, scale, x: fx, y: fy, row: 0, img: g.createImageData(mw, mh), prev: new Int16Array(mw).fill(NO_LAYER) };
-        bigFill.img.data.fill(10); for (let o = 3; o < bigFill.img.data.length; o += 4) bigFill.img.data[o] = 255;
+      let fresh = false;
+      if (!bigFill || bigFill.w !== mw || bigFill.h !== mh || bigFill.scale !== scale || bigFill.x !== fx || bigFill.y !== fy) {   // (the map moved: the picture it has is kept as far as it can be, see moveFill)
+        if (bc.width !== mw || bc.height !== mh) { bc.width = mw; bc.height = mh; }
+        bigFill = moveFill(bigFill, mw, mh, scale, fx, fy, (w, h) => g.createImageData(w, h)) as BigMapFill; fresh = true;
       }
-      const B = bigFill, d = B.img.data, row0 = B.row;
-      while (B.row < mh && performance.now() - t0 < 6) {   // a few rows at a time: a chunk the small minimap already read is used as it is, the rest is sampled point by point
+      const B = bigFill! as BigMapFill, d = B.img.data, ok = B.ok, lay = B.lay;
+      let filled = false;
+      while (B.rem > 0 && performance.now() - t0 < 6) {   // a row at a time, only its pixels not done yet: a chunk the small minimap already read is used as it is, the rest is sampled point by point
+        while (B.row < mh && B.pend[B.row] === 0) B.row++;
+        if (B.row >= mh) break;
         const j = B.row++, y = Math.floor(fy + (j - mh / 2) * scale), cy = chunkOf(y);
-        let lastKey = NaN, seen = false, terr: Uint8Array | undefined, lay: Int8Array | undefined, left = NO_LAYER;
-        const hills = !!s.world.field, prev = B.prev;
+        let lastKey = NaN, seen = false, terr: Uint8Array | undefined, tl: Int8Array | undefined;
+        const hills = !!s.world.field;
         for (let i = 0; i < mw; i++) {
-          const x = Math.floor(fx + (i - mw / 2) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = (j * mw + i) * 4;
-          if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; lay = terr && hills ? miniCache.lay.get(key) : undefined; }
-          if (!seen) { prev[i] = left = NO_LAYER; continue; }
-          const ti = (y - cy * CHUNK) * CHUNK + (x - cx * CHUNK), l = hills ? (lay ? lay[ti] : s.world.mapLayer(x, y)) : 0;
+          const idx = j * mw + i; if (ok[idx]) continue;
+          const x = Math.floor(fx + (i - mw / 2) * scale), cx = chunkOf(x), key = tileKey(cx, cy), o = idx * 4;
+          ok[idx] = 1;
+          if (key !== lastKey) { lastKey = key; seen = s.explored.has(key); terr = seen ? miniCache.terr.get(key) : undefined; tl = terr && hills ? miniCache.lay.get(key) : undefined; }
+          if (!seen) { lay[idx] = NO_LAYER; d[o] = d[o + 1] = d[o + 2] = 10; continue; }
+          const ti = (y - cy * CHUNK) * CHUNK + (x - cx * CHUNK), l = hills ? (tl ? tl[ti] : s.world.mapLayer(x, y)) : 0;
           const tt = terr ? terr[ti] as Terrain : s.world.mapSample(x, y, l);
-          if (hills) { terracePixel(d, o, tt, l, left === NO_LAYER ? l : left, prev[i] === NO_LAYER ? l : prev[i], 1, scale); prev[i] = left = l; }
-          else { const c = MINI_RGB[tt]; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; }
+          if (hills) {
+            const left = i > 0 && ok[idx - 1] ? lay[idx - 1] : NO_LAYER, up = j > 0 && ok[idx - mw] ? lay[idx - mw] : NO_LAYER;   // (the neighbours' layers draw the contour lines; one not done yet draws none)
+            terracePixel(d, o, tt, l, left === NO_LAYER ? l : left, up === NO_LAYER ? l : up, 1, scale); lay[idx] = l;
+          } else { const c = MINI_RGB[tt]; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; }
           const tk = tt === GRASS ? Math.min(0.85, s.world.mapTrees(x, y, Math.ceil(scale)) * 7) : 0;   // trees: the pixel darkens toward the tree green by how many stand in its patch
           if (tk > 0) { d[o] += (TREE_RGB[0] - d[o]) * tk; d[o + 1] += (TREE_RGB[1] - d[o + 1]) * tk; d[o + 2] += (TREE_RGB[2] - d[o + 2]) * tk; }
         }
+        B.rem -= B.pend[j]; B.pend[j] = 0; filled = true;
       }
-      if (B.row > row0 || row0 === 0) {
-        g.putImageData(B.img, 0, 0);
+      if (fresh || filled) {
+        g.putImageData(B.img as ImageData, 0, 0);
         const px = mw / 2 + (f.x - fx) / scale, py = mh / 2 + (f.y - fy) / scale, dx = Math.cos(f.heading), dy = -Math.sin(f.heading), qx = -dy, qy = dx;   // the plane
         g.beginPath(); g.moveTo(px + dx * 7, py + dy * 7); g.lineTo(px - dx * 4 + qx * 4.5, py - dy * 4 + qy * 4.5); g.lineTo(px - dx * 1.5, py - dy * 1.5); g.lineTo(px - dx * 4 - qx * 4.5, py - dy * 4 - qy * 4.5); g.closePath();
         g.fillStyle = '#fff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineJoin = 'round'; g.stroke();
-        if (B.row < mh) { g.fillStyle = '#ffd54f'; g.fillRect(0, mh - 2, Math.round(mw * B.row / mh), 2); }   // (how far the filling has got)
+        if (B.rem > 0) { g.fillStyle = '#ffd54f'; g.fillRect(0, mh - 2, Math.round(mw * (1 - B.rem / B.todo)), 2); }   // (how far the filling has got)
       }
       // the ground round the plane, nearest first: built, then (3D view) uploaded, a few ms each
       const pcx = chunkOf(f.x), pcy = chunkOf(f.y), R = s.world.hilly ? 4 : 7, ring: GroundChunk[] = [];
@@ -808,7 +823,7 @@ function WorldView({ id }: { id: string }) {
       if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
       if (import.meta.env.DEV && glr) (window as unknown as Record<string, unknown>).__wgl = glr;   // (dev builds only: for headless tests that starve the chunk uploads)
-      if (glr) { glr.drawK = L.drawDist / 100 * (L.resAuto && s.world.field ? autoDraw : 1); glr.walkK = L.walkDist / 100; if (s.world.field && !s.world.realTerrain) { glr.nearCap = HILLS_NEAR * Math.max(0.5, glr.drawK); glr.farRing = [90, 260, 820, 2600, 8000]; } else { glr.nearCap = Infinity; glr.farRing = null; } }
+      if (glr) { glr.drawK = L.drawDist / 100 * (L.resAuto && s.world.field ? autoDraw : 1); glr.walkK = L.walkDist / 100; if (s.world.field && !s.world.realTerrain) { glr.nearCap = Math.max(NEAR_ALL, HILLS_NEAR * Math.max(0.5, glr.drawK)); glr.farRing = [90, 260, 820, 2600, 8000]; } else { glr.nearCap = Infinity; glr.farRing = null; } }
       glCv.style.display = useGL ? 'block' : 'none';
       // a throw is a landing played backwards: the eye starts at the plane's nose (it is held at the eye), and as the plane climbs the eye slides back behind it, then the chase view takes over. No special launch camera.
       const poseOn = camEff !== 'chase' && camEff !== 'fpv' && useGL && f.mode === 'glide' && !footRef.current;   // the free view or the flyby: the camera stands where the cameraman puts it
@@ -835,7 +850,7 @@ function WorldView({ id }: { id: string }) {
         scaleClock = 0;
         if (L.resAuto) { if (frameEma > 0.036 && autoK > 0.4) autoK = Math.max(0.4, autoK * 0.85); else if (frameEma < 0.024 && autoK < 1) autoK = Math.min(1, autoK / 0.85); }   // (a slow phone: fewer trees, bushes and rocks to draw, too; the same ones are dropped each time)
         // When the resolution is already as low as it goes and frames are still slow, the cost is geometry (a steep range is a million triangles of ledges and walls in the real chunks): the ring of real chunks shrinks, and the coarser far level fills in. It grows back when frames are fast again.
-        if (L.resAuto && s.world.field) { if (frameEma > 0.045 && glScale <= 0.55 && autoDraw > 0.3) autoDraw = Math.max(0.3, autoDraw * 0.85); else if (frameEma < 0.026 && autoDraw < 1) autoDraw = Math.min(1, autoDraw / 0.9); }
+        if (L.resAuto && s.world.field) { if (frameEma > 0.045 && glScale <= 0.55 && autoDraw > AUTO_DRAW_MIN) autoDraw = Math.max(AUTO_DRAW_MIN, autoDraw * 0.85); else if (frameEma < 0.026 && autoDraw < 1) autoDraw = Math.min(1, autoDraw / 0.9); }
         if (frameEma > 0.03 && glScale > 0.5) { glScale = Math.max(0.5, glScale * 0.85); lastScaleChange = anim; }
         else if (frameEma < 0.0185 && glScale < 1 && anim - lastScaleChange > 4) { glScale = Math.min(1, glScale / 0.85); lastScaleChange = anim; }
       }
@@ -1095,7 +1110,7 @@ function WorldView({ id }: { id: string }) {
         })() : undefined, lookH: tgt[2] });
         fp = glr!.footprint();
         // everything round the plane is always wanted, whatever the camera looks at (looking up, or from off to one side, the polygon of rays can miss the ground under the plane, and with it every sprite standing there)
-        const NEARC = 3, NR = NEARC * CHUNK, pcx = chunkOf(f.x), pcy = chunkOf(f.y);
+        const NEARC = s.world.field && !s.world.realTerrain ? Math.ceil(NEAR_ALL / CHUNK) : 3, NR = NEARC * CHUNK, pcx = chunkOf(f.x), pcy = chunkOf(f.y);
         cx0 = Math.min(chunkOf(fp.minX) - 1, pcx - NEARC); cx1 = Math.max(chunkOf(fp.maxX) + 1, pcx + NEARC); cy0 = Math.min(chunkOf(fp.minY) - 1, pcy - NEARC); cy1 = Math.max(chunkOf(fp.maxY) + 1, pcy + NEARC);
         const rawFp = fp;
         fp = { minX: Math.min(rawFp.minX, f.x - NR), maxX: Math.max(rawFp.maxX, f.x + NR), minY: Math.min(rawFp.minY, f.y - NR), maxY: Math.max(rawFp.maxY, f.y + NR), inside: (x: number, y: number, m: number) => (Math.abs(x - f.x) <= NR + m && Math.abs(y - f.y) <= NR + m) || rawFp.inside(x, y, m) };
@@ -1169,16 +1184,22 @@ function WorldView({ id }: { id: string }) {
         loadT0 ||= t0;
         const R = 5, pcx = chunkOf(camX), pcy = chunkOf(camY), need: [number, number][] = [];
         if (!lodOnly) for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) if (Math.hypot(cx - pcx, cy - pcy) <= R + 0.3) need.push([cx, cy]);
+        if (!lodOnly && glr && Number.isFinite(glr.nearCap)) {   // every chunk of the real ground the view will draw (the hills cap it at HILLS_NEAR), not just the ring round the plane: none may be missing when the loading screen goes
+          const lim = Math.min(glr.nearCap + CHUNK, 9 * CHUNK), have0 = new Set(need.map(([cx, cy]) => tileKey(cx, cy)));
+          for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (!have0.has(tileKey(cx, cy)) && chunkVis(cx, cy) && Math.hypot((cx + 0.5) * CHUNK - camX, (cy + 0.5) * CHUNK - camY) <= lim) need.push([cx, cy]);
+        }
         need.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcy) - Math.hypot(b[0] - pcx, b[1] - pcy));
         for (const [cx, cy] of need) { if (performance.now() - t0 >= 30) break; if (!chunks.current.has(tileKey(cx, cy)) && stepChunk(cx, cy, t0 + 30)) built++; }
         const have: GroundChunk[] = [];
         for (const [cx, cy] of need) { const ch = chunks.current.get(tileKey(cx, cy)); if (ch) have.push({ key: tileKey(cx, cy), cx, cy, src: ch.src, meshBox: ch }); }
         if (glr) glr.preload(have, CHUNK, 25);
         const up = glr ? have.filter(c => glr!.has(c.key)).length : have.length;
-        const farOk = !glr || !s.world.field || farAt[0] !== null || lodOnly;
+        let farTotal = 0, farBuilt = 0;   // (the far levels the eye's height calls for: all of them, not just the finest, so no ring of distant ground is missing either)
+        if (glr && s.world.field && !lodOnly) for (let i = Math.min(glr.farMin, farLods.length - 1); i < farLods.length; i++) { farTotal++; if (farAt[i] !== null) farBuilt++; }
+        const farOk = !glr || !s.world.field || lodOnly || farBuilt === farTotal;
         const glOk = !wantGL || !!glr;
-        const pct = need.length ? (have.length * 0.5 + up * 0.4) / need.length + (farOk ? 0.1 : 0) : (farOk ? 1 : 0);
-        const prog = have.length + up; if (prog > loadBest) { loadBest = prog; loadMoved = performance.now(); }
+        const farK = farTotal ? farBuilt / farTotal : 1, pct = need.length ? (have.length * 0.5 + up * 0.4) / need.length + 0.1 * farK : farK;
+        const prog = have.length + up + farBuilt; if (prog > loadBest) { loadBest = prog; loadMoved = performance.now(); }
         const timedOut = performance.now() - loadT0 > 60000 || performance.now() - loadMoved > 10000;   // (gives up when nothing has arrived for 10 s, or after a minute: slow machines load for a long time, but a stuck one must not hold the player)
         if (loadBar.current) loadBar.current.style.width = `${Math.round(Math.min(1, pct) * 100)}%`;
         if (loadPct.current) loadPct.current.textContent = `${Math.round(Math.min(1, pct) * 100)}%`;
@@ -1190,7 +1211,8 @@ function WorldView({ id }: { id: string }) {
       const nearest = (a: [number, number], b: [number, number]) => Math.hypot((a[0] + 0.5) * CHUNK - camX, (a[1] + 0.5) * CHUNK - camY) - Math.hypot((b[0] + 0.5) * CHUNK - camX, (b[1] + 0.5) * CHUNK - camY);
       missing.sort(nearest);                                                         // the ground under you first, the horizon last
       const share = Math.min(20, frameEma * 1000 * 0.2);   // (a fifth of a slow frame: a fixed few ms a frame is a few ms a SECOND at 5 fps, too little for the ground to keep up, and then the coarse far mesh shows close by)
-      const budget = loading ? 2 : Math.max(warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : 3.5, share);   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
+      const closeGap = !loading && missing.length > 0 && Math.hypot((missing[0][0] + 0.5) * CHUNK - camX, (missing[0][1] + 0.5) * CHUNK - camY) < NEAR_ALL + CHUNK;   // (ground within the near ring is missing: a hole in front of the plane, so build at full speed until it is filled)
+      const budget = loading ? 2 : Math.max(warming ? 14 : aim.current.on && f.mode === 'glide' ? 8 : closeGap ? 12 : 3.5, share);   // (the first couple of seconds fill the screen quickly; after that the ground is built a few ms a frame)                  // (holding a throw: the view is about to drop to the ground, so build faster)
       for (const [cx, cy] of [...missing, ...stale]) {
         if (performance.now() - t0 >= budget) break;
         if (stepChunk(cx, cy, t0 + budget)) built++;
@@ -1199,7 +1221,7 @@ function WorldView({ id }: { id: string }) {
       // keep the ground round the plane built ahead of time (a few chunks a frame, nearest first), so a throw or a landing, which brings the eye down to the ground, finds it there and does not draw it in from nothing
       if (f.mode === 'glide' && useGL && !lodOnly && s.glider.z < 1500 && performance.now() - t0 < 3) {   // (not high up, on a rocket flight over a flat world: a landing is minutes away, and the ground in view needs the budget)
         // (only the ring right round the plane and a wedge ahead of it, 60 degrees either side of the course: what is behind is not where a throw or a landing looks)
-        const R = s.world.hilly ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
+        const R = s.world.field && !s.world.realTerrain ? Math.ceil(NEAR_ALL / CHUNK) : s.world.hilly ? 3 : 6, pcx = chunkOf(f.x), pcy = chunkOf(f.y), near: [number, number][] = [], hx = Math.cos(f.course), hy = -Math.sin(f.course);
         for (let cy = pcy - R; cy <= pcy + R; cy++) for (let cx = pcx - R; cx <= pcx + R; cx++) {
           const dx = cx - pcx, dy = cy - pcy, dd = Math.hypot(dx, dy);
           if (dd > R + 0.5 || dd > 1.5 && (dx * hx + dy * hy) / dd < 0.5) continue;
@@ -3078,13 +3100,12 @@ function terracePixel(d: Uint8ClampedArray, o: number, t: Terrain, l: number, le
 }
 const MINI_RGB: Record<Terrain, [number, number, number]> = { 0: [15, 107, 140], 1: [232, 200, 138], 2: [74, 107, 34] };
 const TREE_RGB = [22, 62, 24];   // the full-screen map's tree green
-const NO_LAYER = -999, MINI_ROW = new Int16Array(100);   // (a map pixel with no layer: unexplored; the minimap's last row of layers)
+const MINI_ROW = new Int16Array(100);   // (a map pixel with no layer: unexplored; the minimap's last row of layers)
 const MINI_NEW_MAX = 24;   // chunks read per draw at most (a big jump of the map fills in over a few draws, not one long frame)
 const MINI_NEW_MS = 2;   // ...and for at most this long
 /** Minimap zoom (tiles per pixel) from which the map opens full screen and time stops (zoom steps 3 to 5): one pixel is a quarter chunk or more, far too many chunks to read while flying. */
 const BIG_MAP_SCALE = 4;
 /** The full-screen map's state: filled a few rows a frame, from the plane's spot at the time it opened. */
-interface BigMapFill { w: number; h: number; scale: number; x: number; y: number; row: number; img: ImageData; prev: Int16Array }   // prev: the last row's layers (a terraced world's contours)
 /** Draw the minimap; true when some chunks were not read yet and it should be drawn again soon. */
 function drawMinimap(cv: HTMLCanvasElement, cache: MiniCache, world: World, explored: Set<number>, f: Flight, cx0: number, cx1: number, cy0: number, cy1: number, scale: number, marks: MiniMark[] = [], noNew = false): boolean {   // noNew: fast and high (a rocket): chunks not read yet stay dark instead of being generated, so the map costs a fixed few ms
   if (world.kind === 'lakedistrict') {   // the whole map, shrunk to fit (see lakeOverview), with the plane on it

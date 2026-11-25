@@ -9,7 +9,7 @@ import { PixelButton } from '../ui/PixelButton';
 import { PixelCheckbox } from '../ui/misc';
 import { Icon } from '../ui/misc';
 
-const KINDS = [['procedural', 'worldKindFlat'], ['terraced', 'worldKindHills'], ['lakedistrict', 'worldKindLake']] as const;
+const KINDS = [['terraced', 'worldKindHills'], ['procedural', 'worldKindFlat'], ['lakedistrict', 'worldKindLake']] as const;
 /** Bóbr world list (Android's WorldListScreen): make a world from a name and a seed, open it, delete it. */
 export function Worlds() {
   useEffect(() => enterWorldFromHome(false), []);   // coming through the list: closing a world comes back here
@@ -18,7 +18,7 @@ export function Worlds() {
   const [name, setName] = useState('');
   const [seedText, setSeedText] = useState('');
   const [note, setNote] = useState('');
-  const [kind, setKind] = useState<'procedural' | 'terraced' | 'lakedistrict'>('procedural'), [coniston, setConiston] = useState(false), [stepped, setStepped] = useState(false);   // (flat, hills or the Lake District: one of the three)
+  const [kind, setKind] = useState<'procedural' | 'terraced' | 'lakedistrict'>('terraced'), [coniston, setConiston] = useState(false), [stepped, setStepped] = useState(false);   // (hills (the default), flat or the Lake District: one of the three)
   const lake = kind === 'lakedistrict';
   const create = () => {
     const seed = seedText.trim() ? (/^\d+$/.test(seedText.trim()) ? Number(seedText.trim()) >>> 0 : seedFrom(seedText.trim())) : Math.floor(Math.random() * 4294967296);

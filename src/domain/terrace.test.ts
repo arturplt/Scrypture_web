@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor, RELIEF_MAX } from './terrace';
+import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, terraceLakesIn, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor, RELIEF_MAX } from './terrace';
 import { World, GRASS, SAND, WATER, DECO_NONE, CHUNK, MARGIN, SIDE, generateTerraceChunk } from './worldgen';
 import { newSavedWorld, sanitizeWorlds, sanitizeRelief } from './worldsave';
 
@@ -114,28 +114,32 @@ describe('terraced height field', () => {
     for (let j = 0; j < CHUNK; j += 5) for (let i = 0; i < CHUNK; i += 3) expect(lay[j * CHUNK + i]).toBe(Math.min(127, w.layerAt(3 * CHUNK + i, -2 * CHUNK + j)));
   });
 
-  it('cuts the chunk mesh along the contours: level pieces that tile the chunk, walls a whole step high, no slopes', () => {
+  it('cuts the chunk mesh into level shelves and straight ramps that tile the chunk, no walls', () => {
     const f = new TerraceField(42);
+    let ramps = 0;
     for (const [cx, cy] of [[0, 0], [-7, 3], [12, -5]]) {
       const m = terraceChunkMesh(f.grid(cx, cy).e, cx, cy);
       let area = 0;
       for (let k = 0; k < m.idx.length; k += 3) {
-        const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
-        if (m.nrm[a * 3 + 2] === -1) {   // a level piece: all three corners at one height, a whole number of steps
-          expect(m.pos[b * 3 + 2]).toBe(m.pos[a * 3 + 2]); expect(m.pos[c * 3 + 2]).toBe(m.pos[a * 3 + 2]);
-          expect(-m.pos[a * 3 + 2] / TERRACE_STEP).toBeCloseTo(Math.round(-m.pos[a * 3 + 2] / TERRACE_STEP), 4);
-          area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
-        } else { expect(m.nrm[a * 3 + 2]).toBe(0); }   // a wall faces sideways
+        const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2], z = [m.pos[a * 3 + 2], m.pos[b * 3 + 2], m.pos[c * 3 + 2]];
+        area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
+        if (z[1] === z[0] && z[2] === z[0]) {   // a level piece: all three corners at one height (a shelf, or flat ground whose elevation is a fraction, drawn at its ramp height)
+          expect(z[1]).toBe(z[0]); expect(z[2]).toBe(z[0]);
+        } else {   // a ramp: faces up and downhill, climbs at most one step
+          ramps++; expect(m.nrm[a * 3 + 2]).toBeLessThan(0);
+          expect(Math.max(...z) - Math.min(...z)).toBeLessThanOrEqual(TERRACE_STEP + 1e-4);
+        }
       }
       expect(area).toBeCloseTo(CHUNK * CHUNK, 3);
     }
-    // and the ground you stand on is the ground drawn: a level piece's height is heightAt there
+    expect(ramps).toBeGreaterThan(20);
+    // and the ground you stand on is the ground drawn: a shelf is at heightAt there, a ramp between heightAt and one step above it (never lower: things stand sunk in a slope, not floating over it)
     const m = terraceChunkMesh(f.grid(3, 3).e, 3, 3);
     for (let k = 0; k < m.idx.length; k += 3) {
       const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
-      if (m.nrm[a * 3 + 2] !== -1) continue;
-      const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3;
-      expect(f.heightAt(x, y)).toBeCloseTo(-m.pos[a * 3 + 2], 5);
+      const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3, h = -(m.pos[a * 3 + 2] + m.pos[b * 3 + 2] + m.pos[c * 3 + 2]) / 3;
+      expect(h).toBeGreaterThanOrEqual(f.heightAt(x, y) - 1e-4); expect(h).toBeLessThanOrEqual(f.heightAt(x, y) + TERRACE_STEP + 1e-4);
+      const lay = h / TERRACE_STEP; if (m.pos[a * 3 + 2] === m.pos[b * 3 + 2] && m.pos[a * 3 + 2] === m.pos[c * 3 + 2] && Math.abs(lay - Math.round(lay)) < 1e-4) expect(f.heightAt(x, y)).toBeCloseTo(h, 5);
     }
   });
 
@@ -204,6 +208,20 @@ describe('terraced height field', () => {
     for (const sd of [1, 3, 5, 7, 11, 42]) { const p = terraceSpawn(sd); expect(terraceLakeAt(p.x + 0.5, p.y + 0.5, sd)).toBe(false); }
     expect(terraceLakeAt(18.5, 22.5, 5)).toBe(terraceLakeAt(18.5, 22.5, 5));
     expect(levels.size).toBeGreaterThan(0);
+  });
+
+  it('puts each lake in a real basin: its middle is no higher than its water, and the ground on a ring round it stands at or over the water, with the lowest side at the spill', () => {
+    let n = 0;
+    for (const seed of [1, 5, 14, 30, 42]) for (const l of terraceLakesIn(-500, -500, 500, 500, seed)) {
+      n++;
+      expect(l.level).toBeGreaterThanOrEqual(3);
+      expect(elevation(l.x, l.y, seed, 0)).toBeLessThan(l.level + 1.31);               // (the middle is no higher than the water's own layer, give or take the top of the layer)
+      let lo = Infinity, at = 0;
+      for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, e = elevation(l.x + Math.cos(a) * (l.r * 1.3 + 3.6), l.y + Math.sin(a) * (l.r * 1.3 + 3.6), seed, 0); if (e < lo) { lo = e; at = a; } }
+      expect(Math.floor(lo)).toBe(l.level);                                              // (the water stands at the ring's lowest shelf: it fills to where it would spill)
+      expect(Math.cos(at - l.spill)).toBeGreaterThan(0.99);
+    }
+    expect(n).toBeGreaterThan(8);
   });
 
   it('keeps level ground (sand) round a lake, one step above its inset water, before the land can fall away', () => {

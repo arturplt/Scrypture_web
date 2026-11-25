@@ -106,8 +106,8 @@ describe('ponds on the terraced hills', () => {
     let area = 0, pond = 0;
     for (let k = 0; k < m.idx.length; k += 3) {
       const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
-      if (m.nrm[a * 3 + 2] !== -1) continue;
       area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
+      if (m.pos[a * 3 + 2] !== m.pos[b * 3 + 2] || m.pos[a * 3 + 2] !== m.pos[c * 3 + 2]) continue;
       const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3;
       if (x > 5.5 && x < 9.5 && y > 4.5 && y < 7.5) { pond++; expect(-m.pos[a * 3 + 2]).toBeCloseTo(9 * TERRACE_STEP, 5); }
     }
@@ -115,7 +115,7 @@ describe('ponds on the terraced hills', () => {
   });
 
   it('rains over the middle of the watched area: the wind tops the sky up, and a cloud may not rain before it has blown in', () => {
-    const w = new World(14, undefined, 'terraced'), sp = terraceSpawn(14), e = new Ecosystem(w, mulberry32(3), defaultWind());   // (seed 14: whether it rains over a spawn depends on the seed's own ground, and many seeds are dry there)
+    const w = new World(3, undefined, 'terraced'), sp = terraceSpawn(3), e = new Ecosystem(w, mulberry32(3), defaultWind());   // (seed 3: whether it rains over a spawn depends on the seed's own ground, and many seeds are dry there)
     e.setWatchedArea(sp.x - 60, sp.y - 60, sp.x + 60, sp.y + 60);
     let near = 0;
     for (let t = 0; t < 900; t++) { e.step(1); if (e.clouds.some(c => c.raining && Math.hypot(c.x - sp.x, c.y - sp.y) < 25)) near++; }
@@ -123,7 +123,7 @@ describe('ponds on the terraced hills', () => {
   });
 
   it('lays see-through sheets of water over inland water, a layer apart from the bed up to the shore, cut from the ground pieces, and none over dry ground or the sea', () => {
-    const f = new TerraceField(5);
+    const f = new TerraceField(30);   // (a seed with a lake near the middle: lakes sit in real basins, so they are fewer)
     let found = false, deepest = 0, underVerts = 0;
     for (let cy = -4; cy <= 4; cy++) for (let cx = -4; cx <= 4; cx++) {
       const m = terraceChunkMesh(f.grid(cx, cy).e, cx, cy, (x, y) => f.waterTopAt(x, y));
