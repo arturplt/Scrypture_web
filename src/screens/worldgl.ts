@@ -35,10 +35,10 @@ import TREELINE_URL from '../assets/treeline.png';
 
 const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
-uniform float uFar, uHole, uBand, uTerrace; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
+uniform float uFar, uFarSm, uHole, uBand, uTerrace, uSink; uniform vec2 uFarUv; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
 // (a far level is sunk a little where it overlaps the finer ground, see below)
 uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC, uPlanet, uCurveK, uCubeN; uniform vec3 uGS, uGE, uGSo, uFC[6], uFA[6], uFB[6]; uniform vec2 uFCell[6], uXT[24]; uniform vec4 uXA[24];   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down). A cube-planet world is a true ball instead: uPlanet its radius in tiles (0 = no ball), uCurveK how far the ground has been bent onto it (0 flat .. 1), uCubeN a face's width in tiles; uFC/uFA/uFB/uFCell the six faces (centre, net-x axis, net-y axis, net cell), uXA/uXT the 24 extensions past a face's side (see cube.ts), uGS/uGE/uGSo the eye's up, east and south on the ball
-out vec2 vUv; out vec4 vCol; out vec3 vPos; out float vSD;   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
+out vec2 vUv; out vec4 vCol; out vec3 vPos; out float vSD; out vec3 vSl;   // vSl: (a far level of smooth ground) the height's slope east and south at the vertex, and the height's plane at the origin, see the fragment shader   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
 int faceAt(vec2 q) { vec2 c = floor(q / uCubeN + 0.5); for (int i = 0; i < 6; i++) if (uFCell[i] == c) return i; return -1; }
 // the direction of a net point that is inside a face's rect (w is 0 where it is not)
 vec4 faceDir(vec2 q) {
@@ -70,12 +70,16 @@ void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
   }
   else p.z += uCurveC * dot(d, d);
   // The far levels' coarse triangles run in slopes from one terrace to the next, so over a ledge they lie above the finer ground they are meant to sit under, and show through it as wedges that flicker as the view moves (worse where the depth buffer is short on precision: phones). Where a far level overlaps the finer ground, and for a few tiles past it, it is sunk most of a layer, so it lies under that ground; beyond that it fades back up to its own height.
-  if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) p.z += uTerrace * 0.7 * (1.0 - smoothstep(uHole + uBand, uHole + uBand + 24.0, length(d)));
- gl_Position = uVP * vec4(p, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
+  if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) {   // (and the far ground lies under all of the real chunks' reach, deep inside it: it is drawn everywhere, so that a chunk that is not there yet shows the far ground and not a hole, and where the chunk is there, it is in front)
+    float len = length(d), edge = max(uHole + uBand, uSink), deep = 1.0 - smoothstep(0.55 * uSink, uSink, len);
+    p.z += uTerrace * ((uFarSm > 0.5 ? 1.1 : 0.7) + 5.0 * deep) * (1.0 - smoothstep(edge, edge + 24.0, len));
+  }
+ gl_Position = uVP * vec4(p, 1.0); vPos = aPos;
+  if (uFar > 0.5) { vUv = uFarUv; vCol = vec4(aCol.rgb, 1.0); vSl = vec3(aUv, aCol.a - dot(aUv, aPos.xy)); } else { vUv = aUv; vCol = aCol; vSl = vec3(0.0); } }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D; precision highp int;
-in vec2 vUv; in vec4 vCol; in vec3 vPos; in float vSD;
-uniform float uCubeN;
+in vec2 vUv; in vec4 vCol; in vec3 vPos; in float vSD; in vec3 vSl;
+uniform float uCubeN, uFarSm;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
 uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
@@ -90,13 +94,19 @@ void main() {
   // pixel), and the share goes from all the finer one to all the coarser one across it. A ring edge, where the coarse ground is a different shape, shade and detail, is then a stipple, not a seam.
   // (the screen derivatives and every texture read that needs them come first, before any discard: a pixel thrown away below is a quad-mate whose derivatives the others still need, and phones' GPUs, which end a discarded pixel at once, give the rest of its quad garbage for them: texture shimmer along the rings' stipple, moving with the view)
   vec2 dUx = dFdx(vUv), dUy = dFdy(vUv), fw = fwidth(vPos.xy);
-  float fwLv = fwidth(-vPos.z / max(uTerrace, 1e-3));
+  // the height of this pixel. A far level of smooth ground: every vertex lays a plane of its own slope through its height; the three planes of a triangle are blended by the pixel's weights, and since the blend of vertex values (vSl) is all the shader sees, that is h = interpolated height + slope . position - interpolated (slope . vertex position): a curve between the vertices, with no more vertices
+  float hp = uFarSm > 0.5 ? dot(vSl.xy, vPos.xy) + vSl.z : -vPos.z;
+  float fwLv = fwidth(hp / max(uTerrace, 1e-3));
   vec4 tex0 = textureGrad(uTex, vUv, dUx, dUy);
   float dn = (uDbg & 8) != 0 ? 0.5 : fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));   // (nostipple: every pixel has the same share, so the hand-over is a clean cut half way across the band)
   if (uFar > 0.5) {          // a far level: from uHole (where it starts to show through the finer one) to uHoleMax (where it has given way to the next, coarser, one)
-    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
-    if (fd < uHole || fd > uHoleMax) discard;
-    if (dn >= smoothstep(uHole, uHole + uBand, fd)) discard;
+    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy), lo = uHole, bn = uBand;
+    if (uCubeN > 0.0 && uHoleMax > 1e8) {   // a face of the planet: near a cube corner it is drawn at every distance. The plane's chart is a cone unrolled there (a quarter turn short), so some ground near the corner is in none of the rings' squares however wide they are, and the rings alone leave a hole to the sky; the face fills it, and where a ring is drawn too the ring is in front (it is the finer one, see drawFar)
+      vec2 fc = floor(vPos.xy / uCubeN + 0.5), fuv = vPos.xy - fc * uCubeN;
+      if (length(0.5 * uCubeN - abs(fuv)) < 7000.0) { lo = -1.0; bn = 1.0; }
+    }
+    if (fd < lo || fd > uHoleMax) discard;
+    if (dn >= smoothstep(lo, lo + bn, fd)) discard;
     if (uBandOut > 0.0 && dn < smoothstep(uHoleMax - uBandOut, uHoleMax, fd)) discard;   // (the last level has no coarser one to give way to)
   } else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0) {   // a real chunk (the ground of the near ring): it gives way to the far mesh across uHole .. uHole + uBand, the first far level's own entry band
     float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
@@ -113,6 +123,7 @@ void main() {
   if (tint.a > 3.5) { fxq = 1.0; tint.a -= 4.0; }                           // alpha + 4 marks a drawn effect (see FX_*): the quad has no picture, its colour is worked out here; r = which, g and b = its numbers
   if (tint.a > 1.5) { lit = 1.0; tint.a -= 2.0; }                           // alpha + 2 marks a sprite that gives its own light (fire, lightning): no sun tint, no night
   vec4 c = tex0 * tint;
+  if (uFarSm > 0.5) { float fwH = max(fwidth(hp) * 0.7, 1e-4); c.rgb = mix(c.rgb, tex0.rgb * vec3(0.06, 0.42, 0.55), 1.0 - smoothstep(-fwH, fwH, hp)); }   // (the sea: wherever the smooth ground is below 0, so a coast is a curve)
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0 && uSurf < 0.5 && uFar < 0.5) {   // a terraced chunk's picture: each tile's layer rides in its alpha. A pixel belongs to its tile's shelf; where the ground it lands on is another shelf (the contours cut across the tiles' squares), take the same pixel of the nearest tile on this shelf instead (up to two tiles out), so the texture fills every terrace and never spills over a wall
     vec2 gx = dUx, gy = dUy;
     float fl = floor(-vPos.z / uTerrace + 0.04), want = mod(fl + (abs(tn.z) < 0.5 ? 1.0 : 0.0), 16.0);   // (a wall belongs to the shelf it climbs to: it takes that shelf's picture)
@@ -243,7 +254,7 @@ void main() {
     c.rgb = mix(c.rgb, bedC * mix(1.0, 0.74, cliff), bedK * (1.0 - step(0.5, uSurf)));
   }
   if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world are too coarse to be cut into steps, so the terraces are drawn instead: a thin dark line (and every other band a shade darker) wherever the height crosses a layer. At every distance, in steps of 1, 2, 4 ... layers, whichever keeps a band at least about seven pixels wide, so a far mountain is terraced like the ground near it (fewer, wider steps), not smooth where the bands would be thinner than a pixel; the next size cross-fades in as the view opens or closes
-    float lvf = -vPos.z / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
+    float lvf = hp / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
     float lineF = 0.0, shadeF = 1.0;
     for (int k = 0; k < 2; k++) {
       float m = exp2(j + float(k)), wk = k == 0 ? 1.0 - tj : tj, u = lvf / m + 0.04 / m, wm = wf / m;
@@ -563,7 +574,7 @@ export class WorldGL {
   skyMode = false;
   private terrIbo: WebGLBuffer | null = null;
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
-  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** its vertices carry slopes and signed heights (see the vertex shader) */ smooth: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
   private farIbos = new Map<Uint32Array, WebGLBuffer>();   // the terraced far levels share their index arrays (see terrace.ts farIndices), so each size has one GPU buffer for good
   private farStage = new Float32Array(0);                   // where a far level's vertices are interleaved before the upload (kept for the next one)
   private farOn = false;
@@ -585,6 +596,7 @@ export class WorldGL {
   /** How far from the camera real chunks are asked for: the most the chunk budget can hold (see WorldMap), eased. Past it the far mesh draws everything. */
   capD = 1e5;
   private coverSm = Infinity;
+  private holeNom = Infinity;
   /** For the ?perf readout: where the far mesh began last frame (tiles from the eye), and how far the chunks were meant to reach. */
   private zNear = 0; private zFar = 0;
   /** (?perf) What the GPU gave us: the depth buffer's bits (the scene's own when the glow pass draws it), the near and far planes, the resolution scale, and the renderer's name. A phone that z-fights where a desktop does not shows here. */
@@ -661,7 +673,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -1106,7 +1118,7 @@ export class WorldGL {
       this.undrawn = Math.max(0, this.undrawn);
     }
     gl.bindVertexArray(null);   // (a chunk made just now has its vertex array bound: the far mesh must not rewrite it)
-    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.coverSm * 0.9); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
+    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.holeNom); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
     gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);   // the flat map's water colour, under every ground tile
     gl.uniform1i(this.loc.uDbg, dbgBits());   // (the bisect switches of the Debug section, read every frame so a click shows at once)
@@ -1235,7 +1247,7 @@ export class WorldGL {
   }
 
   /** Give a hilly world its far meshes, finest first (see lakeFarLods): positions, colours and indices of each. */
-  setFar(lods: { pos: Float32Array; col: Float32Array; idx: Uint32Array }[] | null) {
+  setFar(lods: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }[] | null) {
     const gl = this.gl;
     if (this.farMesh) for (const m of this.farMesh) if (m) { gl.deleteBuffer(m.vbo); if (!m.shared) gl.deleteBuffer(m.ibo); }
     this.farMesh = null;
@@ -1248,15 +1260,15 @@ export class WorldGL {
    * vertices are interleaved a slice at a time, then uploaded in one go, over the old buffer's storage when the size is the same (it always is), and with the index buffer the
    * level already has. The old level keeps drawing until the swap.
    */
-  *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
-    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
+  *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
+    const gl = this.gl, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
     if (this.farStage.length !== len) this.farStage = new Float32Array(len);
     const v = this.farStage;
     // a new buffer, filled a slice a frame and swapped in at the end: one upload of the whole level is several MB, a long stall on a phone, and writing into the buffer being drawn would show half a level
     const vbo = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v.byteLength, gl.STATIC_DRAW); this.endTerrain();
     for (let a = 0; a < n; a += SLICE) {
       const e = Math.min(n, a + SLICE);
-      for (let k = a; k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = 1; }
+      for (let k = a; k < e; k++) { const o = k * FLOATS; v[o] = m.pos[k * 3]; v[o + 1] = m.pos[k * 3 + 1]; v[o + 2] = m.pos[k * 3 + 2]; v[o + 3] = m.aux ? m.aux[k * 3] : 0; v[o + 4] = m.aux ? m.aux[k * 3 + 1] : 0; v[o + 5] = m.col[k * 3]; v[o + 6] = m.col[k * 3 + 1]; v[o + 7] = m.col[k * 3 + 2]; v[o + 8] = m.aux ? m.aux[k * 3 + 2] : 0; }   // (a far level's picture coordinates are one dot's, a uniform; its vertices carry the slope and signed height in their place, see the vertex shader)
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, a * FLOATS * 4, v, a * FLOATS, (e - a) * FLOATS); this.endTerrain();   // (the usual buffers bound again for whatever draws next)
       yield;
     }
@@ -1266,26 +1278,28 @@ export class WorldGL {
     if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
     if (old) gl.deleteBuffer(old.vbo);
     const cols = Math.round(Math.sqrt(n));
-    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
+    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, smooth: !!m.aux, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
     this.endTerrain();
   }
-  private uploadFar(m: { pos: Float32Array; col: Float32Array; idx: Uint32Array }) {
-    const gl = this.gl, d = this.cells.dot, du = (d.u0 + d.u1) / 2, dv = (d.v0 + d.v1) / 2;
+  private uploadFar(m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }) {
+    const gl = this.gl;
     const n = m.pos.length / 3, v = new Float32Array(n * FLOATS);
-    for (let i = 0; i < n; i++) { const o = i * FLOATS; v[o] = m.pos[i * 3]; v[o + 1] = m.pos[i * 3 + 1]; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = du; v[o + 4] = dv; v[o + 5] = m.col[i * 3]; v[o + 6] = m.col[i * 3 + 1]; v[o + 7] = m.col[i * 3 + 2]; v[o + 8] = 1; }
+    for (let i = 0; i < n; i++) { const o = i * FLOATS; v[o] = m.pos[i * 3]; v[o + 1] = m.pos[i * 3 + 1]; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = m.aux ? m.aux[i * 3] : 0; v[o + 4] = m.aux ? m.aux[i * 3 + 1] : 0; v[o + 5] = m.col[i * 3]; v[o + 6] = m.col[i * 3 + 1]; v[o + 7] = m.col[i * 3 + 2]; v[o + 8] = m.aux ? m.aux[i * 3 + 2] : 0; }
     const vbo = gl.createBuffer()!, ibo = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
-    return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false };
+    return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false, smooth: !!m.aux };
   }
   private drawFar() {
     const gl = this.gl, stride = FLOATS * 4;
     const want = Math.min(this.nearReach, this.cover, this.undrawn);
     this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
-    const hole = this.coverSm * 0.9;
-    this.nearBand = Math.max(1, Math.min(40, this.coverSm * 0.1));   // (the real chunks are built out to coverSm, so the band between 0.9 and 1.0 of it is ground they can still draw)
+    // The far ground is no longer held back inside the chunks that happen to be built: it is drawn all the way in, sunk deep under the real ground (see the vertex shader), so a chunk that is missing shows it, and a chunk that is built is never hidden by it. The chunks' own edge is where they are meant to reach (nearReach), not where the nearest gap is.
+    const nom = this.nearReach > 0 ? this.nearReach : this.coverSm, hole = nom * 0.9;
+    this.nearBand = Math.max(1, Math.min(40, nom * 0.1)); this.holeNom = hole;
+    gl.uniform1f(this.loc.uSink, hole + this.nearBand);   
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform4f(this.loc.uBase, 0, 0, 0, 0); gl.uniform1f(this.loc.uTerr, 0);
-    gl.uniform1f(this.loc.uFar, 1); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
+    gl.uniform1f(this.loc.uFar, 1); gl.uniform2f(this.loc.uFarUv, (this.cells.dot.u0 + this.cells.dot.u1) / 2, (this.cells.dot.v0 + this.cells.dot.v1) / 2); gl.uniform1f(this.loc.uTerrace, this.terraceStep);   // (the far hills of a terraced world draw their layer contours)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
     const kk = Math.max(1, this.drawK), E = this.farRing ? this.farRing.map((v, i) => (i === 1 || i === 2 ? v * kk : v)) : [260 * kk, 820 * kk, 2600, 8000];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)
     // the levels in use: from the finest one wanted (and built) to the coarsest. The first starts at the hole; each next one a little inside where the one before ends (no crack)
@@ -1296,8 +1310,8 @@ export class WorldGL {
     this.farMesh!.forEach((f, i) => {
       const face = i >= rc;
       if ((i < lo && !face) || !f) return;
-      const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
-      const bandIn = prevEnd < 0 ? this.nearBand : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
+      const s0 = prevEnd < 0 ? 0 : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
+      const bandIn = prevEnd < 0 ? 1 : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
       if (!face) prevEnd = e0;   // (faces all begin where the last ring ends)
       gl.polygonOffset(1 + i * 1.5, 1 + i * 1.5);                         // (where two levels overlap the finer one wins every pixel, so they never fight; and all of them give way to the real ground in the ring where it overlaps the first: it was pulled in front of it, and its coarse triangles showed through beside the ledges)
       gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, e0 >= 1e8 ? 0 : 20 * kk);
@@ -1308,10 +1322,11 @@ export class WorldGL {
         const { cols, y0, step } = f.grid, r0 = Math.max(0, Math.min(cols - 2, Math.floor((this.eye[1] - e0 - 40 - y0) / step))), r1 = Math.max(r0 + 1, Math.min(cols - 1, Math.ceil((this.eye[1] + e0 + 40 - y0) / step)));
         first = r0 * (cols - 1) * 6 * 4; count = (r1 - r0) * (cols - 1) * 6;
       }
+      gl.uniform1f(this.loc.uFarSm, f.smooth ? 1 : 0);
       gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
     });
     gl.disable(gl.POLYGON_OFFSET_FILL);
-    gl.uniform1f(this.loc.uFar, 0);
+    gl.uniform1f(this.loc.uFar, 0); gl.uniform1f(this.loc.uFarSm, 0);
     this.endTerrain();
   }
 

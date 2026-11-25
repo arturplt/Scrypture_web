@@ -25,8 +25,8 @@ export const cubeRadius = (n: number): number => (2 * n) / Math.PI;
 export const EXT_MARGIN = 1500;
 /** The corner cap: dead flat inside CAP_FLAT tiles of a cube corner, easing in from CAP_FLAT + CAP_FADE out. */
 export const CAP_FLAT = 800, CAP_FADE = 1200;
-/** The layer (elevation) of the cap's sheet: just above the sea, so it reads as flat bare ground. */
-export const CAP_LEVEL = 3.5;
+/** The layer (elevation) of the cap's sheet: well below the sea, so every cube corner is open ocean (the land eases down to it over CAP_FADE tiles). */
+export const CAP_LEVEL = -6;
 
 export type V3 = readonly [number, number, number];
 export interface Face { readonly c: V3; readonly a: V3; readonly b: V3; readonly ix: number; readonly iy: number; readonly name: string }

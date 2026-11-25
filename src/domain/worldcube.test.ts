@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { CUBE_N, FACES, setCubeSize, cubeRadius, faceOf, canonTile, canonInto, newCanon, canonChunk, insideFace } from './cube';
+import { CUBE_N, FACES, setCubeSize, cubeRadius, faceOf, canonTile, canonInto, newCanon, canonChunk, insideFace, CAP_LEVEL } from './cube';
 import { elevation, terraceMoist, terraceLakeAt, terraceLakesIn, TerraceField, layerOf } from './terrace';
 import { hoopsIn } from './hoops';
 import { stickInCell, stoneInCell, sticksIn } from './sticks';
@@ -54,11 +54,11 @@ describe('the cube planet: the ground', () => {
       expect(terraceMoist(x, y, seed)).toBe(terraceMoist(c.x, c.y, seed)); expect(terraceLakeAt(x, y, seed)).toBe(terraceLakeAt(c.x, c.y, seed));
     }
   });
-  it('is one flat sheet on the corner caps, with no lakes, and dry', () => {
+  it('is one flat sheet of open ocean on the corner caps, with no lakes', () => {
     setCubeSize(N);
     for (const seed of seeds) for (const F of FACES) for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const k of [3, 200, 600]) {
       const x = F.ix * N + sx * (N / 2 - 1 - k), y = F.iy * N + sy * (N / 2 - 1 - k * 0.7);
-      expect(elevation(x, y, seed)).toBeCloseTo(3.5, 9); expect(terraceLakeAt(x, y, seed)).toBe(false); expect(terraceMoist(x, y, seed)).toBeLessThan(0.2);
+      expect(elevation(x, y, seed)).toBeCloseTo(CAP_LEVEL, 9); expect(CAP_LEVEL).toBeLessThan(0); expect(terraceLakeAt(x, y, seed)).toBe(false); expect(terraceMoist(x, y, seed)).toBeLessThan(0.2);
     }
   });
   it('has features the same size everywhere on the ball: the ground changes as fast near an edge as at a face centre', () => {

@@ -135,7 +135,7 @@ export class ChunkClient {
  * The far levels of the terraced world's ground, built in a worker of their own (no world state is needed, so it is started with nothing; a level takes a while and must
  * never hold up chunk builds). One request at a time, as the map asks for them. On an error it fails and the map builds the level itself, as it always did.
  */
-export interface FarResult { cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; ms: number }
+export interface FarResult { cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; aux?: Float32Array; ms: number }
 export class FarClient {
   state: 'ready' | 'failed' = 'ready';
   failure = '';
@@ -157,10 +157,10 @@ export class FarClient {
   }
   get active() { return this.state === 'ready'; }
   /** Ask for one level; only one at a time (the map waits for `take` before asking again). */
-  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0, size = 0) {
+  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0, size = 0, up = 1) {
     if (this.state !== 'ready' || this.waiting !== null) return;
     this.waiting = this.nextId++;
-    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open, size });
+    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open, size, up });
   }
   get busy() { return this.waiting !== null && !this.result; }
   /** The level that has been built, once. */

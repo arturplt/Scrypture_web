@@ -622,7 +622,7 @@ function WorldView({ id }: { id: string }) {
     const cubeWorld = s.world.size > 0, CUBE_RINGS = 4;   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
     const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : cubeWorld ? TERRACE_FAR_LODS_HILLS.slice(0, CUBE_RINGS) : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : cubeWorld ? FAR_LEVEL_FROM_HILLS.slice(0, CUBE_RINGS) : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
     const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    const faceDone = FACES.map(() => false), FACE_STEP = 96;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side)
+    const faceDone = FACES.map(() => false), FACE_STEP = 96, FACE_UP = 2;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
     let farJob: { i: number; face?: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
@@ -1288,16 +1288,16 @@ function WorldView({ id }: { id: string }) {
           const L = farLods[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
-          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, s.world.size); farJob = { i, wait: true }; }
-          else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open) };
+          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, s.world.size, L.up); farJob = { i, wait: true }; }
+          else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, L.up) };
           break;
         }
         if (cubeWorld) {   // the faces: once each, when the rings have nothing to do
           glr.ringCount = farLods.length;
           if (!farJob) { const fi = faceDone.indexOf(false); if (fi >= 0) {
             const F = FACES[fi], N = s.world.size, cx = F.ix * N, cy = F.iy * N;
-            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, true, 1, N); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
-            else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, true, 1) };
+            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, N, FACE_UP); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
+            else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, FACE_UP) };
           } }
         }
         const tf = performance.now(), farMs = loading ? 14 : farLo >= farCoarse ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
@@ -1305,7 +1305,7 @@ function WorldView({ id }: { id: string }) {
           if (farJob.up) { if (farJob.up.next().done) { if (farJob.face !== undefined) faceDone[farJob.face] = true; farJob = null; } continue; }
           if (farJob.wait) {   // the worker is building this level: nothing to do here until it arrives (a worker that fails is dropped, and the level is built here next time)
             const m = far?.take();
-            if (m) { if (farJob.face === undefined) farAt[farJob.i] = { x: m.cx, y: m.cy }; farJob.up = glr.farLodUpload(farJob.i, { pos: m.pos, col: m.col, idx: farIndices(m.cols) }); farJob.wait = false; continue; }
+            if (m) { if (farJob.face === undefined) farAt[farJob.i] = { x: m.cx, y: m.cy }; farJob.up = glr.farLodUpload(farJob.i, { pos: m.pos, col: m.col, aux: m.aux, idx: farIndices(m.cols) }); farJob.wait = false; continue; }
             if (!far?.active) farJob = null;
             break;
           }
