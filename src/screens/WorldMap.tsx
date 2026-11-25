@@ -934,7 +934,7 @@ function WorldView({ id }: { id: string }) {
         { const rn = s.eco.rainAt(gl.x, -gl.y, gLayer()) * paperRain(upRef.current.paper); if (rn > 0.05 && !L.paused) gl.wet = Math.min(1, gl.wet + rn * dt / 12); }   // rain soaks the paper too (a thick cloud in about ten seconds), and it dries as before
         if (!gl.landed && gl.z < 6) {   // flying into a tree or a bush is a crash: a standing plant is a few metres tall (by its size) and fills the middle of its tile
           const tx = Math.floor(gl.x), ty = Math.floor(-gl.y), dc = s.world.drawn(tx, ty).deco, top = dc === SHEET.bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
-          if (top > 0 && gl.z < top * decoK * (dc === SHEET.bush ? SMALL_DECO_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38 * decoK * (dc === SHEET.bush ? SMALL_DECO_K : 1)) {
+          if (top > 0 && gl.z < top * decoK * (dc === SHEET.bush ? BUSH_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38 * decoK * (dc === SHEET.bush ? BUSH_K : 1)) {
             gl.impact = { sink: 5, speed: Math.hypot(gl.vx, gl.vy), bank: Math.abs(gl.phi) }; gl.landed = true; gl.vx = gl.vy = gl.vz = 0; gl.z = Math.max(0, gl.z - 0.5);
           }
         }
@@ -1156,8 +1156,8 @@ function WorldView({ id }: { id: string }) {
       }
       for (const b of s.eco.strikes) if (b.id > lastStrike) {            // a new bolt: the flash and the thunder, both weaker with distance
         lastStrike = b.id;
-        const near = Math.max(0, 1 - Math.hypot(b.x - f.x, b.y - f.y) / 45);
-        flashK = Math.max(flashK, 0.25 + 0.75 * near); audio.current?.play('thunder', near);
+        const d = Math.hypot(b.x - f.x, b.y - f.y), heard = 1 / (1 + (d / 40) ** 2), seen = 1 / (1 + (d / 70) ** 2);   // (it fades smoothly with distance, not to a floor: a bolt a few tiles off is deafening and blinding, one at the edge of the storm a mutter and a flicker; light carries further than sound)
+        flashK = Math.max(flashK, seen); audio.current?.play('thunder', heard);
       }
       flashK = Math.max(0, flashK - dt * 3.5);
       for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (cx >= cx0 + 1 && cx <= cx1 - 1 && cy >= cy0 + 1 && cy <= cy1 - 1) s.explored.add(tileKey(cx, cy));
@@ -1446,12 +1446,13 @@ function WorldView({ id }: { id: string }) {
         mark('gl-setup');
         if (Tv >= 9) for (const st of stonesIn(s.world.seed, ffp.minX, ffp.minY, ffp.maxX, ffp.maxY)) {   // stones stand up like banners, facing the camera (a sprite that lies flat would show only its edge)
           if (pickedStones.has(st.key) || far(st.x, st.y) || !ffp.inside(st.x, st.y, 1) || !chunks.current.has(tileKey(chunkOf(st.x), chunkOf(st.y))) || s.world.terrainAt(Math.round(st.x), Math.round(st.y)) === WATER) continue;   // (only on ground that is built: past it the far mesh has no stones, and asking for the terrain there would generate whole chunks every frame)
-          if (L.billboards) G.flat('decal', st.x, st.y - 0.04, 0.015, 0.7, 0.22, 0, -1, at.shadow, 0, 0, 0, 0.22);
-          G.board('solid', st.x, st.y, -(stoneImg.current ? itemBottomPad(stoneImg.current) : 0) * 1.1, 1.1, 1.1, true, at.stone);   // (sunk by the empty rows under the stone, so it sits on the ground)
+          if (L.billboards) G.flat('decal', st.x, st.y - 0.04, 0.015, 0.4, 0.14, 0, -1, at.shadow, 0, 0, 0, 0.22);
+          G.board('solid', st.x, st.y, -(stoneImg.current ? itemBottomPad(stoneImg.current) : 0) * 0.55, 0.55, 0.55, true, at.stone);   // (sunk by the empty rows under the stone, so it sits on the ground)
         }
         if (Tv >= 9) for (const st of sticksIn(s.world.seed, ffp.minX, ffp.minY, ffp.maxX, ffp.maxY)) {   // sticks lying on the ground (gone once picked up)
           if (pickedSticks.has(st.key) || far(st.x, st.y) || !ffp.inside(st.x, st.y, 1) || !chunks.current.has(tileKey(chunkOf(st.x), chunkOf(st.y))) || s.world.terrainAt(Math.round(st.x), Math.round(st.y)) === WATER) continue;
-          G.flat('decal', st.x, st.y, 0.03, 1.3, 1.3, Math.cos(st.angle), Math.sin(st.angle), at.stick, 1, 1, 1, 1);   // the stick item's own picture, lying at its angle
+          if (L.billboards) G.flat('decal', st.x, st.y - 0.04, 0.015, 0.5, 0.16, 0, -1, at.shadow, 0, 0, 0, 0.22);
+          G.board('solid', st.x, st.y, -(stickImg.current ? itemBottomPad(stickImg.current) : 0) * 1.1, 1.1, 1.1, true, at.stick);   // the stick item's own picture, standing up like a banner facing the camera (lying flat it showed only an edge from low down)
         }
         if (Tv >= 9) {   // the beavers' works: the burrow is a heap of sticks with a stone on it, a dam is its sticks laid across the water with its stones on top (stand-ins until their own pictures come)
           for (const c of s.beavers.colonies.values()) {
@@ -1484,7 +1485,7 @@ function WorldView({ id }: { id: string }) {
         }
         mark('stones-sticks');
         if (Tv >= 9) for (const d of decos) {                                          // trees, bushes and rocks stand on their tile, facing the camera (not when zoomed far out: they are a pixel or two, and thousands of them cost more than the ground)
-          const wx = d.x + 0.5, wy = d.y + 1, ds = d.scale * decoK * (d.cell === SHEET.conifer || d.cell === SHEET.deciduous ? 1 : SMALL_DECO_K);   // (bushes and rocks are a fraction of a tree)
+          const wx = d.x + 0.5, wy = d.y + 1, ds = d.scale * decoK * (d.cell === SHEET.conifer || d.cell === SHEET.deciduous ? 1 : d.cell === SHEET.bush ? BUSH_K : ROCK_K);   // (bushes and rocks are a fraction of a tree)
           if (hash01(d.x, d.y, 5) * 100 >= dens) continue;   // (the density setting thins the trees, bushes and rocks out, the same ones each time)
           if (far(wx, wy) || !ffp.inside(wx, wy, ds) || (s.world.kind === 'lakedistrict' && (wx - px0) * (wx - px0) + (wy - py0) * (wy - py0) > DECO_VIEW * DECO_VIEW)) continue;   // (on the hilly world trees, bushes and rocks are only built to 100 tiles: past that they are a pixel or two)
           if (L.billboards) G.flat('decal', wx, wy - 0.04, 0.015, ds * 0.64, ds * 0.2, 0, -1, at.shadow, 0, 0, 0, 0.22);
@@ -1538,7 +1539,7 @@ function WorldView({ id }: { id: string }) {
             const blocked = (x: number, y: number, z: number) => {   // (the same trees and bushes that crash the plane for real)
               if (z > treeTopM * 1.1) return false;
               const tx = Math.floor(x), ty = Math.floor(-y), dc = s.world.drawn(tx, ty).deco, bush = dc === SHEET.bush, top = bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
-              return top > 0 && z < top * decoK * (bush ? SMALL_DECO_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(x - tx - 0.5, -y - ty - 0.5) < 0.38 * decoK * (bush ? SMALL_DECO_K : 1);
+              return top > 0 && z < top * decoK * (bush ? BUSH_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(x - tx - 0.5, -y - ty - 0.5) < 0.38 * decoK * (bush ? BUSH_K : 1);
             };
             landJob = projectLandingSteps(gl, { pitch: 0, roll: 0, yaw: 0, freeStall: false, aero: false, thrust: L.throttle / 100 }, env, { maxT: 45, dt: 0.5, blocked });   // (45 s of flight is some 4000 of the physics' steps: worked through a millisecond or two a frame, not in one go)
           }
@@ -3043,7 +3044,7 @@ const realAlt = (simM: number) => Math.round(simM * 0.18 * hudUnits.up);   // (a
 /** Trees, bushes and rocks on the Lake District maps are drawn at about real size against the 50 m tiles (about 10 to 40 m tall) instead of 1 to 4 tiles; other worlds keep the old size. */
 /** The plane lengths you can choose between (m): a real paper plane first. */
 const PLANE_SIZES = [0.3, 0.5, 0.8, 1.2, 2, 3, 4, 6, 8];
-const SMALL_DECO_K = 0.3;   // bushes and rocks are drawn this fraction of a tree's size (a bush is about a metre, a stone less)
+const BUSH_K = 0.7, ROCK_K = 0.3;   // a bush and a rock are drawn this fraction of a tree's size (a bush is about a metre across, a stone less)
 const CHASE_DEFAULT_LENGTHS = 14;   // plane lengths: the farthest the cameras sit from the plane at their usual zoom
 const CHASE_MIN_LENGTHS = 2.2;   // plane lengths: how close the chase camera can be to the plane at full zoom
 const CAM_EXP = 0.6;   // how fast the chase camera backs off as the plane gets bigger: 0 = one fixed distance, 1 = the plane keeps one size on screen

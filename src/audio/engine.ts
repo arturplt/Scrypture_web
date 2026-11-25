@@ -158,7 +158,7 @@ export function createAudioEngine(): AudioEngine | null {
         case 'ready': tone(1320, 1320, 0.07, 0.08, 'sine'); tone(1760, 1760, 0.09, 0.07, 'sine', 0.06); break;
         case 'hoop': { const base = 523 * 2 ** (Math.floor(k * 12) / 12); [1, 1.25, 1.5, 2].forEach((m, i) => tone(base * m, base * m, 0.22, 0.1, 'triangle', i * 0.06)); break; }   // a rising chime, higher with each hoop in a row
         case 'throw': burst(0.4, 'bandpass', 300, 2200, 0.3, 1.5, 0.1); break;
-        case 'thunder': burst(0.18, 'highpass', 3000, 900, 0.1 + 0.3 * k, 0.7, 0.005); burst(1.6 + 1.2 * k, 'lowpass', 260 + 500 * k, 45, 0.25 + 0.5 * k, 0.6, 0.03); tone(70, 32, 1.4, 0.15 + 0.25 * k, 'sine', 0.05); break;   // the crack, then the long roll (n = how near)
+        case 'thunder': burst(0.18, 'highpass', 3000, 900, 0.5 * k * k, 0.7, 0.005); burst(1.6 + 1.2 * k, 'lowpass', 200 + 600 * k, 45, 0.02 + 0.78 * k, 0.6, 0.03); tone(70, 32, 1.4, 0.01 + 0.39 * k, 'sine', 0.05); break;   // the crack (only when it is near), then the long roll, quieter and duller the further off (n = how near, 0..1 and falling smoothly with distance)
         case 'blip': tone(880, 660, 0.05, 0.05, 'square'); break;
         case 'shot': tone(900, 180, 0.14, 0.12, 'square'); burst(0.12, 'highpass', 3000, 1500, 0.1); break;   // a missed shot: a pew
         case 'hit': tone(900, 180, 0.12, 0.12, 'square'); burst(0.3, 'lowpass', 1800, 250, 0.4, 0.7, 0.05); tone(440, 880, 0.25, 0.12, 'triangle', 0.1); break;   // a hit: the pew, a thump and a rising tone

@@ -84,9 +84,9 @@ void main() {
   vec4 c = tex0 * tint;
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0 && uSurf < 0.5 && uFar < 0.5) {   // a terraced chunk's picture: each tile's layer rides in its alpha. A pixel belongs to its tile's shelf; where the ground it lands on is another shelf (the contours cut across the tiles' squares), take the same pixel of the nearest tile on this shelf instead (up to two tiles out), so the texture fills every terrace and never spills over a wall
     vec2 gx = dUx, gy = dUy;
-    float fl = floor(-vPos.z / uTerrace + 0.04), want = mod(fl, 16.0);
+    float fl = floor(-vPos.z / uTerrace + 0.04), want = mod(fl + (abs(tn.z) < 0.5 ? 1.0 : 0.0), 16.0);   // (a wall belongs to the shelf it climbs to: it takes that shelf's picture)
     // (the tile's layer is read at the finest level, always: from a distance, or on a screen drawn at a lower resolution, the mip levels blur the alpha into nonsense)
-    if ((uDbg & 1) == 0 && floor((1.0 - textureLod(uTex, vUv, 0.0).a) * 255.0 + 0.5) != want && -tn.z > 0.9) {
+    if ((uDbg & 1) == 0 && floor((1.0 - textureLod(uTex, vUv, 0.0).a) * 255.0 + 0.5) != want) {
       vec2 f = fract(vUv / uTileUv), sg = vec2(f.x < 0.5 ? -1.0 : 1.0, f.y < 0.5 ? -1.0 : 1.0);
       const ivec2 NB[24] = ivec2[24](ivec2(1, 0), ivec2(0, 1), ivec2(1, 1), ivec2(-1, 0), ivec2(0, -1), ivec2(-1, 1), ivec2(1, -1), ivec2(-1, -1),
         ivec2(2, 0), ivec2(0, 2), ivec2(2, 1), ivec2(1, 2), ivec2(2, 2), ivec2(-2, 0), ivec2(0, -2), ivec2(2, -1), ivec2(-1, 2), ivec2(1, -2), ivec2(-2, 1), ivec2(2, -2), ivec2(-2, 2), ivec2(-1, -2), ivec2(-2, -1), ivec2(-2, -2));
@@ -190,11 +190,15 @@ void main() {
     vec3 base = c.rgb;
     float wq = isWater(c.rgb);
     float cycW = (uDbg & 2) != 0 ? 0.0 : 1.0 - smoothstep(0.12, 0.5, fwLv);   // (the layers' own colours only while a layer is wider than a few pixels: further off, or on a steep slope, they would be noise that shimmers as the view moves, so the plain ramp takes over)
-    vec3 bt = mix(bandRamp(lay), bandRamp(lay + 1.0), fr) * mix(vec3(1.0), mix(bandCyc(lay), bandCyc(lay + 1.0), fr), cycW);   // every layer its own colour, blending up a wall to the next
+    float wallK = 1.0 - smoothstep(0.80, 0.96, up);   // 1 on a wall, 0 on a shelf
+    vec3 btUp = bandRamp(lay + 1.0) * mix(vec3(1.0), bandCyc(lay + 1.0), cycW);
+    vec3 bt = mix(mix(bandRamp(lay), bandRamp(lay + 1.0), fr) * mix(vec3(1.0), mix(bandCyc(lay), bandCyc(lay + 1.0), fr), cycW), btUp, wallK);   // every layer its own colour; a wall is the colour of the shelf it climbs to
     vec3 land = base * mix(vec3(1.0), bt, grassK);
     float cliff = 1.0 - smoothstep(0.84, 0.97, up), slope = 1.0 - smoothstep(0.90, 0.995, up);
-    vec3 earth = mix(vec3(0.80, 0.66, 0.45), vec3(0.86, 0.78, 0.55) * bt, 0.35);   // warm sandy cream, with a hint of the layer's colour
-    land = mix(land, mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9, (1.0 - smoothstep(0.80, 0.96, up)) * 0.9);   // the walls (straight down) are earth, with a hint of their layer's colour
+    // a wall is one flat colour: its picture is the shelf's, stretched up the wall, which smears every flower and blade of grass into a vertical streak. Sand where the shelf it climbs to is the beach, the shelf's grass colour elsewhere.
+    vec3 wallC = mix(vec3(0.30, 0.50, 0.16) * btUp, vec3(0.90, 0.78, 0.54), step(lay + 1.0, 0.5));
+    land = mix(land, wallC, wallK);
+    land *= mix(1.0, 0.86, wallK);   // (the wall is a shade darker than the shelf above it; the light and the foot's crease below do the rest)
     land = mix(land, land * 1.14 + 0.03, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every wall
     land = mix(land, land * 0.78, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a wall meets the shelf below
     // water lies on level ground only: a ramp face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is ground like any other, except where the water is on its high side and
