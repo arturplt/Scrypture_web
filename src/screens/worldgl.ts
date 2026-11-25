@@ -211,11 +211,16 @@ void main() {
     c.rgb = mix(mix(land, c.rgb, wq * (1.0 - cliff)), fallC, fallOn);
     c.rgb = mix(c.rgb, bedC * mix(1.0, 0.74, cliff), bedK * (1.0 - step(0.5, uSurf)));
   }
-  if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world: too coarse to be cut into steps, so each layer's contour is drawn instead, a thin dark line (and every other band a shade darker) wherever the height crosses a whole layer, which fades out once the bands are thinner than a few pixels
-    float lvf = -vPos.z / uTerrace, wf = max(fwLv, 1e-4), frf = fract(lvf + 0.04), fadeF = 1.0 - smoothstep(0.2, 0.55, wf);
-    float lineF = (1.0 - smoothstep(0.0, 1.5 * wf, frf)) * step(0.5, lvf) * fadeF;
-    c.rgb *= mix(1.0, mod(floor(lvf + 0.04), 2.0) > 0.5 ? 0.94 : 1.0, fadeF);
-    c.rgb = mix(c.rgb, c.rgb * vec3(0.58, 0.50, 0.42), lineF * 0.85);
+  if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world are too coarse to be cut into steps, so the terraces are drawn instead: a thin dark line (and every other band a shade darker) wherever the height crosses a layer. At every distance, in steps of 1, 2, 4 ... layers, whichever keeps a band at least about seven pixels wide, so a far mountain is terraced like the ground near it (fewer, wider steps), not smooth where the bands would be thinner than a pixel; the next size cross-fades in as the view opens or closes
+    float lvf = -vPos.z / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
+    float lineF = 0.0, shadeF = 1.0;
+    for (int k = 0; k < 2; k++) {
+      float m = exp2(j + float(k)), wk = k == 0 ? 1.0 - tj : tj, u = lvf / m + 0.04 / m, wm = wf / m;
+      lineF += wk * (1.0 - smoothstep(0.0, 1.5 * wm, fract(u))) * step(0.5, lvf);
+      shadeF *= mix(1.0, mod(floor(u), 2.0) > 0.5 ? 0.93 : 1.0, wk);
+    }
+    c.rgb *= shadeF;
+    c.rgb = mix(c.rgb, c.rgb * vec3(0.58, 0.50, 0.42), clamp(lineF, 0.0, 1.0) * 0.85);
   }
   if (uTerr > 0.5 && uBase.a > 0.5) {   // hill shading: slopes facing the sun are bright, those away from it dark; water (flat) keeps its own look
     float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);

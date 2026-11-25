@@ -921,8 +921,12 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
       if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(x0 + i * step, y0 + j * step, seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
       else {
         const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
-        if (lay === 0 || bio === 3) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }
-        else { const t = bandTint(lay, false), c = BIOME_FAR[bio] ?? BIOME_FAR[0]; r = c[0] * t[0]; g = c[1] * t[1]; b = c[2] * t[2]; }
+        if (lay === 0 || (bio === 3 && lay >= bareFrom())) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }   // (sand: the beach and the bare tops only; dry country above the beach is grass to the eye up close, so it is grass from afar too, not sand that turns green as you come)
+        else {
+          // each layer its own tint, as up close, where the terraces are wide enough to tell apart: the steeper the ground (layers a vertex), the less of it, so a hillside of thin layers is a plain ramp and not noise
+          const sl = Math.max(Math.abs(H(i + 1, j) - H(i, j)), Math.abs(H(i - 1, j) - H(i, j)), Math.abs(H(i, j + 1) - H(i, j)), Math.abs(H(i, j - 1) - H(i, j))) / TERRACE_STEP, w = 1 - smooth(0.6, 2.2, sl), cy = BAND_CYCLE[((lay % 6) + 6) % 6];
+          const t = bandTint(lay, false), c = BIOME_FAR[bio] ?? BIOME_FAR[0]; r = c[0] * t[0] * (1 + (cy[0] - 1) * w); g = c[1] * t[1] * (1 + (cy[1] - 1) * w); b = c[2] * t[2] * (1 + (cy[2] - 1) * w);
+        }
         const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * step), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * step), nl = Math.hypot(gx, gy, 1);
         const sh = Math.max(0.55, Math.min(1.25, 0.5 + 0.9 * Math.max(0, (-gx * L[0] - gy * L[1] + L[2]) / nl)));
         r *= sh; g *= sh; b *= sh;
