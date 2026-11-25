@@ -13,7 +13,7 @@
 import { hash01 } from './worldgen';
 import { insideFace, turnVector, type Canon } from './cube';
 import { sunElevation } from './sky';
-import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir, trackK } from './orbit';
+import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir, trackK, circularSpeed } from './orbit';
 
 export const G = 9.81;
 export const ALT_MAX = 120;                 // the altitude of layer 1 (the top of the picture)
@@ -160,6 +160,16 @@ export function hoopBoost(g: Glider, add = HOOP_SPEED): number {
   g.vx += ux * add; g.vy += uy * add; g.boostCharges++;   // and one more boost in hand
   g.boostEase = Math.max(g.boostEase, HOOP_EASE);   // the wing eases off to carry 1 g while the extra speed lasts, or the plane balloons up and then stalls into a dive
   return add;
+}
+
+/** The sky ladder's gate: the plane is set level on a circular orbit at the height it has, along the way it was going (the path's heading), and its nose follows. Returns the orbital speed, m/s. */
+export function insertOrbit(g: Glider): number {
+  if (g.landed) return 0;
+  const hAbs = g.z + (g.gnd ?? 0), v = circularSpeed(hAbs), hd = Math.hypot(g.vx, g.vy), heading = hd > 0.5 ? Math.atan2(g.vy, g.vx) : g.psi;
+  g.vx = Math.cos(heading) * v; g.vy = Math.sin(heading) * v; g.vz = 0; g.psi = heading; g.alpha = ALPHA_TRIM; g.elev = g.ail = g.rud = 0; g.phi = 0;
+  g.gamma = 0; g.airspeed = v; g.vsi = 0; g.pitch = ALPHA_TRIM; g.boost = 0; g.boostEase = Math.max(g.boostEase, HOOP_EASE);
+  setAttitude(g, heading, 0);
+  return v;
 }
 
 function liftCoeff(a: number): number {

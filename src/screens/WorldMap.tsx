@@ -9,7 +9,7 @@ import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersF
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, tiltAltitudeFactor, Ecosystem, billboardLean, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
-  BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, reframeGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
+  BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, insertOrbit, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, reframeGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
 } from '../domain';
 import { actions, store, useAppState } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
@@ -50,6 +50,7 @@ import { PatternKeyboard, HotkeyEditor } from '../ui/PatternKeyboard';
 import { refuel, type GlideControls } from '../domain/glider';
 import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
 import { rocketFuel, spaceFactor, airDensity, warpAllowed, nextWarp, ORBIT, setPlanetRadius } from '../domain/orbit';
+import { newLadder, startLadder, stepLadder } from '../domain/skyway';
 import { cubeRadius, canonInto, newCanon, canonChunk, turnVector, applyCanon, FACES, eyeFrame } from '../domain/cube';
 import { GlobeMap, renderGlobe } from '../domain/globemap';
 import { HEATSHIELD_K } from '../domain/shop';
@@ -205,9 +206,9 @@ function WorldView({ id }: { id: string }) {
   const [up, setUpState] = useState<Upgrades>(() => sanitizeUpgrades(initial.shop)), upRef = useRef(up);   // what was bought in the shop (kept per world)
   const setUpgrades = (u: Upgrades) => { upRef.current = u; setUpState(u); sim.current!.glider.dragK = paperDrag(u.paper); actions.saveWorld(id, { shop: u }); };
   const buyItem = (what: ShopId) => { if (!sim.current!.glider.landed) return; const r = shopBuy(what, upRef.current, coinsRef.current); if (r) { addCoins(-r.cost); setUpgrades(r.up); } };
-  const orbitRef = useRef<SavedOrbit | undefined>(initial.orbit), rocketTouch = useRef(false), [orbitPop, setOrbitPop] = useState<{ key: number; o: SavedOrbit; apo: number; peri: number } | null>(null);   // the world's orbit record, the on-screen rocket button held down, and the ORBIT REACHED banner
+  const orbitRef = useRef<SavedOrbit | undefined>(initial.orbit), rocketTouch = useRef(false), [skyOn, setSkyOn] = useState(false), [orbitPop, setOrbitPop] = useState<{ key: number; o: SavedOrbit; apo: number; peri: number } | null>(null);   // the world's orbit record, the on-screen rocket button held down, and the ORBIT REACHED banner
   const autoOn = useRef(() => sasRef.current.mode === 'auto').current;
-  const holdRocket = useRef((on: boolean) => { rocketTouch.current = on; }).current, rocketFuelNow = useRef(() => ({ left: sim.current?.glider.fuel ?? 0, max: rocketFuel(upRef.current.rocket) })).current;
+  const holdRocket = useRef((on: boolean) => { rocketTouch.current = on; }).current, rocketFuelNow = useRef(() => { const fl = sim.current?.glider.fuel ?? 0; return { left: fl, max: Math.max(fl, rocketFuel(upRef.current.rocket)) }; }).current;
   const runStat = useRef({ startZ: 40, peakZ: 40 });   // where this run's flight began and the highest it got: the climb scores
   const [shopOpen, setShopOpen] = useState(false);   // the boost shop (from the result popup or the button beside Throw)
   const [burnPop, setBurnPop] = useState<{ n: number; key: number } | null>(null), burnedRef = useRef(initial.burned ?? 0), deadRef = useRef(false), respawnReq = useRef(false);   // fire or lightning got the plane: GAME OVER with how many times it has burned
@@ -395,8 +396,8 @@ function WorldView({ id }: { id: string }) {
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
-  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -627,7 +628,7 @@ function WorldView({ id }: { id: string }) {
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
     let landJob: Generator<void, LandingProjection, void> | null = null;   // the landing prediction under way (see projectLandingSteps)
-    let landEnv: GlideEnv | null = null, landT = 0, landAt: { x: number; y: number; kind: 'crash' | 'splash' | 'soft' | 'skim' | 'far' } | null = null, landShow: { x: number; y: number } | null = null, lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
+    let landEnv: GlideEnv | null = null, landT = 0, landAt: { x: number; y: number; kind: 'crash' | 'splash' | 'soft' | 'skim' | 'far' } | null = null, landShow: { x: number; y: number } | null = null, lakeTick = 0, trickPts = 0, mowT = 0, mowGain = 0, skimT = 0, skimGain = 0, invT = 0, invGain = 0, combo = newCombo(), splash: { x: number; y: number; h: number; vx: number; vy: number; vh: number; life: number }[] = [], tricks = newTrickState(), trickMsg = '', trickMsgT = 0, hoopCount = 0, hoopMsg = '', ladder = newLadder(), flown = 0, bestHoops = Math.max(0, ...scoresRef.current.map(r => r.hoops)), bestFlown = Math.max(0, ...scoresRef.current.map(r => r.metres)), hoopFlash = 0, prevP: { x: number; y: number; h: number } | null = null;
     // The stage's real size, never 0: if layout has not settled (or the observer missed a change) fall back to the box around it or the window.
     const measure = () => {
       const r = el.getBoundingClientRect(), p = el.parentElement;
@@ -969,7 +970,7 @@ function WorldView({ id }: { id: string }) {
             const dth = reframeGlider(gl, REFC); camAng.current += dth; windTurn += dth;
             { const lp = lastPose.current, [lx, ly] = applyCanon(lp.x, lp.y, REFC); lastPose.current = { ...lp, x: lx, y: ly }; }
             s.eco.wind = { ...s.eco.wind, dir: s.eco.wind.dir + dth }; L.wind = { ...L.wind, dir: L.wind.dir + dth }; windLive.current = L.wind;
-            s.eco.reframe();
+            s.eco.reframe(); ladder.rung = null; prevP = null;   // (the sky ladder's rung is made again ahead of the plane on the new face)
           }
         }
         f.x = gl.x; f.y = -gl.y; f.heading = gl.psi; f.course = gl.landed ? gl.psi : gl.course; f.glideAlt = gl.z; f.glideLanded = gl.landed;
@@ -1008,7 +1009,7 @@ function WorldView({ id }: { id: string }) {
             if (hoopCount > 0 || flown >= 10 || climb >= 5 || trickList.length || tagSum > 0) setRunResult({ hoops: hoopCount, metres: Math.round(flown), height: climb, bonus, soft: ls.soft, water: ls.water, saved, dbl, coins: earned, key: now, trick: trickSum, tag: tagSum > 0 ? { pts: tagSum, you: dogLast.current.you, ai: dogLast.current.ai } : undefined, tricks: trickList });
           }
           bestHoops = Math.max(bestHoops, hoopCount); bestFlown = Math.max(bestFlown, flown);   // a crash ends the run: the score is kept as the best, the run starts again from nothing
-          hoopCount = 0; flown = 0; trickPts = 0; tagPts = 0; orbitPts = 0; runHeat = 0; dogLast.current = { you: 0, ai: 0 }; runTricks.clear(); mowT = 0; mowGain = 0; skimT = 0; skimGain = 0; invT = 0; invGain = 0; combo = newCombo(); resetTricks(tricks, gl); hoopsDone.clear();  }   // (the boosts in hand carry over to the next run)
+          hoopCount = 0; flown = 0; trickPts = 0; tagPts = 0; orbitPts = 0; runHeat = 0; dogLast.current = { you: 0, ai: 0 }; runTricks.clear(); mowT = 0; mowGain = 0; skimT = 0; skimGain = 0; invT = 0; invGain = 0; combo = newCombo(); resetTricks(tricks, gl); hoopsDone.clear(); ladder = newLadder(); }   // (the boosts in hand carry over to the next run)
         if (gl.landed) { refuel(gl, rocketFuel(upRef.current.rocket)); gl.heatK = upRef.current.heatshield > 0 ? HEATSHIELD_K : 1; }   // on the ground the stage is filled and the shield fitted for the next throw
         if (f.mode === 'glide' && !L.paused && !deadRef.current && ((!gl.landed && gl.heat >= 1) || (gl.z < 8 && s.eco.fireHeat(f.x, f.y) > (gl.landed ? 0.3 : 0.5)) || s.eco.strikes.some(b => b.age < 0.8 && Math.hypot(b.x - f.x, b.y - f.y) < 1.5))) {   // in the flames, or struck by a bolt: the screen is swallowed by fire, GAME OVER; the Respawn button brings it back to the very start
           deadRef.current = true; burnedRef.current++; actions.saveWorld(id, { burned: burnedRef.current }); setBurnPop({ n: burnedRef.current, key: Date.now() }); setPaused(true); audio.current?.play('crash', 1);
@@ -1020,14 +1021,14 @@ function WorldView({ id }: { id: string }) {
           if (s.world.kind === 'lakedistrict' || s.world.field) { throwPlane(gl, f.x, -f.y, f.heading, LAKE_START_ALT, LAKE_START_SPEED, 0); refuel(gl, rocketFuel(upRef.current.rocket)); f.glideAlt = LAKE_START_ALT; f.glideLanded = false; }
           else { gl.x = f.x; gl.y = -f.y; gl.psi = f.heading; gl.landed = true; gl.z = 0; gl.vx = gl.vy = gl.vz = 0; f.glideAlt = 0; f.glideLanded = true; }
           runStat.current = { startZ: gl.z, peakZ: gl.z };
-          hoopCount = 0; flown = 0; trickPts = 0; tagPts = 0; orbitPts = 0; runHeat = 0; dogLast.current = { you: 0, ai: 0 }; runTricks.clear(); mowT = 0; mowGain = 0; skimT = 0; skimGain = 0; invT = 0; invGain = 0; combo = newCombo(); resetTricks(tricks, gl); hoopsDone.clear();
+          hoopCount = 0; flown = 0; trickPts = 0; tagPts = 0; orbitPts = 0; runHeat = 0; dogLast.current = { you: 0, ai: 0 }; runTricks.clear(); mowT = 0; mowGain = 0; skimT = 0; skimGain = 0; invT = 0; invGain = 0; combo = newCombo(); resetTricks(tricks, gl); hoopsDone.clear(); ladder = newLadder();
         }
         wasLanded.current = gl.landed;
         layer = currentLayer(f);
         dx = 0; dy = 0;
         const i = inst.current;
         i.airspeed = gl.landed ? 0 : gl.airspeed; i.stallSpeed = STALL_SPEED; i.bestGlide = TRIM_SPEED; i.altitude = gl.z + (gl.gnd ?? 0); i.vsi = gl.vsi; i.energyRate = gl.energyRate;
-        i.heading = (((90 - (gl.psi * 180) / Math.PI) % 360) + 360) % 360; i.pitch = gl.pitch; i.gamma = gl.gamma; i.bank = gl.phi; i.turnRate = gl.turnRate; i.slip = -gl.rud; i.stalled = gl.stalled && !gl.landed; i.load = gl.load; i.landed = gl.landed; i.fuel = gl.fuel; i.fuelMax = rocketFuel(upRef.current.rocket); i.apo = gl.apo; i.peri = gl.peri; i.heat = gl.heat; i.orbited = gl.orbited; i.warp = warpRef.current; i.rocketOn = gl.rocketOn; i.auto = sasRef.current.mode === 'auto' && !gl.landed ? sasRef.current.auto.phase : ''; i.mouse = L.mouseFly;
+        i.heading = (((90 - (gl.psi * 180) / Math.PI) % 360) + 360) % 360; i.pitch = gl.pitch; i.gamma = gl.gamma; i.bank = gl.phi; i.turnRate = gl.turnRate; i.slip = -gl.rud; i.stalled = gl.stalled && !gl.landed; i.load = gl.load; i.landed = gl.landed; i.fuel = gl.fuel; i.fuelMax = Math.max(gl.fuel, rocketFuel(upRef.current.rocket)); i.apo = gl.apo; i.peri = gl.peri; i.heat = gl.heat; i.orbited = gl.orbited; i.warp = warpRef.current; i.rocketOn = gl.rocketOn; i.auto = sasRef.current.mode === 'auto' && !gl.landed ? sasRef.current.auto.phase : ''; i.mouse = L.mouseFly;
         { const D = dog.current; if (D && D.phase !== 'over' && !gl.landed) { const b = foeBearing(gl, D.ai); i.foe = { theta: b.theta, phi: b.phi, dist: b.dist, hunter: D.role === 'flee', lock: D.cooldown > 0 ? 0 : Math.min(1, D.lock / (D.role === 'chase' ? 1 : 1.4)) }; } else i.foe = null; }   // the dogfight opponent on the instrument
         {   // sound: wind in two ears, the stall whistle, rain (nothing while paused)
           const rainHere = s.eco.rainAt(f.x, f.y, layer) * paperRain(upRef.current.paper);
@@ -1355,6 +1356,7 @@ function WorldView({ id }: { id: string }) {
       {
         const hl = glide ? gl.z * 0.18 : 4 + (10 - layer) * 2, pv = prevP;
         prevP = { x: f.x, y: f.y, h: hl }; hoopFlash = Math.max(0, hoopFlash - dt);
+        if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__ladder = ladder;   // (dev builds: headless tests read the sky ladder)
         if (pv && !(glide && gl.landed) && Math.hypot(f.x - pv.x, f.y - pv.y) < 4) {          // (a throw or a jump is not a flight through anything)
           flown += Math.hypot(f.x - pv.x, f.y - pv.y);                                      // the distance flown, in tiles (= metres)
           for (const hp of hoopsIn(s.world.seed, Math.min(pv.x, f.x) - 5, Math.min(pv.y, f.y) - 5, Math.max(pv.x, f.x) + 5, Math.max(pv.y, f.y) + 5)) {
@@ -1362,7 +1364,19 @@ function WorldView({ id }: { id: string }) {
             hoopsDone.add(hp.key); hoopCount++; hoopFlash = 1.4; miniDirty.current = true;
             { const sf = sfx.current; sf.streak = anim - sf.streakAt < 8 ? Math.min(12, sf.streak + 1) : 0; sf.streakAt = anim; audio.current?.play('hoop', sf.streak / 12); }   // a chime that climbs with hoops flown in quick succession
             if (glide) { gl.boostCd = 0; hoopBoost(gl); }                                       // a reward: the boost is ready again, and a kick of ground speed
+            hoopMsg = L.hoopText;
+            if (glide && !ladder.on && !gl.orbited && !gl.landed) { startLadder(ladder, gl); hoopMsg = L.skyText; setSkyOn(true); }   // any hoop starts the sky ladder: rungs that climb, each one fuel for the rocket, the last an orbit
           }
+        }
+        if (glide && ladder.on) {   // the sky ladder: the rung ahead (made from the plane's own state), flown through, flown past, or the way ended
+          const jump = !pv || Math.hypot(f.x - pv.x, f.y - pv.y) > 80;   // (a throw, a face change: no path through anything; a plane at 300 m/s moves a few tiles a frame)
+          const ev = stepLadder(ladder, gl, jump ? null : pv);
+          if (ev === 'pass' || ev === 'gate') {
+            hoopCount++; hoopFlash = 1.4; miniDirty.current = true; hoopMsg = ev === 'gate' ? L.gateText : L.rungText(ladder.n);
+            { const sf = sfx.current; sf.streak = anim - sf.streakAt < 8 ? Math.min(12, sf.streak + 1) : 0; sf.streakAt = anim; audio.current?.play('hoop', sf.streak / 12); }
+            if (ev === 'gate') insertOrbit(gl);   // through the gate: level, on a circular orbit at that height (the periapsis then counts as orbit once it has stayed clear of the air)
+          } else if (ev === 'spawn' || ev === 'miss') miniDirty.current = true;
+          if (ev === 'end' || ev === 'gate') setSkyOn(false);
         }
       }
       {   // drifting leaves and pollen
@@ -1692,6 +1706,15 @@ function WorldView({ id }: { id: string }) {
           const hc = G.projectAgl(hp.x, hp.y, hp.h), he = G.projectAgl(hp.x, hp.y, hp.h + hp.r);
           if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: `${realAlt(hp.h / 0.18 + s.world.groundZAt(hp.x, hp.y))} m`, size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done });
         }
+        {   // the sky ladder's rung (cyan; pink for the orbit gate): as far off as it can be seen, the further the bigger
+          const rg = ladder.on ? ladder.rung : null;
+          if (rg) {
+            const tx = -Math.sin(rg.angle), ty = Math.cos(rg.angle), pulse = 0.85 + 0.15 * Math.sin(anim * 4);
+            G.quad('blend', rg.x, rg.y, -rg.h - G.groundH(rg.x, rg.y), tx * rg.r, ty * rg.r, 0, 0, 0, -rg.r, at.ring, rg.gate ? 1 : 0.3, rg.gate ? 0.4 : 0.9, rg.gate ? 0.9 : 1, pulse);
+            const hc = G.projectAgl(rg.x, rg.y, rg.h), he = G.projectAgl(rg.x, rg.y, rg.h + rg.r);
+            if (hc && he && hc[0] > -40 && hc[0] < W + 40 && hc[1] > -40 && hc[1] < H + 40) hoopLabels.push({ x: hc[0], y: hc[1], text: altText(rg.h, s.glider.gnd ?? 0), size: Math.max(10, Math.min(22, Math.abs(he[1] - hc[1]) * 0.45)), done: false });
+          }
+        }
         // the names of the lakes and fells, floating over them, as far off as they can be read
         if ((s.world.kind === 'lakedistrict' || s.world.realTerrain) && (!L.hideUi || L.lookUi)) {
           const tileM = lakeData()?.tileM ?? 50, lift = s.world.realTerrain ? 0.4 : 1;   // (the terraced ground is far squatter than the real one: its names float closer to it)
@@ -1756,6 +1779,12 @@ function WorldView({ id }: { id: string }) {
         g.strokeStyle = done ? 'rgba(120,255,140,0.5)' : '#ffc233'; g.lineWidth = 4 * zoom / 2; g.lineCap = 'round';
         g.beginPath(); g.moveTo(hx - tx, hy - ty); g.lineTo(hx + tx, hy + ty); g.stroke();
         hoopLabels.push({ x: hx, y: hy, text: `${realAlt(hp.h / 0.18 + s.world.groundZAt(hp.x, hp.y))} m`, size: 13, done });   // (canvas pixels for now; turned into stage pixels below)
+      }
+      if (ladder.on && ladder.rung) {   // the sky ladder's rung, from above
+        const rg = ladder.rung, hx = ox + rg.x * T, hy = oy + rg.y * T, tx = -Math.sin(rg.angle) * rg.r * T, ty = Math.cos(rg.angle) * rg.r * T;
+        g.strokeStyle = rg.gate ? '#ff66e6' : '#4de1ff'; g.lineWidth = 4 * zoom / 2; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(hx - tx, hy - ty); g.lineTo(hx + tx, hy + ty); g.stroke();
+        hoopLabels.push({ x: hx, y: hy, text: altText(rg.h, s.glider.gnd ?? 0), size: 13, done: false });
       }
 
       // thermals: a warm haze over the hot ground with dust rising in it; the stronger the lift, the redder and busier
@@ -1996,7 +2025,7 @@ function WorldView({ id }: { id: string }) {
       if (!L.hideUi) {
       ctx.font = `10px ${PXF}`; { const dist = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`), label = `${L.hoopsText} ${hoopCount}  |  ${dist(flown)}`; ctx.strokeText(label, W / 2, 24); ctx.fillStyle = '#ffd54f'; ctx.fillText(label, W / 2, 24);
         if (bestHoops > 0 || bestFlown > 0) { ctx.font = `8px ${PXF}`; const best = `${L.bestText} ${Math.max(bestHoops, hoopCount)}  |  ${dist(Math.max(bestFlown, flown))}`; ctx.strokeText(best, W / 2, 42); ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(best, W / 2, 42); } }
-      if (hoopFlash > 0) { ctx.globalAlpha = Math.min(1, hoopFlash); ctx.font = `18px ${PXF}`; ctx.strokeText(L.hoopText, W / 2, H * 0.44); ctx.fillStyle = '#ffd54f'; ctx.fillText(L.hoopText, W / 2, H * 0.44); }
+      if (hoopFlash > 0) { ctx.globalAlpha = Math.min(1, hoopFlash); ctx.font = `18px ${PXF}`; ctx.strokeText(hoopMsg || L.hoopText, W / 2, H * 0.44); ctx.fillStyle = '#ffd54f'; ctx.fillText(hoopMsg || L.hoopText, W / 2, H * 0.44); }
       }
       ctx.restore();
 
@@ -2057,6 +2086,7 @@ function WorldView({ id }: { id: string }) {
       if (hoopHint.current) {                                                            // the arrow to the nearest hoop still to fly (any flight mode)
         hoopAcc += dt;
         if (hoopAcc > 0.3) { hoopAcc = 0; hoopBest = null; let bd = 1e9, fd = 1e9, fall: { x: number; y: number; d: number } | null = null; for (const hp of hoopsIn(s.world.seed, f.x - 150, f.y - 150, f.x + 150, f.y + 150)) { if (hoopsDone.has(hp.key)) continue; const d = Math.hypot(hp.x - f.x, hp.y - f.y); if (inCone(f, hp.x, hp.y) && d < bd) { bd = d; hoopBest = { x: hp.x, y: hp.y, d }; } if (d < fd) { fd = d; fall = { x: hp.x, y: hp.y, d }; } } hoopBest = hoopBest ?? fall; }
+        if (glide && ladder.on && ladder.rung) hoopBest = { x: ladder.rung.x, y: ladder.rung.y, d: 0 };   // (the sky ladder's rung is the one to fly to)
         const hb = hoopBest, ok = !!hb && !(glide && gl.landed);
         if (ok) { const bearing = Math.atan2(-(hb!.y - f.y), hb!.x - f.x), d = Math.hypot(hb!.x - f.x, hb!.y - f.y); hoopArrow.current!.style.transform = `rotate(${(Math.atan2(Math.sin(f.course - bearing), Math.cos(f.course - bearing)) * 180) / Math.PI}deg)`; hoopDist.current!.textContent = `${realDist(d)} m`; }
         hoopHint.current.style.display = ok ? 'flex' : 'none';
@@ -2083,6 +2113,7 @@ function WorldView({ id }: { id: string }) {
          miniDirty.current = false; miniAcc = 0; lastMini = { x: f.x, y: f.y }; lastMiniH = f.course; {
           const span = 52 * L.miniScale, marks: MiniMark[] = [];   // the hoops (gold, green once flown) and, in the glider, the thermals (hot air, orange) that are on the little map
           if (L.miniHoops) for (const hp of hoopsIn(s.world.seed, f.x - span, f.y - span, f.x + span, f.y + span)) marks.push({ x: hp.x, y: hp.y, kind: hoopsDone.has(hp.key) ? 'done' : 'hoop', r: hp.r });
+          if (L.miniHoops && ladder.on && ladder.rung) marks.push({ x: ladder.rung.x, y: ladder.rung.y, kind: 'hoop', r: ladder.rung.r });
           if (glide && L.hints && L.miniHeat) for (const th of thermalsIn(thermalEnv(), f.x - span, f.y - span, f.x + span, f.y + span, gl.t, 0)) if (th.w > 0.3) marks.push({ x: th.x, y: th.y, kind: 'heat', r: th.r });
           const m0 = performance.now(); if (drawMinimap(mini.current, miniCache, s.world, s.explored, f, cx0, cx1, cy0, cy1, L.miniScale, marks, highFast)) miniDirty.current = true;   // (true: some chunks were left for the next draw)
           if (perf.on) { perf.f.mini = performance.now() - m0; perf.mini = Math.max(perf.mini, perf.f.mini); } }
@@ -2253,7 +2284,7 @@ function WorldView({ id }: { id: string }) {
         <ActPanel act={act} sticks={stickRef.current} stones={stoneRef.current} berries={berryRef.current} primary={primaryAct(act)} onGive={giveToDam} onBreak={breakDam} onPick={pickBush} onFeed={feedBeaver} t={t} />
       )}
       {mode === 'glide' && !onFoot && <OrbitReadout inst={inst} t={t} hud={camMode === 'fpv' && tool === 'fly' && !hideUi} onWarp={dir => { warpRef.current = nextWarp(warpRef.current, dir); }} />}   {/* (in the FPV camera the numbers are on its head-up display: only the reentry glow stays) */}
-      {mode === 'glide' && !onFoot && up.rocket > 0 && !lookFly && <RocketButton label={t('worldRocket')} hold={holdRocket} fuel={rocketFuelNow} autoLabel={t('worldAuto')} auto={autoOn} onAuto={() => toggleAutoRef.current()} />}   {/* (the free view has it in its right-hand corner group, over the joystick) */}
+      {mode === 'glide' && !onFoot && (up.rocket > 0 || skyOn) && !lookFly && <RocketButton label={t('worldRocket')} hold={holdRocket} fuel={rocketFuelNow} autoLabel={t('worldAuto')} auto={autoOn} onAuto={() => toggleAutoRef.current()} />}   {/* (the free view has it in its right-hand corner group, over the joystick) */}
       {orbitPop && <OrbitPopup key={orbitPop.key} pop={orbitPop} t={t} onDone={() => setOrbitPop(p => (p && p.key === orbitPop.key ? null : p))} />}
       {pickToast && <PickToast key={pickToast.at} item={pickToast.item} from={pickToast.from} to={pickToast.to} onDone={() => setPickToast(p => (p && p.at === pickToast.at ? null : p))} />}
 
@@ -3088,7 +3119,9 @@ function setHudUnits(w: World) {
   else { hudUnits.across = 1; hudUnits.up = 1; }
 }
 const realDist = (tiles: number) => Math.round(tiles * hudUnits.across);
-const realAlt = (simM: number) => Math.round(simM * 0.18 * hudUnits.up);   // (a sim metre of height is drawn 0.18 tiles tall)
+const realAlt = (simM: number) => Math.round(simM * 0.18 * hudUnits.up);
+/** The sky ladder's rung height as its label shows it, the way the altimeter does (metres above the sea, in km past 10 000): h is in tiles above the ground, gnd the plane's ground height. */
+const altText = (h: number, gnd: number) => { const m = Math.round(h / 0.18 + gnd); return m >= 10000 ? `${Math.round(m / 1000)} km` : m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`; };
 /** Trees, bushes and rocks on the Lake District maps are drawn at about real size against the 50 m tiles (about 10 to 40 m tall) instead of 1 to 4 tiles; other worlds keep the old size. */
 /** The plane lengths you can choose between (m): a real paper plane first. */
 const PLANE_SIZES = [0.3, 0.5, 0.8, 1.2, 2, 3, 4, 6, 8];
