@@ -8,7 +8,7 @@
 import { Pond, DAM_TILE_SHARE, POND_MIN } from './hydrology';
 import { lakeWaterAt, LAKE_WATER, lakeData } from './lakedistrict';
 import { hash01, tileKey, WATER, DECO_NONE, DECO_BUSH, type World } from './worldgen';
-import { wrapCell, canonTile } from './globe';
+import { insideFace, canonTile } from './cube';
 import { isBerryBush } from './berries';
 import { isNight } from './sky';
 import type { Ecosystem, Random01 } from './ecosystem';
@@ -101,9 +101,11 @@ export const damBroken = (c: Colony) => c.dam.filter(d => d.sticks === 0).length
 
 /** Where the colony of one cell would like to live, or null (cells are 48 tiles wide; a bit over half hold one). */
 export function colonyInCell(seed: number, i: number, j: number): { key: string; x: number; y: number } | null {
-  const s = seed & 0xffff, wi = wrapCell(i, COLONY_CELL), wj = wrapCell(j, COLONY_CELL);   // (on a globe: hashed and keyed by the cell's place in the lap, set where its unrolled cell is)
-  if (hash01(wi, wj, s, 401) > COLONY_CHANCE) return null;
-  return { key: `${wi},${wj}`, x: Math.round((i + 0.2 + 0.6 * hash01(wi, wj, s, 402)) * COLONY_CELL), y: Math.round((j + 0.2 + 0.6 * hash01(wi, wj, s, 403)) * COLONY_CELL) };
+  const s = seed & 0xffff;
+  if (hash01(i, j, s, 401) > COLONY_CHANCE) return null;
+  const x = Math.round((i + 0.2 + 0.6 * hash01(i, j, s, 402)) * COLONY_CELL), y = Math.round((j + 0.2 + 0.6 * hash01(i, j, s, 403)) * COLONY_CELL);
+  if (!insideFace(x, y, 60)) return null;   // (on a cube-sphere: on a face, a little way from its edges; the net cell is the place and the key)
+  return { key: `${i},${j}`, x, y };
 }
 
 export class BeaversManager {

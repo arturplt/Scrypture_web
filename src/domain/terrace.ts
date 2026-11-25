@@ -10,7 +10,7 @@
 
 import { makeRealTerrain, realElevation, realLand, realLake, realLakeSheet, realLakeTile, realLakeShore, type RealTerrain } from './terrainreal';
 import type { LakeData } from './lakedistrict';
-import { GW, canonInto, newCanon, capAt, canonTile, canonChunk, unrollNear, CAP_LEVEL, type Canon } from './globe';
+import { GN, canonInto, newCanon, capAt, canonTile, canonTileKey, canonChunk, netToDir, insideFace, CAP_LEVEL, type Canon } from './cube';
 
 /** Tiles per chunk side (worldgen's CHUNK; repeated here so this file needs nothing from worldgen). */
 const CHUNK = 16;
@@ -70,25 +70,35 @@ function noise(x: number, y: number, seed: number): number {   // -1..1
   const x1 = a + u * (c - a), x2 = b + u * (d - b);
   return (x1 + v * (x2 - x1)) * 2 - 1;
 }
-/** The same noise, repeating every n lattice cells in x (so the world wraps round seamlessly): the lattice index is taken mod n. */
-function noiseP(x: number, y: number, seed: number, n: number): number {   // -1..1
-  const xi = Math.floor(x), yi = Math.floor(y), u = fade(x - xi), v = fade(y - yi);
-  let x0 = xi % n; if (x0 < 0) x0 += n; const x1 = x0 + 1 === n ? 0 : x0 + 1;
-  const a = hash01(x0, yi, seed), b = hash01(x0, yi + 1, seed), c = hash01(x1, yi, seed), d = hash01(x1, yi + 1, seed);
-  const x1v = a + u * (c - a), x2 = b + u * (d - b);
-  return (x1v + v * (x2 - x1v)) * 2 - 1;
-}
-/**
- * The noise at (x, y) at frequency f (plus a shift in lattice units). On a globe the frequency is snapped to a whole number of lattice cells to the world's width, so the field is the
- * same one lap on; on an endless world it is plain `noise(x * f + ox, y * f + oy)`.
- */
-function nz(x: number, y: number, f: number, seed: number, ox = 0, oy = 0): number {
-  if (GW === 0) return noise(x * f + ox, y * f + oy, seed);
-  const n = Math.max(1, Math.round(f * GW)), g = n / GW;
-  return noiseP(x * g + ox, y * g + oy, seed, n);
-}
+function nz(x: number, y: number, f: number, seed: number, ox = 0, oy = 0): number { return noise(x * f + ox, y * f + oy, seed); }
 /** Scratch for the canonical point of the sample being worked out (the field's callers are single-threaded and do not nest). */
 const CN: Canon = newCanon();
+
+// ---- the cube-sphere's ground: the same fields as noise on the ball ------------------------------------------------------------------
+/** A lattice hash of three cells and a seed, 0..1. */
+function hash3(a: number, b: number, c: number, d: number): number {
+  let h = Math.imul(a, 0x27d4eb2d) ^ Math.imul(b, 0x165667b1) ^ Math.imul(c, 0x9e3779b1) ^ d;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+/** 3D value noise, -1..1 (quintic fade over the eight corners of the lattice cell). */
+function noise3(x: number, y: number, z: number, seed: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), u = fade(x - xi), v = fade(y - yi), w = fade(z - zi);
+  const a = hash3(xi, yi, zi, seed), b = hash3(xi + 1, yi, zi, seed), c = hash3(xi, yi + 1, zi, seed), d = hash3(xi + 1, yi + 1, zi, seed);
+  const e = hash3(xi, yi, zi + 1, seed), f = hash3(xi + 1, yi, zi + 1, seed), g = hash3(xi, yi + 1, zi + 1, seed), h = hash3(xi + 1, yi + 1, zi + 1, seed);
+  const x1 = a + u * (b - a), x2 = c + u * (d - c), x3 = e + u * (f - e), x4 = g + u * (h - g), y1 = x1 + v * (x2 - x1), y2 = x3 + v * (x4 - x3);
+  return (y1 + w * (y2 - y1)) * 2 - 1;
+}
+/** The noise at a point of the ball (tiles from the planet's centre) at frequency f (cycles a tile): features have the same size everywhere on it. */
+const nz3 = (px: number, py: number, pz: number, f: number, seed: number): number => noise3(px * f, py * f, pz * f, seed);
+/** The place of a net point on the ball, in tiles from the planet's centre (PX, PY, PZ), and its canonical net coordinates (CX, CY). Read them at once: the next call overwrites them. */
+let PX = 0, PY = 0, PZ = 0, CX = 0, CY = 0;
+const DV = [0, 0, 0];
+function pt(x: number, y: number) {
+  canonInto(x, y, CN); CX = CN.x; CY = CN.y; netToDir(CX, CY, DV);
+  const R = (2 * GN) / Math.PI; PX = DV[0] * R; PY = DV[1] * R; PZ = DV[2] * R;
+}
 const smooth = (a: number, b: number, t: number) => { const k = Math.max(0, Math.min(1, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
 
 /**
@@ -108,17 +118,39 @@ export function elevation(x: number, y: number, seed: number, lakes = LAKE_ALL):
  */
 export function elevationBroad(x: number, y: number, seed: number): number {
   const s = (seed ^ 0x7e77ace) | 0, lo = LOW_TMP;
+  if (GN) {
+    peakOf(s);   // (worked out first: it uses the point scratch)
+    lowAt(x, y, s, lo, 0); pt(x, y);
+    const cx = CX, cy = CY, wx = PX + lo[0], wy = PY + lo[1], wz = PZ + lo[8], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
+    const e = ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAtCube(cx, cy, s, lo, 0, wx, wy, wz) + peakAt(cx, cy, s), cap = capAt(cx, cy);
+    return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;
+  }
   lowAt(x, y, s, lo, 0);
-  let cx = x, cy = y, cap = 0;
-  if (GW) { canonInto(x, y, CN); cx = CN.x; cy = CN.y; cap = capAt(cy); }
-  const wx = cx + lo[0], wy = cy + lo[1], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
-  const e = ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAt(cx, cy, s, lo, 0, wx, wy) + peakAt(cx, cy, s);
-  return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;
+  const wx = x + lo[0], wy = y + lo[1], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
+  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAt(x, y, s, lo, 0, wx, wy) + peakAt(x, y, s);
 }
-/** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2), the continent, the big hills, the big rolls. */
-const LOW_N = 8, LOW_TMP = new Float64Array(LOW_N);
+/**
+ * A cube-sphere's continents: land and sea on the scale of the planet (a few great masses a few thousand to ten thousand tiles across, a third or so of the planet land), with the usual coast and
+ * islands of `cont` laid over them. The world begins on a landmass: it is lifted round the middle of the front face (where the plane starts) so there is always home ground, and the sea is open water elsewhere.
+ */
+function cubeCont(cx: number, cy: number, wx: number, wy: number, wz: number, s: number, cont: number): number {
+  const C = 4 * GN;   // (tiles round the planet: lattice cells 3, 6 and 13 round it)
+  const big = 0.6 * nz3(wx, wy, wz, 3.2 / C, s + 23) + 0.75 * nz3(wx, wy, wz, 6.3 / C, s + 24) + 0.3 * nz3(wx, wy, wz, 13.1 / C, s + 25);
+  const home = 0.55 * (1 - smooth(1500, 6000, Math.hypot(cx, cy)));
+  return 0.4 * cont + 1.4 * big + home - 0.04;
+}
+/** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2, and on a cube-sphere a third in slot 8), the continent, the big hills, the big rolls. */
+const LOW_N = 9, LOW_TMP = new Float64Array(LOW_N);
 function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array, o: number) {
-  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; }   // (a globe: the field is a function of the canonical point)
+  if (GN) {   // (the cube-sphere: the field is a function of the point's place on the ball, so it has no seams and no stretching)
+    pt(x, y); const px = PX, py = PY, pz = PZ, cx = CX, cy = CY;
+    const dx = 26 * nz3(px, py, pz, 0.006, s + 11), dy = 26 * nz3(px, py, pz, 0.006, s + 12), dz = 26 * nz3(px, py, pz, 0.006, s + 13), wx = px + dx, wy = py + dy, wz = pz + dz;
+    out[o] = dx; out[o + 1] = dy; out[o + 8] = dz;
+    out[o + 2] = cubeCont(cx, cy, wx, wy, wz, s, (nz3(wx, wy, wz, 0.0032, s + 21) + 0.5 * nz3(wx, wy, wz, 0.0081, s + 22)) / 1.5);
+    out[o + 3] = nz3(wx, wy, wz, 0.011, s + 31); out[o + 4] = nz3(wx, wy, wz, 0.022, s + 51);
+    out[o + 5] = nz3(wx, wy, wz, 0.0011, s + 61); out[o + 6] = nz3(wx, wy, wz, 0.00045, s + 62); out[o + 7] = (nz3(wx, wy, wz, 0.0006, s + 63) + 1) / 2;
+    return;
+  }
   const dx = 26 * nz(x, y, 0.006, s + 11), dy = 26 * nz(x, y, 0.006, s + 12, 31.7, -17.3), wx = x + dx, wy = y + dy;
   out[o] = dx; out[o + 1] = dy;
   out[o + 2] = (nz(wx, wy, 0.0032, s + 21) + 0.5 * nz(wx, wy, 0.0081, s + 22)) / 1.5;   // the continent, about -0.7..0.7
@@ -130,9 +162,9 @@ function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array
 }
 /** The elevation from the slow parts and the quick ones, with the inland lakes laid in: a lake is a level shelf (half a layer above its whole number) with a shore of level ground round it, and its water inset one step below that shore, which then blends into the land over a stretch, so it stands in a basin and the ground falls away in steps, not in a sheer drop. */
 function detailAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes = LAKE_ALL): number {
-  if (!GW) return detailCore(x, y, s, lo, o, lakes);
-  canonInto(x, y, CN); const cap = capAt(CN.y), e = detailCore(CN.x, CN.y, s, lo, o, lakes);
-  return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;   // (a globe: the polar cap is one flat sheet, so the fold at the pole is seamless)
+  if (!GN) return detailCore(x, y, s, lo, o, lakes);
+  canonInto(x, y, CN); const cx = CN.x, cy = CN.y, cap = CN.cap ? 1 : capAt(cx, cy), e = cap >= 1 ? CAP_LEVEL : detailCore(cx, cy, s, lo, o, lakes);
+  return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;   // (a cube-sphere: each corner is one flat sheet, so the cone there never shows)
 }
 function detailCore(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes: number): number {
   const base = baseAt(x, y, s, lo, o);
@@ -200,20 +232,26 @@ function basinDips(x0: number, y0: number, room: number, s: number): { x: number
 }
 const BASIN_GRID = new Float64Array(11 * 11), BASIN_TRIES = 3;
 /** The lake of a cell of one scale: whether there is one (odds raised or lowered by the region's wetness), its place and radius from hashes, and its level and blend. Remembered per seed and scale. */
-const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null]; let lastGW = 0;   // (each scale's last cell: neighbouring points nearly always fall in the same one)
+const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null]; let lastGN = 0;   // (each scale's last cell: neighbouring points nearly always fall in the same one)
 function lakeOfCell(si: number, cx: number, cy: number, s: number): Lake | null {
-  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si] && GW === lastGW) return lastLake[si];
+  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si] && GN === lastGN) return lastLake[si];
   const l = lakeOfCellSlow(si, cx, cy, s);
-  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastGW = GW; lastLake[si] = l;
+  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastGN = GN; lastLake[si] = l;
   return l;
 }
+/** Is a lake's cell wholly inside a face, 100 tiles clear of its edges (a cube-sphere)? */
+const cellInterior = (cell: number, cx: number, cy: number): boolean => insideFace((cx + 0.5) * cell, (cy + 0.5) * cell, cell / 2 + 100);
 function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | null {
-  const ck = (s + si * 1000003 + GW * 7919) | 0;
+  const ck = (s + si * 1000003 + GN * 7919) | 0;
   let cache = lakeCaches.get(ck); if (!cache) { if (lakeCaches.size > 24) lakeCaches.clear(); cache = new Map(); lakeCaches.set(ck, cache); }
   const key = (cx + 32768) * 65536 + (cy + 32768); let l = cache.get(key);
   if (l !== undefined) return l;
   l = null;
-  const sc = LAKE_SCALES[si], wet = (nz((cx + 0.5) * sc.cell, (cy + 0.5) * sc.cell, 0.0035, s + 81) + 1) / 2;
+  const sc = LAKE_SCALES[si];
+  if (GN && !cellInterior(sc.cell, cx, cy)) { cache.set(key, null); return null; }   // (a cube-sphere: no lake in a cell the edge of a face would cut, or near it)
+  let wetN: number;
+  if (GN) { pt((cx + 0.5) * sc.cell, (cy + 0.5) * sc.cell); wetN = nz3(PX, PY, PZ, 0.0035, s + 81); } else wetN = nz((cx + 0.5) * sc.cell, (cy + 0.5) * sc.cell, 0.0035, s + 81);
+  const wet = (wetN + 1) / 2;
   if (hash01(cx, cy, s + 71 + si * 10) < sc.odds * (0.15 + 1.7 * wet * wet * 1.6)) {
     const rWant = sc.rMin + hash01(cx, cy, s + 72 + si * 10) * sc.rSpan, edge = lakeEdge(rWant), room = sc.cell - 2 * edge;
     dips: for (const low of room > 2 ? basinDips(cx * sc.cell + edge, cy * sc.cell + edge, room, s) : []) for (const f of BASIN_FRACS) {   // the dips of the cell (ground lower than all round it, not just the foot of a slope), lowest first; the first that holds a lake takes it, at the biggest radius (up to the one the hashes asked for) whose ring is a rim
@@ -237,7 +275,8 @@ function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | n
 let lkW = 0, lkLevel = 0, lkWater = false, lkShore = false, lkDepth = -1e9, lkDeep = 1, lkSw = 3;
 function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
   lkW = 0; lkWater = false; lkShore = false; lkDepth = -1e9;
-  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; if (capAt(y) > 0) return; }   // (a globe: lakes are laid out on the canonical world, and there are none on the polar caps)
+  let px = 0, py = 0, pz = 0;
+  if (GN) { pt(x, y); if (CN.cap || capAt(CX, CY) > 0) return; x = CX; y = CY; px = PX; py = PY; pz = PZ; }   // (a cube-sphere: lakes are laid out on the canonical net, and there are none on the corner caps)
   for (let si = 0; si < lakes; si++) {
     const c = LAKE_SCALES[si].cell, l = lakeOfCell(si, Math.floor(x / c), Math.floor(y / c), s); if (!l) continue;
     const dx = x - l.x, dy = y - l.y, far = l.r * LAKE_REACH + LAKE_SHORE + l.blend + 4;
@@ -245,7 +284,7 @@ function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
     // the distance to the rim, in the lake's own odd shape: the point is turned to the lake's long axis and squeezed to make an ellipse, then the rim is pushed in and out by lobes (harmonics of the angle) and a slow wobble
     const cs = Math.cos(l.phi), sn = Math.sin(l.phi), u = (dx * cs + dy * sn) / l.sa, v = (-dx * sn + dy * cs) * l.sa, th = Math.atan2(v, u);
     const lobes = 1 + l.a2 * Math.cos(2 * th + l.p2) + l.a3 * Math.cos(3 * th + l.p3) + l.a5 * Math.cos(5 * th + l.p5);
-    const d = Math.hypot(u, v) / lobes + Math.min(1.2, l.r * 0.1) * nz(x, y, 0.07, s + 61 + si);
+    const d = Math.hypot(u, v) / lobes + Math.min(1.2, l.r * 0.1) * (GN ? nz3(px, py, pz, 0.07, s + 61 + si) : nz(x, y, 0.07, s + 61 + si));
     const flat = l.r + LAKE_SHORE;
     const w = d <= flat ? 1 : d >= flat + l.blend ? 0 : 1 - smooth(0, 1, (d - flat) / l.blend);
     if (w <= lkW) continue;   // (where the blend of one lake meets the water of another, the lake with the most say wins; the bigger scale on a tie)
@@ -266,25 +305,10 @@ export function terraceLakesIn(x0: number, y0: number, x1: number, y1: number, s
   for (let si = 0; si < LAKE_SCALES.length; si++) {
     const c = LAKE_SCALES[si].cell;
     for (let cy = Math.floor(y0 / c); cy <= Math.floor(y1 / c); cy++) for (let cx = Math.floor(x0 / c); cx <= Math.floor(x1 / c); cx++) {
-      const [l, u] = cellLake(si, cx, cy, s); if (!l) continue;
-      const [lx, ly] = u(l.x, l.y);
-      if (lx >= x0 && lx <= x1 && ly >= y0 && ly <= y1) out.push({ x: lx, y: ly, r: l.r, level: l.level, spill: GW && u.flip ? l.spill + Math.PI : l.spill });
+      const l = lakeOfCell(si, cx, cy, s); if (l && l.x >= x0 && l.x <= x1 && l.y >= y0 && l.y <= y1) out.push({ x: l.x, y: l.y, r: l.r, level: l.level, spill: l.spill });
     }
   }
   return out;
-}
-/**
- * The lake of a cell of the unrolled plane, and how to put a canonical point of it back where that cell is (`u`, with `u.flip` set when the globe's poles have turned it half round).
- * On an endless world the cell is its own canonical cell and `u` is the identity.
- */
-type Unroll = ((x: number, y: number) => [number, number]) & { flip: boolean };
-const ID_UNROLL: Unroll = Object.assign((x: number, y: number): [number, number] => [x, y], { flip: false });
-function cellLake(si: number, cx: number, cy: number, s: number): [Lake | null, Unroll] {
-  if (!GW) return [lakeOfCell(si, cx, cy, s), ID_UNROLL];
-  const c = LAKE_SCALES[si].cell, ref = newCanon();
-  canonInto((cx + 0.5) * c, (cy + 0.5) * c, ref);
-  const l = lakeOfCell(si, Math.floor(ref.x / c), Math.floor(ref.y / c), s), r = { ...ref };
-  return [l, Object.assign((x: number, y: number) => unrollNear(x, y, r), { flip: r.flip })];
 }
 /**
  * Where the inland lakes whose middles lie in a box spill over: along each lake's lowest side (where it fills to), the first tile out past its water and shore that lies a layer or more below the
@@ -296,8 +320,7 @@ export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: numbe
   for (let si = 0; si < LAKE_SCALES.length; si++) {
     const c = LAKE_SCALES[si].cell;
     for (let cy = Math.floor(y0 / c); cy <= Math.floor(y1 / c); cy++) for (let cx = Math.floor(x0 / c); cx <= Math.floor(x1 / c); cx++) {
-      const [l, u] = cellLake(si, cx, cy, s); if (!l) continue;
-      { const [lx, ly] = u(l.x, l.y); if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue; }
+      const l = lakeOfCell(si, cx, cy, s); if (!l || l.x < x0 || l.x > x1 || l.y < y0 || l.y > y1) continue;
       let o = OUTLETS.get(l);
       if (o === undefined) {
         o = null;
@@ -309,7 +332,7 @@ export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: numbe
         }
         OUTLETS.set(l, o);
       }
-      if (o) { if (GW) { const [ox, oy] = u(o.x + 0.5, o.y + 0.5); out.push({ x: Math.floor(ox), y: Math.floor(oy), level: o.level }); } else out.push(o); }
+      if (o) out.push(o);
     }
   }
   return out;
@@ -325,6 +348,12 @@ function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array
 /** Layers the hills add at their tallest, before the 1.5 on the whole (26 gave tops near 56 layers; 55 gives about 100). */
 const HILL_LAYERS = 55;
 function baseRaw(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
+  if (GN) {   // (the cube-sphere: the same hills, rolls and wiggle, as noise at the point's place on the ball, warped by the three slow warp fields)
+    pt(x, y); const px = PX, py = PY, pz = PZ, cx = CX, cy = CY, wx = px + lo[o], wy = py + lo[o + 1], wz = pz + lo[o + 8], cont = lo[o + 2], h1 = lo[o + 3], land = smooth(-0.1, 0.3, cont);
+    const h2 = nz3(wx, wy, wz, 0.027, s + 32), rg = 1 - Math.abs(nz3(wx, wy, wz, 0.045, s + 33)), hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));
+    const roll = lo[o + 4] * 2.2 + nz3(wx, wy, wz, 0.06, s + 52) * 0.8, wig = 0.22 * nz3(px, py, pz, 0.12, s + 41);
+    return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAtCube(cx, cy, s, lo, o, wx, wy, wz);
+  }
   const wx = x + lo[o], wy = y + lo[o + 1], cont = lo[o + 2], h1 = lo[o + 3];
   const land = smooth(-0.1, 0.3, cont);
   const h2 = nz(wx, wy, 0.027, s + 32);
@@ -350,6 +379,19 @@ const rangeKind = (u: number): [number, number, number] => {
   return [K[i][1] + (K[i + 1][1] - K[i][1]) * t, K[i][2] + (K[i + 1][2] - K[i][2]) * t, K[i][3] + (K[i + 1][3] - K[i][3]) * t];
 };
 /** The layers the ranges add at a point (0 away from any range). */
+/** `rangeAt` on the ball: (cx, cy) the canonical net point (for the distance from the start), (wx, wy, wz) the warped place on the ball. */
+function rangeAtCube(cx: number, cy: number, s: number, lo: Float64Array | Float32Array, o: number, wx: number, wy: number, wz: number): number {
+  const u = lo[o + 7], hw = 0.17 + 0.13 * u, belt = 1 - Math.abs(lo[o + 5]) / hw;
+  if (belt <= 0) return 0;
+  const along = smooth(-0.55, -0.05, lo[o + 6]);
+  if (along <= 0) return 0;
+  const away = smooth(150, 600, Math.sqrt(cx * cx + cy * cy)), land = smooth(-0.7, -0.15, lo[o + 2]);
+  const core = smooth(0, 1, belt) * along * away * land;
+  if (core <= 0) return 0;
+  const [amp, crag, crest] = rangeKind(u);
+  const ridge = 1 - Math.abs(nz3(wx, wy, wz, 0.008, s + 64)), c = 1 - Math.abs(nz3(wx, wy, wz, 0.035, s + 65));
+  return amp * core * (1 - crest + crest * ridge * ridge * 1.4) + amp * 0.2 * crag * core * (c * c - 0.35);
+}
 function rangeAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, wx: number, wy: number): number {
   const u = lo[o + 7], hw = 0.17 + 0.13 * u, belt = 1 - Math.abs(lo[o + 5]) / hw;
   if (belt <= 0) return 0;
@@ -370,17 +412,17 @@ export const PEAK_M = 8000, PEAK_R = 600, PEAK_P = 1.8;
 /** How far from the middle of the world the giant's summit stands (tiles): the skirt starts well clear of where a world begins. */
 const PEAK_AT = [1100, 1500];
 interface Peak { x: number; y: number; add: number }
-let peakSeed = NaN, peakGW = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
+let peakSeed = NaN, peakGN = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
 /** Where the giant of a seed stands: of 32 places on two rings round the middle, the highest ground (the most inland), and how many layers are added there for the summit to reach PEAK_M. */
 export function peakOf(s: number): Peak {
-  if (s === peakSeed && peakGW === GW) return peakNow;
+  if (s === peakSeed && peakGN === GN) return peakNow;
   const tmp = new Float64Array(LOW_N); let best = -Infinity, bx = 0, by = 0;
   for (const d of PEAK_AT) for (let k = 0; k < 16; k++) {
     const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d), y = Math.round(Math.sin(a) * d);
     lowAt(x, y, s, tmp, 0); const e = baseRaw(x, y, s, tmp, 0);
     if (e > best) { best = e; bx = x; by = y; }
   }
-  peakSeed = s; peakGW = GW; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
+  peakSeed = s; peakGN = GN; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
   return peakNow;
 }
 /** The layers the giant adds at a point (0 beyond its skirt). */
@@ -399,10 +441,12 @@ const dither = (x: number, y: number): number => { const h = Math.sin(x * 127.1 
  * stippled (a mixed band some tiles wide, in pixel art's own way of blending) instead of a smooth line cut through the hills.
  */
 export const terraceMoist = (x: number, y: number, seed: number): number => {
-  let cap = 0;
-  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; cap = capAt(y); }
+  if (GN) {
+    pt(x, y); const cap = CN.cap ? 1 : capAt(CX, CY), m = (nz3(PX, PY, PZ, 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
+    return m * (1 - cap) + (dither(CX, CY) - 0.5) * 0.05;   // (a cube-sphere's corner caps are dry, bare ground)
+  }
   const m = (nz(x, y, 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
-  return (REAL ? 0.15 + 0.75 * m : m * (1 - cap)) + (dither(x, y) - 0.5) * 0.05;   // (a real map is the Lake District: wet, never dry country; a globe's polar caps are dry, bare ground)
+  return (REAL ? 0.15 + 0.75 * m : m) + (dither(x, y) - 0.5) * 0.05;   // (a real map is the Lake District: wet, never dry country)
 };
 
 /** Each shelf is a little wetter or drier than its region says (up to 0.04), by its own layer: where the biome changes it likes to change at a ledge, so the edge follows the lie of the land, in steps, instead of cutting across it. */
@@ -487,9 +531,10 @@ function sweep(src: Float32Array, out: Float32Array, tmp: Float32Array, max: boo
   }
 }
 
-const fillKey = (x: number, y: number) => (x + 1048576) * 2097152 + (y + 1048576);
+/** The key of a tile in the sculpting and the water: on a cube-sphere the key of its canonical tile (a tile just past a cut edge is the neighbour's, whichever side it is asked from). */
+const fillKey = (x: number, y: number): number => (GN ? canonTileKey(x, y) : (x + 1048576) * 2097152 + (y + 1048576));
 /** The key of a sculpted tile: on a globe, of the tile's canonical place (the same tile whichever lap it is seen on). The water (`fills`) is weather and stays on the unrolled plane. */
-const reliefKey = (x: number, y: number): number => { if (!GW) return fillKey(x, y); const [cx, cy] = canonTile(x, y); return fillKey(cx, cy); };
+const reliefKey = fillKey;
 /** The water the weather makes (see `TerraceField.setFill`) is blurred into a smooth field before it shapes the ground: the blur's sigma in tiles, where its edge lies, and how wide the ground eases across it. */
 const FILL_SIGMA = 0.5, FILL_RIM = 0.3, FILL_EASE = 0.1;
 /** The normal distribution's cumulative function (an Abramowitz and Stegun error function). */
@@ -507,6 +552,8 @@ export type Relief = Map<number, number>;
 const RELIEF_UP = new Float64Array(RELIEF_MAX), RELIEF_DOWN = new Float64Array(RELIEF_MAX);
 
 /** A change to a field's water, as a value that can be replayed: tiles are flat [x, y, x, y, ...]. */
+/** A chunk's key in the field's chunk tables: on a cube-sphere always the canonical chunk's. */
+const chunkKey = (cx: number, cy: number): number => { if (GN) [cx, cy] = canonChunk(cx, cy); return (cx + 32768) * 65536 + (cy + 32768); };
 export type FieldOp = { k: 'fill'; tiles: number[]; cls: number | null; top?: number; kind: number };
 export class TerraceField {
   readonly seed: number;
@@ -609,7 +656,7 @@ export class TerraceField {
     if (!changed.length) return [];
     this.recountRelief();
     const touched = new Set<number>();
-    for (const [x, y] of changed) for (let dy = -RELIEF_REACH; dy <= RELIEF_REACH; dy += RELIEF_REACH) for (let dx = -RELIEF_REACH; dx <= RELIEF_REACH; dx += RELIEF_REACH) touched.add((Math.floor((x + dx) / CHUNK) + 32768) * 65536 + (Math.floor((y + dy) / CHUNK) + 32768));
+    for (const [x, y] of changed) for (let dy = -RELIEF_REACH; dy <= RELIEF_REACH; dy += RELIEF_REACH) for (let dx = -RELIEF_REACH; dx <= RELIEF_REACH; dx += RELIEF_REACH) touched.add(chunkKey(Math.floor((x + dx) / CHUNK), Math.floor((y + dy) / CHUNK)));
     this.epoch++;
     for (const key of touched) { this.grids.delete(key); this.touchedAt.set(key, this.epoch); this.dirty.add(key); }
     this.lastKey = NaN;
@@ -657,7 +704,7 @@ export class TerraceField {
   private fillChunks = new Map<number, number>();
   private fillsNear(x: number, y: number): boolean {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (this.fillChunks.get((cx + dx + 32768) * 65536 + (cy + dy + 32768))) return true;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (this.fillChunks.get(chunkKey(cx + dx, cy + dy))) return true;
     return false;
   }
   /**
@@ -705,9 +752,9 @@ export class TerraceField {
     const touched = new Set<number>();
     for (const [x, y] of tiles) {
       const k = fillKey(x, y);
-      const ck = (Math.floor(x / CHUNK) + 32768) * 65536 + (Math.floor(y / CHUNK) + 32768);
+      const ck = chunkKey(Math.floor(x / CHUNK), Math.floor(y / CHUNK));
       if (cls === null) { if (!this.fills.delete(k)) continue; this.tops.delete(k); this.kinds.delete(k); this.fillChunks.set(ck, (this.fillChunks.get(ck) ?? 1) - 1); } else { if (!this.fills.has(k)) this.fillChunks.set(ck, (this.fillChunks.get(ck) ?? 0) + 1); const t = top ?? cls + 1; if (this.fills.get(k) === cls && this.tops.get(k) === t && (this.kinds.get(k) ?? 0) === kind) continue; this.fills.set(k, cls); this.tops.set(k, t); if (kind) this.kinds.set(k, kind); else this.kinds.delete(k); }
-      for (let dy = -3; dy <= 3; dy += 3) for (let dx = -3; dx <= 3; dx += 3) touched.add(((Math.floor((x + dx) / CHUNK) + 32768) * 65536) + (Math.floor((y + dy) / CHUNK) + 32768));   // (the blur reaches two tiles: every chunk within three)
+      for (let dy = -3; dy <= 3; dy += 3) for (let dx = -3; dx <= 3; dx += 3) touched.add(chunkKey(Math.floor((x + dx) / CHUNK), Math.floor((y + dy) / CHUNK)));   // (the blur reaches two tiles: every chunk within three)
     }
     this.epoch++;
     for (const key of touched) {
@@ -745,6 +792,7 @@ export class TerraceField {
   }
   /** The elevation at a tile's centre without any water over it: what a pond measures the ground by. */
   naturalAt(x: number, y: number): number {
+    if (GN) [x, y] = canonTile(x, y);
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), g = this.grid(cx, cy), a = g.base ?? g.e;
     return a[((y - cy * CHUNK) * TERRACE_SUB + 1) * TERRACE_G + (x - cx * CHUNK) * TERRACE_SUB + 1];
   }
@@ -761,6 +809,7 @@ export class TerraceField {
    * is what you see).
    */
   elevationNear(px: number, py: number): number {
+    if (GN) { canonInto(px, py, CN); px = CN.x; py = CN.y; }   // (a cube-sphere: a point past a cut edge is the neighbour's, and the height is the same whichever way the chart turns)
     const gx = px * TERRACE_SUB, gy = py * TERRACE_SUB, ix = Math.floor(gx), iy = Math.floor(gy), tx = gx - ix, ty = gy - iy;
     const span = CHUNK * TERRACE_SUB, cx = Math.floor(ix / span), cy = Math.floor(iy / span), g = this.grid(cx, cy).e;
     const li = ix - cx * span, lj = iy - cy * span, k = lj * TERRACE_G + li;
@@ -775,6 +824,7 @@ export class TerraceField {
   softHeightAt(px: number, py: number): number { return Math.max(0, this.elevationNear(px, py)) * TERRACE_STEP; }
   /** Elevation at a tile's centre, from the grid (the centre is a grid point). */
   elevationAt(x: number, y: number): number {
+    if (GN) [x, y] = canonTile(x, y);
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), g = this.grid(cx, cy).e;
     return g[((y - cy * CHUNK) * TERRACE_SUB + 1) * TERRACE_G + (x - cx * CHUNK) * TERRACE_SUB + 1];
   }

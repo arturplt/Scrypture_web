@@ -17,6 +17,7 @@ import { Pond, POND_MAX, type PondEnv } from './hydrology';
 import { setPondSurface, lakeWaterAt, LAKE_WATER, LAKE_RIVER, LAKE_LAND } from './lakedistrict';
 import { onLedge, SEA_DEEP, TERRACE_LAYER_M, terraceLakeOutlets } from './terrace';
 import { dbgOn } from './dbg';
+import { GN, canonInto, newCanon, applyCanon, turnVector } from './cube';
 import { hash01, GRASS, SAND, WATER, DECO_BUSH, DECO_CONIFER, DECO_DECIDUOUS, CHUNK, tileKey, keyX, keyY, plainTile, type World, type Terrain, type TileState, chunkOf } from './worldgen';
 
 export const LAYER_CAPACITY = [1, 2, 3, 5, 8, 13, 8, 21, 3, 1];       // layers 1..10
@@ -232,6 +233,22 @@ export class Ecosystem {
   readonly fires = new Map<number, Fire>();
   /** Bolts still on show (newest last). */
   strikes: Strike[] = [];
+  /**
+   * The plane crossed a cut edge of a cube planet (see cube.ts): clouds that drifted past one are put on the neighbour face they are over, their drift turned with them, and the bolts on show are dropped.
+   * (Water, fire and wet are keyed by where they were: past a cut edge they are the old frame's, and are left to dry up; the saved ground is canonical and carries over.)
+   */
+  reframe() {
+    if (!GN) return;
+    const c = newCanon();
+    for (const cl of this.clouds) {
+      canonInto(cl.x, cl.y, c); if (!c.moved) continue;
+      cl.x = c.x; cl.y = c.y;
+      if (cl.rx !== undefined && cl.ry !== undefined) [cl.rx, cl.ry] = applyCanon(cl.rx, cl.ry, c);
+      if (cl.wx !== undefined && cl.wy !== undefined) [cl.wx, cl.wy] = turnVector(cl.wx, cl.wy, c);
+      if (cl.ax !== undefined && cl.ay !== undefined) [cl.ax, cl.ay] = turnVector(cl.ax, cl.ay, c);
+    }
+    this.strikes = [];
+  }
   readonly wetUntil = new Map<number, number>();   // tiles the rain has wetted, and until when (the map draws them wet)
   /** Until when each rained-on or runoff tile is still damp (wet time plus `DAMP_TIME`): `moisture` fades with it. */
   private readonly dampUntil = new Map<number, number>();

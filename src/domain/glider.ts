@@ -11,7 +11,7 @@
  * Units: 1 tile = 1 m, seconds, m/s; x east, y NORTH (the world map flips y), z up.
  */
 import { hash01 } from './worldgen';
-import { wrapCell } from './globe';
+import { insideFace, turnVector, type Canon } from './cube';
 import { sunElevation } from './sky';
 import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir, trackK } from './orbit';
 
@@ -410,22 +410,35 @@ export interface ThermalEnv {
 export interface ThermalSite { epoch: number; x: number; y: number; r: number; heat: number; wb: number }
 export interface Thermal { x: number; y: number; r: number; w: number; heat: number; age: number }   // y south; w = peak updraft in m/s right now
 
+/**
+ * The plane crossed a cut edge of the cube planet and its coordinates change to the neighbour face's (see cube.ts `canonInto`): put it at the canonical place and turn everything it carries by the same quarter
+ * turn (velocity, the wing and nose and back, heading, course). The plane's y is north (net y is south), so a vector is turned as (x, -y). Returns how far headings turned (radians, y north).
+ */
+export function reframeGlider(g: Glider, c: Canon): number {
+  const rot = (x: number, y: number): [number, number] => { const [px, py] = turnVector(x, -y, c); return [px, -py]; };
+  g.x = c.x; g.y = -c.y;
+  [g.vx, g.vy] = rot(g.vx, g.vy); [g.wx, g.wy] = rot(g.wx, g.wy); [g.nx, g.ny] = rot(g.nx, g.ny);
+  [g.fwd[0], g.fwd[1]] = rot(g.fwd[0], g.fwd[1]); [g.top[0], g.top[1]] = rot(g.top[0], g.top[1]);
+  const ang = (a: number) => { const [dx, dy] = rot(Math.cos(a), Math.sin(a)); return Math.atan2(dy, dx); };
+  const d = ang(0);
+  g.psi = ang(g.psi); g.course = ang(g.course);
+  return d;
+}
 /** The thermal rising from cell (i, j) at time t, or null while there is none. Anchored to the ground, born and fading with a 90..170 s life. */
 export function thermalInCell(env: ThermalEnv, i: number, j: number, t: number): Thermal | null {
   const sun = sunFactor(env.hour);
   const s = env.seed & 0xffff;
-  const wi = wrapCell(i, THERMAL_CELL), wj = wrapCell(j, THERMAL_CELL);   // (on a globe a cell is hashed by its place in the lap; where it stands is its unrolled cell's)
-  const period = 90 + 80 * hash01(wi, wj, s, 1), phase = period * hash01(wi, wj, s, 2);
+  const period = 90 + 80 * hash01(i, j, s, 1), phase = period * hash01(i, j, s, 2);
   const epoch = Math.floor((t + phase) / period), age = ((t + phase) % period) / period;
   const memo = env.memo, mk = memo ? (((i + 32768) * 65536 + (j + 32768)) * 4 + (epoch & 3)) : 0;   // (two slots a cell would do, epochs only move on; four leave room for a prediction running ahead of the flight)
   let site = memo?.get(mk);
   if (!site || site.epoch !== epoch) {
-    if (hash01(wi, wj, s * 31 + epoch, 3) > 0.85) site = { epoch, x: 0, y: 0, r: 0, heat: 0, wb: 0 };   // (no thermal in this cell this time)
+    if (hash01(i, j, s * 31 + epoch, 3) > 0.85) site = { epoch, x: 0, y: 0, r: 0, heat: 0, wb: 0 };   // (no thermal in this cell this time)
     else {
-      const x = (i + 0.15 + 0.7 * hash01(wi, wj, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(wi, wj, s * 31 + epoch, 5)) * THERMAL_CELL;
-      const r = 15 + 10 * hash01(wi, wj, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
+      const x = (i + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 5)) * THERMAL_CELL;
+      const r = 15 + 10 * hash01(i, j, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
       const heat = (env.heatAt(x, y) * 2 + env.heatAt(x + r, y) + env.heatAt(x - r, y) + env.heatAt(x, y + r) + env.heatAt(x, y - r)) / 6;
-      site = { epoch, x, y, r, heat, wb: 6.0 + 6.8 * hash01(wi, wj, s * 31 + epoch, 7) };
+      site = { epoch, x, y, r, heat, wb: insideFace(x, y, 0) ? 6.0 + 6.8 * hash01(i, j, s * 31 + epoch, 7) : 0 };   // (on a cube-sphere no thermal stands off the faces: wb 0 is no thermal)
     }
     if (memo) { if (memo.size > 4096) memo.clear(); memo.set(mk, site); }
   }

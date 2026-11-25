@@ -5,7 +5,7 @@
  * Only the bushes picked and not yet ripe again are kept, and saved with the world.
  */
 import { hash01, tileKey, keyX, keyY, DECO_BUSH, type World } from './worldgen';
-import { GW, canonTile } from './globe';
+import { GN, canonTile } from './cube';
 
 export const BERRY_CHANCE = 0.5;         // the share of bushes that bear berries
 export const BERRY_YIELD = 2;            // berries from one picking
@@ -17,7 +17,7 @@ export const MAX_PICKED_BUSHES = 2000;
 export type SavedBerry = [number, number, number];
 
 /** Does a bush on this tile bear berries? */
-export const isBerryBush = (seed: number, x: number, y: number) => { if (GW) [x, y] = canonTile(x, y); return hash01(x, y, seed & 0xffff, 501) < BERRY_CHANCE; };   // (on a globe by the tile's canonical place)
+export const isBerryBush = (seed: number, x: number, y: number) => { if (GN) [x, y] = canonTile(x, y); return hash01(x, y, seed & 0xffff, 501) < BERRY_CHANCE; };   // (on a cube-sphere by the tile's canonical place)
 
 export function sanitizeBerries(raw: unknown): SavedBerry[] {
   const out: SavedBerry[] = [], seen = new Set<number>();

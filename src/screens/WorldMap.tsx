@@ -9,7 +9,7 @@ import { lakeReady, lakeFarLods, tilesToKm, lakeOnMap, lakeSpawnFor, lakeWatersF
 import {
   BILLBOARD_MAX_DISTANCE, soakPlane, HULL_DIP, SOFT_SINK, SOFT_BANK, hull, projectLandingSteps, type LandingProjection, type GlideEnv, tunnelInCell, TUNNEL_CELL, TUNNEL_HALF_WIDTH, TUNNEL_HALF_LENGTH, sticksIn, stonesIn, STICK_PICK_RADIUS, tunnelAt, stepTricks, newTrickState, resetTricks, TRICK_POINTS, newCombo, comboAward, comboStep, comboMult, type TreeRef, naturalWind, addRunScore, landingScore, runPoints, coinsFor, HEIGHT_POINTS, BOOST_PRICE, MAX_BOOSTS, type RunScore, buy as shopBuy, offer as shopOffer, sanitizeUpgrades, launchHeight, launchMinPower, paperDrag, paperRain, TIERS, type Upgrades, type ShopId, CHUNK, DEFAULT_CAMERA_DISTANCE, tiltAltitudeFactor, Ecosystem, billboardLean, GRASS, SAND, SHEET, TILE_PX, WATER, World, advanceHour, chunkOf, clockText, currentLayer, darkness, decodeChanges, encodeChanges,
   hash01, keyX, keyY, layerScale, newFlight, parallax, stepFlight, sunElevation, tileKey, valueNoise01, type Cell, type Flight, type FlightMode, type Terrain,
-  BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
+  BASE_TEMPERATURE, STALL_SPEED, boostPlane, BOOST_COOLDOWN, START_BOOSTS, GROUND_ALT, launchPlane, hoopBoost, hoopsIn, passedHoop, TRIM_SPEED, groundEffect, airVertical, newGlider, stepGlider, reframeGlider, thermalsIn, throwPlane, soundParams, SILENT, type Glider, type ThermalEnv,
 } from '../domain';
 import { actions, store, useAppState } from '../data/hooks';
 import { useI18n } from '../i18n/useT';
@@ -50,7 +50,7 @@ import { PatternKeyboard, HotkeyEditor } from '../ui/PatternKeyboard';
 import { refuel, type GlideControls } from '../domain/glider';
 import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
 import { rocketFuel, spaceFactor, airDensity, warpAllowed, nextWarp, ORBIT, setPlanetRadius } from '../domain/orbit';
-import { planetRadius, canonInto, newCanon, canonChunk } from '../domain/globe';
+import { cubeRadius, canonInto, newCanon, canonChunk, turnVector, applyCanon, FACES, eyeFrame } from '../domain/cube';
 import { GlobeMap, renderGlobe } from '../domain/globemap';
 import { HEATSHIELD_K } from '../domain/shop';
 import { ORBIT_BONUS, addOrbit, heightPoints, type SavedOrbit } from '../domain/worldsave';
@@ -103,14 +103,11 @@ const DECO_LAYERS = [
 const LOD_ONLY_ALT = 200;
 const DECO_ALTITUDE = [8.5, 6.5, 4.5, 2.5];
 
-/** A globe's unrolled frame is started again (the world opened afresh at the saved, canonical place) when the plane lands further than this many laps from where the frame began. */
-const REFRAME_LAPS = 2;
 export function WorldMap({ id }: { id: string }) {
-  const [gen, setGen] = useState(0);
   const w0 = useAppState(s => { const w = s.worlds.list.find(x => x.id === id); return w ? (w.kind === 'terraced' && w.map ? 'terraced-real' : (w.kind ?? 'procedural')) : ''; });   // (a primitive: saves and cloud sync must not re-render the whole world screen)
   const { t } = useI18n();
   if (!w0) return <div className="screen"><PixelButton size="compact" scale={1} variant="red" onClick={() => navigate('/games/paperplane')}>{t('back')}</PixelButton><p>{t('worldMissing')}</p></div>;
-  return w0 === 'lakedistrict' || w0 === 'terraced-real' ? <LakeGate id={id} terraced={w0 === 'terraced-real'} /> : <WorldView key={`${id}.${gen}`} id={id} reframe={() => setGen(g => g + 1)} />;
+  return w0 === 'lakedistrict' || w0 === 'terraced-real' ? <LakeGate id={id} terraced={w0 === 'terraced-real'} /> : <WorldView key={id} id={id} />;
 }
 
 /** The Lake District's map is an image: wait for it before the world is built. */
@@ -162,7 +159,7 @@ const gfxPresetOf = (g: Gfx): 'low' | 'med' | 'high' | 'custom' => (['low', 'med
 
 const WIND_LETTERS = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'];
 const perfStat = { hc: 0, why: '', r: 0, rMax: 0, lt: 0, ltMax: 0, gcN: 0, heap: 0 };   // (the ?perf readout: React renders, long tasks, heap drops)
-function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => void }) {
+function WorldView({ id }: { id: string }) {
   const rStart = performance.now();
   useEffect(() => { perfStat.r++; perfStat.rMax = Math.max(perfStat.rMax, performance.now() - rStart); });
   const { t } = useI18n();
@@ -218,7 +215,7 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
   const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
     const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural', initial.kind === 'terraced' ? initial.map : null, initial.size ?? 0);
-    setPlanetRadius(world.size ? planetRadius(world.size) : null);   // (a globe is a small round planet of its own, so one orbit is one lap of the world)
+    setPlanetRadius(world.size ? cubeRadius(world.size) : null);   // (a cube-sphere is a small round planet of its own: R = 2N / pi)
     setHudUnits(world);
     if (initial.relief) world.loadRelief(initial.relief);   // (before anything builds a chunk from the ground)
     const flight = newFlight(initial.plane.x, initial.plane.y);
@@ -622,9 +619,11 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
-    const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
+    const cubeWorld = s.world.size > 0, CUBE_RINGS = 4;   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
+    const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : cubeWorld ? TERRACE_FAR_LODS_HILLS.slice(0, CUBE_RINGS) : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : cubeWorld ? FAR_LEVEL_FROM_HILLS.slice(0, CUBE_RINGS) : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
     const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    let farJob: { i: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
+    const faceDone = FACES.map(() => false), FACE_STEP = 96;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side)
+    let farJob: { i: number; face?: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
     let landJob: Generator<void, LandingProjection, void> | null = null;   // the landing prediction under way (see projectLandingSteps)
@@ -801,9 +800,10 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
       }
     };
     // A globe from space: the map of the whole world is worked out a few rows a frame, and drawn as a ball over the view once the sky is space (the ground view fades under it).
+    const REFC = newCanon();   // (the canon of the plane's place when it is past a cut edge of the cube planet)
+    let windTurn = 0;   // (how far the chart has turned the wind from the natural wind's own direction, after crossings)
     const globeMap = s.world.size && s.world.field ? new GlobeMap(s.world) : null;
     let globeImg: ImageData | null = null, globeFrame = 0;
-    const GC = newCanon();
     const drawGlobe = () => {
       const cv = globeCv.current, gm = globeMap, st = stage.current; if (!cv || !gm || !st) return;
       if (glr) { if (cv.style.display !== 'none') cv.style.display = 'none'; return; }   // (with the 3D view the ground itself is the planet: see the vertex shader's uPlanet. This ball is for the flat canvas, which has no 3D)
@@ -815,8 +815,8 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
       if ((globeFrame++ & 1) === 1) return;   // (every other frame: a ball is slow to turn)
       const aspect = Math.max(0.5, Math.min(2.5, st.clientWidth / Math.max(1, st.clientHeight))), ph = 120, pw = Math.round(ph * aspect);
       if (cv.width !== pw || cv.height !== ph || !globeImg) { cv.width = pw; cv.height = ph; globeImg = new ImageData(pw, ph); }
-      const W = s.world.size, P = W / 4, c = canonInto(f.x, f.y, GC);
-      renderGlobe(globeImg.data, pw, ph, gm, { lon: (c.x / W) * 2 * Math.PI, lat: -(c.y / P) * (Math.PI / 2), heading: c.flip ? f.course + Math.PI : f.course, alt: hA, R: ORBIT.R, hour: s.hour });
+      const fr = eyeFrame(f.x, f.y); if (!fr) return;
+      renderGlobe(globeImg.data, pw, ph, gm, { up: fr.up, east: fr.east, south: fr.south, heading: f.course, alt: hA, R: ORBIT.R, hour: s.hour });
       cv.getContext('2d')!.putImageData(globeImg, 0, 0);
     };
     const frame = (now: number) => {
@@ -863,7 +863,7 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
       if (L.windAuto && L.wind.enabled && !L.paused) {                                // natural wind: wander on a slow curve, written to the sim at once and to the dial twice a second
         windT += dt; windAcc += dt;
         if (windAcc >= 0.25) {
-          windAcc = 0; const nw = naturalWind(s.world.seed, windT + windT0); s.eco.wind = { ...s.eco.wind, strength: nw.strength, dir: nw.dir }; L.wind = { ...L.wind, strength: nw.strength, dir: nw.dir };
+          windAcc = 0; const nw = naturalWind(s.world.seed, windT + windT0); s.eco.wind = { ...s.eco.wind, strength: nw.strength, dir: nw.dir + windTurn }; L.wind = { ...L.wind, strength: nw.strength, dir: nw.dir + windTurn };
           // the dial turns, changes colour and prints its letter and strength straight on the element: React is never told (a render of this whole screen is a visible hitch on a phone)
           const dEl = windDial.current; if (dEl) { dEl.style.setProperty('--dir', `${-nw.dir}rad`); dEl.style.setProperty('--h', String(Math.round(200 - nw.strength * 22))); }
           const letter = Math.round((((nw.dir * 180 / Math.PI) % 360 + 360) % 360) / 45) % 8;
@@ -961,6 +961,15 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
           const tx = Math.floor(gl.x), ty = Math.floor(-gl.y), dc = s.world.drawn(tx, ty).deco, top = dc === SHEET.bush ? 1.3 : dc === SHEET.conifer ? 4.5 : dc === SHEET.deciduous ? 4 : 0;
           if (top > 0 && gl.z < top * decoK * (dc === SHEET.bush ? BUSH_K : 1) * s.world.stateAt(tx, ty).s && Math.hypot(gl.x - tx - 0.5, -gl.y - ty - 0.5) < 0.38 * decoK * (dc === SHEET.bush ? BUSH_K : 1)) {
             gl.impact = { sink: 5, speed: Math.hypot(gl.vx, gl.vy), bank: Math.abs(gl.phi) }; gl.landed = true; gl.vx = gl.vy = gl.vz = 0; gl.z = Math.max(0, gl.z - 0.5);
+          }
+        }
+        if (s.world.size) {   // a cube planet: past a cut edge of its faces the plane is put on the neighbour face, turned with the chart (see cube.ts); the view, the wind and the clouds follow
+          canonInto(gl.x, -gl.y, REFC);
+          if (REFC.moved) {
+            const dth = reframeGlider(gl, REFC); camAng.current += dth; windTurn += dth;
+            { const lp = lastPose.current, [lx, ly] = applyCanon(lp.x, lp.y, REFC); lastPose.current = { ...lp, x: lx, y: ly }; }
+            s.eco.wind = { ...s.eco.wind, dir: s.eco.wind.dir + dth }; L.wind = { ...L.wind, dir: L.wind.dir + dth }; windLive.current = L.wind;
+            s.eco.reframe();
           }
         }
         f.x = gl.x; f.y = -gl.y; f.heading = gl.psi; f.course = gl.landed ? gl.psi : gl.course; f.glideAlt = gl.z; f.glideLanded = gl.landed;
@@ -1283,17 +1292,25 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
           else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open) };
           break;
         }
+        if (cubeWorld) {   // the faces: once each, when the rings have nothing to do
+          glr.ringCount = farLods.length;
+          if (!farJob) { const fi = faceDone.indexOf(false); if (fi >= 0) {
+            const F = FACES[fi], N = s.world.size, cx = F.ix * N, cy = F.iy * N;
+            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, true, 1, N); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
+            else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, true, 1) };
+          } }
+        }
         const tf = performance.now(), farMs = loading ? 14 : farLo >= farCoarse ? 10 : Math.max(warming ? 6 : 2, share * 0.4);   // (high or fast: the coarse levels are all there is to see, and the plane is soon off the edge of the old ones)
         while (farJob && performance.now() - tf < farMs) {
-          if (farJob.up) { if (farJob.up.next().done) farJob = null; continue; }
+          if (farJob.up) { if (farJob.up.next().done) { if (farJob.face !== undefined) faceDone[farJob.face] = true; farJob = null; } continue; }
           if (farJob.wait) {   // the worker is building this level: nothing to do here until it arrives (a worker that fails is dropped, and the level is built here next time)
             const m = far?.take();
-            if (m) { farAt[farJob.i] = { x: m.cx, y: m.cy }; farJob.up = glr.farLodUpload(farJob.i, { pos: m.pos, col: m.col, idx: farIndices(m.cols) }); farJob.wait = false; continue; }
+            if (m) { if (farJob.face === undefined) farAt[farJob.i] = { x: m.cx, y: m.cy }; farJob.up = glr.farLodUpload(farJob.i, { pos: m.pos, col: m.col, idx: farIndices(m.cols) }); farJob.wait = false; continue; }
             if (!far?.active) farJob = null;
             break;
           }
           const r = farJob.gen!.next();
-          if (r.done) { farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob.up = glr.farLodUpload(farJob.i, r.value); }
+          if (r.done) { if (farJob.face === undefined) farAt[farJob.i] = { x: r.value.cx, y: r.value.cy }; farJob.up = glr.farLodUpload(farJob.i, r.value); }
         }
       }
       if (perf.on) { perf.build = Math.max(perf.build, performance.now() - t0); perf.builtN += built; perf.f.build = performance.now() - t0; perf.f.built = built; mark('chunks'); }
@@ -1444,7 +1461,7 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
         const eyeH = -G.eye[2], nearFade = (x: number, y: number, h: number) => Math.max(0, Math.min(1, (Math.hypot(x - ex, y - ey, h - eyeH) - 3) / 8));   // (a cloud the camera is passing through thins out instead of filling the screen)
         { const rc = L.resScale / 100; glScale = L.resAuto ? Math.min(glScale, rc) : rc; }   // (the resolution setting is the ceiling; with auto on it still drops by itself when frames are slow)
         if (L.crt) { G.crt = true; G.renderScale = glScale; G.resize(W, H, dpr, glCv); } else { G.crt = false; G.renderScale = 1; G.resize(W, H, dpr * glScale, glCv); }   // (the CRT look draws the scene small into a texture and stretches it over a canvas of the screen's own size)
-        { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, kR = ORBIT.R / 15000, k = Math.max(0, Math.min(1, (hA - 2000 * kR) / (6000 * kR))); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); G.planet = s.world.size ? ORBIT.R : 0; G.curveK = k * k * (3 - 2 * k); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
+        { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, kR = ORBIT.R / 15000, k = Math.max(0, Math.min(1, (hA - 2000 * kR) / (6000 * kR))); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); G.planet = s.world.size ? ORBIT.R : 0; G.cubeN = s.world.size; G.curveK = k * k * (3 - 2 * k); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders;
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
@@ -2109,10 +2126,7 @@ function WorldView({ id, reframe = () => {} }: { id: string; reframe?: () => voi
       }
       workMs += performance.now() - w0; workN++;
       drawGlobe();
-      // a globe's unrolled coordinates keep growing with every lap; once the plane is down far out, save it at its canonical place and open the world again there (the same place, a fresh frame)
-      if (s.world.size && s.glider.landed && !reframing && Math.max(Math.abs(s.flight.x), Math.abs(s.flight.y)) > REFRAME_LAPS * s.world.size) { reframing = true; persist(); reframe(); }
     };
-    let reframing = false;
 
     let savedExplored = -1;   // (the explored list is big: it is only written, and so only synced to the cloud, when it grew)
     const persist = () => {
@@ -3145,10 +3159,12 @@ const TREE_RGB = [22, 62, 24];   // the full-screen map's tree green
 const HUD_C = newCanon();   // (the readout shows the canonical place: on a globe the unrolled one only counts the laps)
 /** The key an explored chunk is kept under: on a globe its canonical chunk's (a place seen on one lap is seen on every lap, and past a pole). */
 const exKey = (cx: number, cy: number): number => { const [a, b] = canonChunk(cx, cy); return tileKey(a, b); };
-/** The plane as it is saved: on a globe at its canonical place (the unrolled position is only the frame this visit happened to use), turned half round if it is past a pole. */
+/** The plane as it is saved: at its canonical place (the net coordinates of the face it is over; a point just past a cut edge is moved onto the neighbour face and the heading turned with it). */
 function savedPlane(x: number, y: number, heading: number, pitch: number, landed: boolean) {
   const c = canonInto(x, y, newCanon());
-  return { x: c.x, y: c.y, heading: c.flip ? heading + Math.PI : heading, pitch, ...(landed ? { landed: true } : {}) };
+  let h = heading;
+  if (c.moved) { const [dx, dy] = turnVector(Math.cos(heading), -Math.sin(heading), c); h = Math.atan2(-dy, dx); }
+  return { x: c.x, y: c.y, heading: h, pitch, ...(landed ? { landed: true } : {}) };
 }
 const MINI_ROW = new Int16Array(100);   // (a map pixel with no layer: unexplored; the minimap's last row of layers)
 const MINI_NEW_MAX = 24;   // chunks read per draw at most (a big jump of the map fills in over a few draws, not one long frame)

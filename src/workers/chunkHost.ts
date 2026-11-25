@@ -4,7 +4,7 @@
  * pictures on request, one at a time, between messages. See chunkclient.ts for the other end.
  */
 import { World, type TileState, type WorldOp } from '../domain/worldgen';
-import { setWorldSize, worldSize } from '../domain/globe';
+import { setCubeSize, cubeSize } from '../domain/cube';
 import type { WorldKind } from '../domain/lakedistrict';
 import { blocksFromTable, buildChunk, encodeDecos, type BlockOf } from '../domain/chunkbuild';
 import { terraceChunkMesh, terraceFarMesh, type TerraceMesh } from '../domain/terrace';
@@ -61,9 +61,9 @@ export class ChunkHost {
       try {
         const t0 = performance.now();
         if (job.kind === 'far') {
-          const was = worldSize(); setWorldSize(job.size);   // (a globe's far ground is its own field; the world this worker may hold keeps its size)
+          const was = cubeSize(); setCubeSize(job.size);   // (a planet's far ground is its own field; the world this worker may hold keeps its size)
           let m: ReturnType<typeof terraceFarMesh> extends Generator<unknown, infer R, unknown> ? R : never;
-          try { const g = terraceFarMesh(job.seed, job.cx, job.cy, job.step, job.half, job.stepped, job.open); let r = g.next(); while (!r.done) r = g.next(); m = r.value; } finally { setWorldSize(was); }
+          try { const g = terraceFarMesh(job.seed, job.cx, job.cy, job.step, job.half, job.stepped, job.open); let r = g.next(); while (!r.done) r = g.next(); m = r.value; } finally { setCubeSize(was); }
           this.post({ t: 'far', id: job.id, cols: m.cols, rows: m.rows, step: m.step, cx: m.cx, cy: m.cy, pos: m.pos, col: m.col, ms: performance.now() - t0 }, [m.pos.buffer, m.col.buffer]);   // (the indices are a shared array the page makes itself: `farIndices`)
         } else {
           if (!this.world || !this.blocks) throw new Error('build before init');

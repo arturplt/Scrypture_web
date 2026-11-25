@@ -16,7 +16,7 @@
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, lakeData, type WorldKind, type LakeMapId } from './lakedistrict';
 import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceBareFrom, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
 export { terraceBiome };
-import { setWorldSize, GW, canonTile, canonTileKey, GLOBE_SIZES } from './globe';
+import { setCubeSize, GN, canonTile, canonTileKey, CUBE_SIZES } from './cube';
 
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
@@ -263,7 +263,7 @@ export function transitionFor(cur: Terrain, n: Terrain, s: Terrain, e: Terrain, 
 
 /** What a tile looks like when nothing has changed it: variants and bushes/trees rolled from a hash of the tile. */
 export function generatedState(x: number, y: number, t: Terrain, biome: Biome, seed: number, ledge = false): TileState {
-  if (GW) [x, y] = canonTile(x, y);   // (a globe: a tile is rolled by its canonical place, so it is the same tile on every lap and past a pole)
+  if (GN) [x, y] = canonTile(x, y);   // (a cube-sphere: a tile is rolled by its canonical place, so a tile just past a cut edge is the neighbour's)
   const r = hash01(x, y, seed, 1), r2 = hash01(x, y, seed, 2), r3 = hash01(x, y, seed, 3);
   if (t === SAND) return { t, v: r < 0.05 ? 1 : 0, d: DECO_NONE, s: 1 };
   if (t !== GRASS) return plainTile(t);
@@ -279,8 +279,8 @@ export function generatedState(x: number, y: number, t: Terrain, biome: Biome, s
 }
 
 export const tileKey = (x: number, y: number) => (x + 1048576) * 2097152 + (y + 1048576);
-/** A tile's hash by its canonical place (on a globe a tile is the same one on every lap and past a pole). */
-const tileHash = (x: number, y: number, seed: number, k: number): number => { if (GW) [x, y] = canonTile(x, y); return hash01(x, y, seed, k); };
+/** A tile's hash by its canonical place (on a cube-sphere a tile just past a cut edge is the neighbour's). */
+const tileHash = (x: number, y: number, seed: number, k: number): number => { if (GN) [x, y] = canonTile(x, y); return hash01(x, y, seed, k); };
 export const keyX = (k: number) => Math.floor(k / 2097152) - 1048576;
 export const keyY = (k: number) => (k % 2097152) - 1048576;
 export const chunkOf = (t: number) => Math.floor(t / CHUNK);
@@ -321,20 +321,20 @@ export class World {
   /** The real map a terraced world stands on (null: the seeded hills, or not terraced). */
   readonly map: LakeMapId | null;
 
-  /** How many tiles round the world is (a globe: it wraps, and has poles; see globe.ts), or 0 for the endless plane. Only the seeded hills can be a globe. */
+  /** How many tiles along a face of the world's cube-sphere (see cube.ts), or 0 for the endless plane. Only the seeded hills can be a planet. */
   readonly size: number;
 
   constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null, size = 0) {
     this.seed = seed; this.kind = kind;
     this.map = kind === 'terraced' && map && lakeData()?.map === map ? map : null;   // (the map must be loaded: see lakeLoader.ts)
-    this.size = kind === 'terraced' && !this.map && GLOBE_SIZES.includes(size) ? size : 0;
-    setWorldSize(this.size);   // (one world at a time, as with the real terrain: the last one opened sets the ground the generators read)
+    this.size = kind === 'terraced' && !this.map && CUBE_SIZES.includes(size) ? size : 0;
+    setCubeSize(this.size);   // (one world at a time, as with the real terrain: the last one opened sets the ground the generators read)
     if (kind === 'terraced') setRealTerrain(this.map ? lakeData() : null);
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
     this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
   }
-  /** The key a tile's change is kept under: on a globe, of its canonical tile (a lake dug on one lap is there on every lap). */
+  /** The key a tile's change is kept under: on a cube-sphere, of its canonical tile (a lake dug on one side of a cut edge is there on the other). */
   ck(x: number, y: number): number { return this.size ? canonTileKey(x, y) : (x + 1048576) * 2097152 + (y + 1048576); }
   /** Start telling `sink` of every change made from now on (the chunk worker's mirror). Changes made through the constructor are not told: they are the starting state. */
   record(sink: ((op: WorldOp) => void) | null) { this.sink = sink; if (this.field) this.field.sink = sink; }

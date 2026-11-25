@@ -1,13 +1,15 @@
 /**
- * The globe seen from space: a small colour map of the whole world (one pixel is a patch of ground tiles, built a few rows a frame from the same
- * terrain the game plays on) and a software renderer that ray-casts a ball with that map on it, lit by the sun, with a thin blue limb and stars.
- * Pure arrays in and out, so it runs in a test, and as pixel art on a small canvas it matches the game's own look. See globe.ts for the world's shape.
+ * The cube planet seen from space, for the flat canvas (the 3D view draws the planet itself): a small colour map of the whole world, laid out as the net of the cube (one pixel is a patch of ground
+ * tiles, built a few rows a frame from the same terrain the game plays on) and a software renderer that ray-casts a ball with that map on it, lit by the sun, with a thin blue limb and stars.
+ * Pure arrays in and out, so it runs in a test, and as pixel art on a small canvas it matches the game's own look. See cube.ts for the world's shape.
  */
-import { worldSize, poleOf, capAt, canonInto, newCanon } from './globe';
+import { cubeSize, capAt, dirToNet, faceOf, type V3 } from './cube';
 import type { World } from './worldgen';
 import { terraceBiome, terraceMoist, terraceBareFrom, elevationBroad, layerOf } from './terrace';
 
-export const GLOBE_MAP_W = 512, GLOBE_MAP_H = 256;
+/** Pixels along a face in the net map (the map is 4 faces wide and 3 high). */
+export const FACE_PX = 128;
+export const GLOBE_MAP_W = 4 * FACE_PX, GLOBE_MAP_H = 3 * FACE_PX;
 
 type RGB = readonly [number, number, number];
 const SEA: RGB = [30, 74, 142], SAND: RGB = [216, 198, 142], GRASS: RGB = [124, 164, 80], WET: RGB = [86, 142, 92], WOOD: RGB = [54, 106, 60];
@@ -16,8 +18,7 @@ const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0] + (b[
 
 /** The colour of the ground at an unrolled tile of a globe (the polar caps white, then sea, lakes, sand, meadows, woods, bare rock and snow on the heights). */
 export function globeColor(world: World, x: number, y: number): [number, number, number] {
-  const c = newCanon(); canonInto(x + 0.5, y + 0.5, c);
-  const cap = capAt(c.y);
+  const cap = capAt(x + 0.5, y + 0.5);
   if (!world.field) return [...GRASS];
   const seed = world.seed, layer = layerOf(elevationBroad(x + 0.5, y + 0.5, seed));   // (the broad ground: at a pixel of dozens of tiles the small hills and lakes would only be a speckle)
   let col: [number, number, number];
@@ -32,7 +33,7 @@ export function globeColor(world: World, x: number, y: number): [number, number,
   return cap > 0 ? mix(col, ICE, cap) : col;
 }
 
-/** The whole world as an equirectangular picture: columns are longitude (west to east), rows latitude (north at the top). Built a few rows at a time. */
+/** The whole planet as the net of its cube: faces side by side as in cube.ts, the voids of the net black. Built a few rows at a time. */
 export class GlobeMap {
   readonly w = GLOBE_MAP_W; readonly h = GLOBE_MAP_H;
   readonly px = new Uint8ClampedArray(GLOBE_MAP_W * GLOBE_MAP_H * 4);
@@ -44,12 +45,14 @@ export class GlobeMap {
   get done(): boolean { return this.rows >= this.h; }
   /** Work for up to `ms` milliseconds (at least one row). Returns whether the map is now finished. */
   step(ms: number): boolean {
-    const W = worldSize(); if (!W || this.done) return this.done;
-    const P = poleOf(W), t0 = performance.now();
+    const N = cubeSize(); if (!N || this.done) return this.done;
+    const t0 = performance.now();
     do {
-      const j = this.rows, y = Math.floor(-P + ((j + 0.5) / this.h) * 2 * P);
+      const j = this.rows, y = -1.5 * N + ((j + 0.5) / this.h) * 3 * N;
       for (let i = 0; i < this.w; i++) {
-        const c = globeColor(this.world, Math.floor(-W / 2 + ((i + 0.5) / this.w) * W), y), o = (j * this.w + i) * 4;
+        const x = -1.5 * N + ((i + 0.5) / this.w) * 4 * N, o = (j * this.w + i) * 4;
+        if (faceOf(x, y) < 0) continue;   // (a void of the net)
+        const c = globeColor(this.world, Math.floor(x), Math.floor(y));
         this.px[o] = c[0]; this.px[o + 1] = c[1]; this.px[o + 2] = c[2];
       }
       this.rows++;
@@ -58,8 +61,8 @@ export class GlobeMap {
   }
 }
 
-/** Where the eye is: over (lat, lon) (radians, north and east positive) heading `heading` (radians, 0 east, pi/2 north), `alt` metres above a planet of radius `R`. */
-export interface GlobeView { lat: number; lon: number; heading: number; alt: number; R: number; hour?: number; fov?: number }
+/** Where the eye is: over the point with the frame `up` / `east` / `south` (see cube.ts eyeFrame) heading `heading` (radians on the plane's chart, 0 east, pi/2 north), `alt` metres above a planet of radius `R`. */
+export interface GlobeView { up: V3; east: V3; south: V3; heading: number; alt: number; R: number; hour?: number; fov?: number }
 
 const hash2 = (x: number, y: number): number => { let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1); h = Math.imul(h ^ (h >>> 15), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
@@ -68,14 +71,13 @@ const hash2 = (x: number, y: number): number => { let h = Math.imul(x, 0x27d4eb2
  * noon for the hour the plane's own clock says (default noon straight overhead). Pixels the ball does not cover are black with stars and the blue rim of the air.
  */
 export function renderGlobe(out: Uint8ClampedArray, w: number, h: number, map: GlobeMap, v: GlobeView): void {
-  const cl = Math.cos(v.lat), sl = Math.sin(v.lat), co = Math.cos(v.lon), so = Math.sin(v.lon);
-  const S = [cl * co, cl * so, sl], E = [-so, co, 0], N = [-sl * co, -sl * so, cl];
+  const S = v.up, E = v.east, N = [-v.south[0], -v.south[1], -v.south[2]];
   const ch = Math.cos(v.heading), sh = Math.sin(v.heading);
   const up = [ch * E[0] + sh * N[0], ch * E[1] + sh * N[1], ch * E[2] + sh * N[2]], fw = [-S[0], -S[1], -S[2]];
   const rt = [fw[1] * up[2] - fw[2] * up[1], fw[2] * up[0] - fw[0] * up[2], fw[0] * up[1] - fw[1] * up[0]];
   const R = v.R, r = R + Math.max(0, v.alt), P0 = [S[0] * r, S[1] * r, S[2] * r], tanF = Math.tan(((v.fov ?? 55) * Math.PI) / 360), aspect = w / h;
-  const sunLon = v.lon + (((12 - (v.hour ?? 12)) * 15) * Math.PI) / 180, sun = [Math.cos(sunLon), Math.sin(sunLon), 0];
-  const mw = map.w, mh = map.h, mp = map.px, c0 = r * r - R * R;
+  const sunLon = Math.atan2(S[1], S[0]) + (((12 - (v.hour ?? 12)) * 15) * Math.PI) / 180, sun = [Math.cos(sunLon), Math.sin(sunLon), 0];
+  const mw = map.w, mh = map.h, mp = map.px, c0 = r * r - R * R, NN = cubeSize() || 1;
   for (let j = 0; j < h; j++) {
     const ny = (1 - (2 * (j + 0.5)) / h) * tanF;
     for (let i = 0; i < w; i++) {
@@ -85,8 +87,8 @@ export function renderGlobe(out: Uint8ClampedArray, w: number, h: number, map: G
       const b = P0[0] * dx + P0[1] * dy + P0[2] * dz, disc = b * b - c0, o = (j * w + i) * 4;
       if (disc >= 0 && b < 0) {
         const s = -b - Math.sqrt(disc), px = P0[0] + s * dx, py = P0[1] + s * dy, pz = P0[2] + s * dz, nxn = px / R, nyn = py / R, nzn = pz / R;
-        const lat = Math.asin(Math.max(-1, Math.min(1, nzn))), lon = Math.atan2(nyn, nxn);
-        const u = Math.min(mw - 1, Math.max(0, Math.floor(((lon + Math.PI) / (2 * Math.PI)) * mw))), vv = Math.min(mh - 1, Math.max(0, Math.floor(((Math.PI / 2 - lat) / Math.PI) * mh))), m = (vv * mw + u) * 4;
+        const [nx2, ny2] = dirToNet(nxn, nyn, nzn);
+        const u = Math.min(mw - 1, Math.max(0, Math.floor(((nx2 / NN + 1.5) / 4) * mw))), vv = Math.min(mh - 1, Math.max(0, Math.floor(((ny2 / NN + 1.5) / 3) * mh))), m = (vv * mw + u) * 4;
         const lam = nxn * sun[0] + nyn * sun[1] + nzn * sun[2], day = Math.max(0, Math.min(1, lam * 4 + 0.5)), k = 0.1 + 0.9 * day * (0.55 + 0.45 * Math.max(0, lam));
         out[o] = mp[m] * k + 6 * (1 - day); out[o + 1] = mp[m + 1] * k + 10 * (1 - day); out[o + 2] = mp[m + 2] * k + 26 * (1 - day); out[o + 3] = 255;
       } else {

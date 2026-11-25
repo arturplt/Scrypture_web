@@ -33,10 +33,10 @@ export const ORBIT = {
 export const PLANET_R0 = 15000;
 const FUEL_BIG = [0, 6, 12, 22], FUEL_SMALL = [0, 4, 8, 15];
 export let MU = G0 * ORBIT.R * ORBIT.R;
-/** Is the planet a real globe (a finite world that wraps: its radius is the world's circumference over 2 pi)? Then the ground track of the plane at height follows the curve (see `trackK`). */
+/** Is the planet a real one (a cube-sphere world: its radius is 2N / pi for faces N tiles wide)? Then the ground track of the plane at height follows the curve (see `trackK`). */
 export let PLANET_ROUND = false;
 /**
- * The planet of the world now open: a globe's own radius (`planetRadius(size)`), or null for the endless plane's 15 km. One world at a time, like `setWorldSize`. A smaller planet has its
+ * The planet of the world now open: a cube planet's own radius (`cubeRadius(size)`), or null for the endless plane's 15 km. One world at a time, like `setWorldSize`. A smaller planet has its
  * horizon, and the space it looks like, nearer: the sky's band scales with the radius.
  */
 export function setPlanetRadius(r: number | null) {
