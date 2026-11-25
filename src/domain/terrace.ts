@@ -362,15 +362,6 @@ export function terraceBiome(layer: number, moistRaw: number): number {
 export function terraceH(e: number): number { return e < 1 ? 0 : TERRACE_STEP * Math.floor(e); }
 /** The layer (shelf) of an elevation: -1 for the sea. */
 export const layerOf = (e: number): number => (e < 0 ? -1 : Math.floor(e));
-/**
- * How much of a layer is slope. The ground is flat shelves joined by straight ramps (low poly, after Godus): going up through layer t's contour, the height climbs from layer t-1 to layer t over the last
- * RAMP of the elevation below the contour (e from t-RAMP to t), then lies flat until the next ramp. So the drawn ground is never lower than `terraceH` (what you walk on), and at most one step higher.
- */
-export const RAMP = 0.5;
-/** The drawn ground's height in layers for an elevation: `terraceH` with the ramps in (continuous). */
-export const rampLayer = (e: number): number => { const q = e + RAMP, f = Math.floor(q); return Math.max(0, f - 1 + Math.min(1, (q - f) / RAMP)); };
-/** The shelf an elevation is flat on, or -1 on a ramp. */
-const shelfOf = (v: number): number => { if (v < 1 - RAMP) return 0; const f = Math.floor(v); return v - f < 1 - RAMP ? f : -1; };
 
 // ---- the band colours (shared by the maps and the far mesh; the shader has the same ramp) ---------------------------------------------
 
@@ -780,6 +771,7 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
   // the sheets of inland water (a lake, a beck, a tarn, a pond): over each piece of ground that lies under water (the callback says, at the piece's middle, the layer of the surface there, or -1),
   // a copy at each layer from just over the piece up to the surface, so the water is flush with the ground beside it and, being see-through, shows the bed and the foot of the walls; the more
   // layers (the deeper the bed), the darker it is. The sheets are cut from the same pieces as the ground, so their edge is the smooth curve of the bed's own wall.
+  const cls = (v: number) => (v < 1 ? 0 : Math.floor(v));
   const wp: number[] = [], wi: number[] = [], wk: number[] = [];
   let kindNow = 0;   // (what the last sheetTop found: 0 for a lake, a beck, a tarn; 1 for a beaver's pond, which is tinted differently)
   const sheetTop = (pts: number[][]): number => {
@@ -840,27 +832,34 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     return out;
   };
   const cut = (x1: number, y1: number, e1: number, x2: number, y2: number, e2: number, x3: number, y3: number, e3: number) => {
-    const lo = Math.min(e1, e2, e3), hi = Math.max(e1, e2, e3), tMin = Math.max(1, Math.floor(lo) + 1), tMax = Math.ceil(hi + RAMP - 1e-9) - 1;
+    const lo = Math.min(e1, e2, e3), hi = Math.max(e1, e2, e3), tMin = lo < 1 ? 1 : Math.floor(lo) + 1, tMax = Math.floor(hi);
     const det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
     if (Math.abs(det) < 1e-12) return;
-    const gx = ((e2 - e1) * (y3 - y1) - (e3 - e1) * (y2 - y1)) / det, gy = ((e3 - e1) * (x2 - x1) - (e2 - e1) * (x3 - x1)) / det;
-    const k = TERRACE_STEP / RAMP, rl = Math.hypot(gx * k, gy * k, 1), rnx = -gx * k / rl, rny = -gy * k / rl, rnz = -1 / rl;   // a ramp's normal: the height climbs a step over RAMP of elevation, so a slope of (gx, gy) k in the ground; it faces downhill and up
-    const nB = 2 * Math.max(0, tMax - tMin + 1);   // the breaks: each contour t gives t - RAMP (the foot of its ramp) and t (the top); between an even and an odd break is a ramp, the rest are shelves
-    const brk = (i: number): number => { const t = tMin + (i >> 1); return (i & 1) ? t : t - RAMP; };
-    for (let m = 0; m <= nB; m++) {
+    const gx = ((e2 - e1) * (y3 - y1) - (e3 - e1) * (y2 - y1)) / det, gy = ((e3 - e1) * (x2 - x1) - (e2 - e1) * (x3 - x1)) / det, gl = Math.hypot(gx, gy) || 1;
+    const wx = -gx / gl, wy = -gy / gl;   // a wall faces downhill
+    const T = tMax - tMin + 1;   // the contours that cross this triangle: tMin .. tMax
+    for (let m = 0; m <= T; m++) {   // the pieces: below tMin, between each pair of contours, from tMax up
       let poly: P = [[x1, y1, e1], [x2, y2, e2], [x3, y3, e3]];
-      if (m > 0) poly = clip(poly, brk(m - 1), true);
-      if (m < nB && poly.length) poly = clip(poly, brk(m), false);
+      if (m > 0) poly = clip(poly, tMin + m - 1, true);
+      if (m < T && poly.length) poly = clip(poly, tMin + m, false);
       if (poly.length < 3) continue;
-      let area = 0; for (let q = 0; q < poly.length; q++) { const p = poly[q], r = poly[(q + 1) % poly.length]; area += p[0] * r[1] - r[0] * p[1]; }
+      let area = 0; for (let k = 0; k < poly.length; k++) { const p = poly[k], q = poly[(k + 1) % poly.length]; area += p[0] * q[1] - q[0] * p[1]; }
       if (Math.abs(area) < 1e-9) continue;
-      const ramp = (m & 1) === 1, bedL = ramp ? tMin + ((m - 1) >> 1) - 1 : tMin - 1 + (m >> 1), top = sheetTop(poly), under = top >= 0 && (bedL < top || top === 0) ? 1 : 0;
-      const hOf = (p: number[]) => (ramp ? TERRACE_STEP * rampLayer(p[2]) : TERRACE_STEP * bedL);
-      const nx = ramp ? rnx : 0, ny = ramp ? rny : 0, nz = ramp ? rnz : -1;
-      const v0 = vert(poly[0][0], poly[0][1], hOf(poly[0]), nx, ny, nz, under);
-      let prev = vert(poly[1][0], poly[1][1], hOf(poly[1]), nx, ny, nz, under);
-      for (let q = 2; q < poly.length; q++) { const cur = vert(poly[q][0], poly[q][1], hOf(poly[q]), nx, ny, nz, under); tri(v0, prev, cur); prev = cur; }
+      const h = m === 0 ? terraceH(lo) : TERRACE_STEP * (tMin + m - 1), bedL = Math.round(h / TERRACE_STEP), top = sheetTop(poly), under = top >= 0 && (bedL < top || top === 0) ? 1 : 0, v0 = vert(poly[0][0], poly[0][1], h, 0, 0, -1, under);
+      let prev = vert(poly[1][0], poly[1][1], h, 0, 0, -1, under);
+      for (let k = 2; k < poly.length; k++) { const cur = vert(poly[k][0], poly[k][1], h, 0, 0, -1, under); tri(v0, prev, cur); prev = cur; }
       if (under) sheets(poly, bedL, top);
+    }
+    for (let t = tMin; t <= tMax; t++) {   // a wall on each contour: the two points where it leaves the triangle
+      const q: number[] = [], xs = [x1, x2, x3], ys = [y1, y2, y3], es = [e1, e2, e3];
+      for (let k = 0; k < 3; k++) {
+        const a = k, b = (k + 1) % 3;
+        if ((es[a] < t) !== (es[b] < t)) { const s = (t - es[a]) / (es[b] - es[a]); q.push(xs[a] + (xs[b] - xs[a]) * s, ys[a] + (ys[b] - ys[a]) * s); }
+      }
+      if (q.length < 4 || Math.hypot(q[0] - q[2], q[1] - q[3]) < 1e-6) continue;
+      const top = TERRACE_STEP * t, bot = t === 1 ? 0 : TERRACE_STEP * (t - 1);
+      const a = vert(q[0], q[1], bot, wx, wy, 0), b = vert(q[2], q[3], bot, wx, wy, 0), c = vert(q[2], q[3], top, wx, wy, 0), d = vert(q[0], q[1], top, wx, wy, 0);
+      tri(a, b, c); tri(a, c, d);
     }
   };
   for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) {
@@ -868,10 +867,9 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     for (let half = 0; half < 2; half++) {   // (a, b, d) and (a, d, c): the triangles `elevationNear` reads
       const p = half === 0 ? [a, b, d] : [a, d, c], e1 = e[p[0]], e2 = e[p[1]], e3 = e[p[2]];
       const xy = (k: number) => [x0 + (k % G) * st, y0 + Math.floor(k / G) * st];
-      const s1 = shelfOf(e1);
-      if (s1 >= 0 && s1 === shelfOf(e2) && s1 === shelfOf(e3)) {
+      if (cls(e1) === cls(e2) && cls(e2) === cls(e3)) {
         tri(p[0], p[1], p[2]);
-        if (waterTop) { const pts = [xy(p[0]), xy(p[1]), xy(p[2])], top = sheetTop(pts), bedL = s1; if (top >= 0 && (bedL < top || top === 0)) { sub[p[0]] = sub[p[1]] = sub[p[2]] = 1; sheets(pts, bedL, top); } }
+        if (waterTop) { const pts = [xy(p[0]), xy(p[1]), xy(p[2])], top = sheetTop(pts), bedL = cls(e1); if (top >= 0 && (bedL < top || top === 0)) { sub[p[0]] = sub[p[1]] = sub[p[2]] = 1; sheets(pts, bedL, top); } }
         continue;
       }
       const [xa, ya] = xy(p[0]), [xb, yb] = xy(p[1]), [xc, yc] = xy(p[2]);

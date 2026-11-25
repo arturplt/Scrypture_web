@@ -114,32 +114,28 @@ describe('terraced height field', () => {
     for (let j = 0; j < CHUNK; j += 5) for (let i = 0; i < CHUNK; i += 3) expect(lay[j * CHUNK + i]).toBe(Math.min(127, w.layerAt(3 * CHUNK + i, -2 * CHUNK + j)));
   });
 
-  it('cuts the chunk mesh into level shelves and straight ramps that tile the chunk, no walls', () => {
+  it('cuts the chunk mesh along the contours: level pieces that tile the chunk, walls a whole step high, no slopes', () => {
     const f = new TerraceField(42);
-    let ramps = 0;
     for (const [cx, cy] of [[0, 0], [-7, 3], [12, -5]]) {
       const m = terraceChunkMesh(f.grid(cx, cy).e, cx, cy);
       let area = 0;
       for (let k = 0; k < m.idx.length; k += 3) {
-        const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2], z = [m.pos[a * 3 + 2], m.pos[b * 3 + 2], m.pos[c * 3 + 2]];
-        area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
-        if (z[1] === z[0] && z[2] === z[0]) {   // a level piece: all three corners at one height (a shelf, or flat ground whose elevation is a fraction, drawn at its ramp height)
-          expect(z[1]).toBe(z[0]); expect(z[2]).toBe(z[0]);
-        } else {   // a ramp: faces up and downhill, climbs at most one step
-          ramps++; expect(m.nrm[a * 3 + 2]).toBeLessThan(0);
-          expect(Math.max(...z) - Math.min(...z)).toBeLessThanOrEqual(TERRACE_STEP + 1e-4);
-        }
+        const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
+        if (m.nrm[a * 3 + 2] === -1) {   // a level piece: all three corners at one height, a whole number of steps
+          expect(m.pos[b * 3 + 2]).toBe(m.pos[a * 3 + 2]); expect(m.pos[c * 3 + 2]).toBe(m.pos[a * 3 + 2]);
+          expect(-m.pos[a * 3 + 2] / TERRACE_STEP).toBeCloseTo(Math.round(-m.pos[a * 3 + 2] / TERRACE_STEP), 4);
+          area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
+        } else { expect(m.nrm[a * 3 + 2]).toBe(0); }   // a wall faces sideways
       }
       expect(area).toBeCloseTo(CHUNK * CHUNK, 3);
     }
-    expect(ramps).toBeGreaterThan(20);
-    // and the ground you stand on is the ground drawn: a shelf is at heightAt there, a ramp between heightAt and one step above it (never lower: things stand sunk in a slope, not floating over it)
+    // and the ground you stand on is the ground drawn: a level piece's height is heightAt there
     const m = terraceChunkMesh(f.grid(3, 3).e, 3, 3);
     for (let k = 0; k < m.idx.length; k += 3) {
       const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
-      const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3, h = -(m.pos[a * 3 + 2] + m.pos[b * 3 + 2] + m.pos[c * 3 + 2]) / 3;
-      expect(h).toBeGreaterThanOrEqual(f.heightAt(x, y) - 1e-4); expect(h).toBeLessThanOrEqual(f.heightAt(x, y) + TERRACE_STEP + 1e-4);
-      const lay = h / TERRACE_STEP; if (m.pos[a * 3 + 2] === m.pos[b * 3 + 2] && m.pos[a * 3 + 2] === m.pos[c * 3 + 2] && Math.abs(lay - Math.round(lay)) < 1e-4) expect(f.heightAt(x, y)).toBeCloseTo(h, 5);
+      if (m.nrm[a * 3 + 2] !== -1) continue;
+      const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3;
+      expect(f.heightAt(x, y)).toBeCloseTo(-m.pos[a * 3 + 2], 5);
     }
   });
 

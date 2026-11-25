@@ -158,17 +158,17 @@ void main() {
     }
   }
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0) {   // a terraced world (terrace.ts): every layer a band of its own colour, the ledges between them earth walls with a light lip and a dark foot, after Godus
-    float hgt = -vPos.z, lvs = hgt / uTerrace + 0.04, lay = floor(lvs), fr = clamp((lvs - lay - 0.04) / 0.96, 0.0, 1.0), up = -tn.z;   // (the ground is flat shelves joined by straight ramps: fr is how far up a ramp this pixel is, 0 on a shelf; +0.04 keeps a shelf from flickering between two layers)
+    float hgt = -vPos.z, lvs = hgt / uTerrace + 0.04, lay = floor(lvs), fr = clamp((lvs - lay - 0.04) / 0.96, 0.0, 1.0), up = -tn.z;   // (the ground is flat shelves with walls straight down between them: fr is how far up a wall this pixel is, 0 on a shelf; +0.04 keeps a shelf from flickering between two layers)
     vec4 sa = textureLod(uTex, vUv, 2.5); vec3 smo = mix(uBase.rgb, sa.rgb, sa.a);   // the picture softened: its speckle goes, its colours stay (low poly, flat colour)
     vec3 base = mix(c.rgb, smo, 0.8);
     float wq = isWater(c.rgb), grassK = smoothstep(-0.02, 0.06, base.g - base.r);
-    vec3 bt = mix(bandTint(lay), bandTint(lay + 1.0), fr);   // every layer its own colour, blending along the ramp to the next
+    vec3 bt = mix(bandTint(lay), bandTint(lay + 1.0), fr);   // every layer its own colour, blending up a wall to the next
     vec3 land = base * mix(vec3(1.0), bt, grassK);
     float cliff = 1.0 - smoothstep(0.84, 0.97, up), slope = 1.0 - smoothstep(0.90, 0.995, up);
     vec3 earth = mix(vec3(0.80, 0.66, 0.45), vec3(0.86, 0.78, 0.55) * bt, 0.35);   // warm sandy cream, with a hint of the layer's colour
-    land = mix(land, mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9, (1.0 - smoothstep(0.80, 0.96, up)) * 0.5);   // the steep ramps go to earth, half way
-    land = mix(land, land * 1.14 + 0.03, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every ramp
-    land = mix(land, land * 0.78, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a ramp meets the shelf below
+    land = mix(land, mix(vec3(0.74, 0.60, 0.40), earth, grassK) * 0.9, (1.0 - smoothstep(0.80, 0.96, up)) * 0.9);   // the walls (straight down) are earth, with a hint of their layer's colour
+    land = mix(land, land * 1.14 + 0.03, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every wall
+    land = mix(land, land * 0.78, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a wall meets the shelf below
     // water lies on level ground only: a ramp face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is ground like any other, except where the water is on its high side and
     // spills over (a few stretches of every rim, picked by a hash of the place): there it is a waterfall, falling streaks of foam and a white foot
     vec2 nd = normalize(tn.xy + vec2(1e-5)) * uTileUv * 0.45;

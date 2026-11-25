@@ -106,8 +106,8 @@ describe('ponds on the terraced hills', () => {
     let area = 0, pond = 0;
     for (let k = 0; k < m.idx.length; k += 3) {
       const a = m.idx[k], b = m.idx[k + 1], c = m.idx[k + 2];
+      if (m.nrm[a * 3 + 2] !== -1) continue;
       area += Math.abs((m.pos[b * 3] - m.pos[a * 3]) * (m.pos[c * 3 + 1] - m.pos[a * 3 + 1]) - (m.pos[c * 3] - m.pos[a * 3]) * (m.pos[b * 3 + 1] - m.pos[a * 3 + 1])) / 2;
-      if (m.pos[a * 3 + 2] !== m.pos[b * 3 + 2] || m.pos[a * 3 + 2] !== m.pos[c * 3 + 2]) continue;
       const x = (m.pos[a * 3] + m.pos[b * 3] + m.pos[c * 3]) / 3, y = (m.pos[a * 3 + 1] + m.pos[b * 3 + 1] + m.pos[c * 3 + 1]) / 3;
       if (x > 5.5 && x < 9.5 && y > 4.5 && y < 7.5) { pond++; expect(-m.pos[a * 3 + 2]).toBeCloseTo(9 * TERRACE_STEP, 5); }
     }
