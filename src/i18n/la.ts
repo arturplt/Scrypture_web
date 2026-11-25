@@ -832,7 +832,7 @@ export const la: Record<Key, string> = {
   "sanCenter": "Medium",
   // Bobr world map (ported from Android + web-only strings)
   "world": "Paperplane",
-  "worldHint": "Charta volans mundum infinitum lacubus, silvis desertisque plenum pervola. Aqua in nubes evaporat, ventus eas portat, pluvia terram viridem facit.",
+  "worldHint": "Charta volans mundum lacubus, silvis desertisque plenum pervola. Aqua in nubes evaporat, ventus eas portat, pluvia terram viridem facit.",
   "worldNew": "Mundus novus",
   "worldName": "Nomen mundi",
   "worldSeed": "Semen (verba vel numerus, optio)",
@@ -852,7 +852,7 @@ export const la: Record<Key, string> = {
   "worldLakeTerraced": "Gradatus: in gradus sectus (25 m)",
   "worldLakeTerracedHint": "Montes et lacus veri ut gradus. Maior onus et tardior.",
   "worldKindLakeTerraced": "Lacus gradatus",
-  "worldTerraced": "Colles gradati (strata quasi gradus)",
+  "worldTerraced": "Colles gradati (strata quasi gradus) in parvo planeta rotundo: satis longe pervola, aut orbem ingredere, et unde coepisti redibis",
   "worldKind": "Genus mundi",
   "worldKindFlat": "Planus",
   "worldKindHills": "Colles",

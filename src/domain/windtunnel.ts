@@ -3,6 +3,7 @@
  * world's seed (one chance per 120 x 120 tile cell), a few tiles wide and about a hundred long, and fade out at the sides and the ends.
  */
 import { hash01 } from './worldgen';
+import { insideFace } from './cube';
 
 export const TUNNEL_CELL = 120, TUNNEL_CHANCE = 0.35, TUNNEL_HALF_WIDTH = 7, TUNNEL_HALF_LENGTH = 55;
 export interface Tunnel { key: string; x: number; y: number; angle: number }
@@ -10,7 +11,9 @@ export interface Tunnel { key: string; x: number; y: number; angle: number }
 export function tunnelInCell(seed: number, i: number, j: number): Tunnel | null {
   const s = seed & 0xffff;
   if (hash01(i, j, s, 401) > TUNNEL_CHANCE) return null;
-  return { key: `${i},${j}`, x: (i + 0.2 + 0.6 * hash01(i, j, s, 402)) * TUNNEL_CELL, y: (j + 0.2 + 0.6 * hash01(i, j, s, 403)) * TUNNEL_CELL, angle: hash01(i, j, s, 404) * Math.PI * 2 };
+  const x = (i + 0.2 + 0.6 * hash01(i, j, s, 402)) * TUNNEL_CELL, y = (j + 0.2 + 0.6 * hash01(i, j, s, 403)) * TUNNEL_CELL;
+  if (!insideFace(x, y, TUNNEL_HALF_LENGTH + 10)) return null;   // (on a cube-sphere: a whole tunnel on a face)
+  return { key: `${i},${j}`, x, y, angle: hash01(i, j, s, 404) * Math.PI * 2 };
 }
 
 const smooth = (t: number) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };

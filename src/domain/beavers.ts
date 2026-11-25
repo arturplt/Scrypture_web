@@ -8,6 +8,7 @@
 import { Pond, DAM_TILE_SHARE, POND_MIN } from './hydrology';
 import { lakeWaterAt, LAKE_WATER, lakeData } from './lakedistrict';
 import { hash01, tileKey, WATER, DECO_NONE, DECO_BUSH, type World } from './worldgen';
+import { insideFace, canonTile } from './cube';
 import { isBerryBush } from './berries';
 import { isNight } from './sky';
 import type { Ecosystem, Random01 } from './ecosystem';
@@ -102,7 +103,9 @@ export const damBroken = (c: Colony) => c.dam.filter(d => d.sticks === 0).length
 export function colonyInCell(seed: number, i: number, j: number): { key: string; x: number; y: number } | null {
   const s = seed & 0xffff;
   if (hash01(i, j, s, 401) > COLONY_CHANCE) return null;
-  return { key: `${i},${j}`, x: Math.round((i + 0.2 + 0.6 * hash01(i, j, s, 402)) * COLONY_CELL), y: Math.round((j + 0.2 + 0.6 * hash01(i, j, s, 403)) * COLONY_CELL) };
+  const x = Math.round((i + 0.2 + 0.6 * hash01(i, j, s, 402)) * COLONY_CELL), y = Math.round((j + 0.2 + 0.6 * hash01(i, j, s, 403)) * COLONY_CELL);
+  if (!insideFace(x, y, 60)) return null;   // (on a cube-sphere: on a face, a little way from its edges; the net cell is the place and the key)
+  return { key: `${i},${j}`, x, y };
 }
 
 export class BeaversManager {
@@ -158,7 +161,8 @@ export class BeaversManager {
     for (const c of this.colonies.values()) if (c.abandoned) abandoned.add(c.key);
     const burrows = new Map(this.savedBurrows);
     for (const c of this.colonies.values()) if (c.bsticks > 0) burrows.set(c.key, [c.bx, c.by, c.bsticks]);
-    return { dams: out.slice(0, MAX_DAM_TILES).map(d => [d.x, d.y, d.sticks, d.stones]), trust: [...trust].slice(0, MAX_TRUSTED), burrows: [...burrows].slice(0, MAX_TRUSTED).map(([k, v]) => [k, v[0], v[1], v[2]]), pop: pop.slice(0, 4 * MAX_TRUSTED), abandoned: [...abandoned].slice(0, MAX_TRUSTED) };
+    // (dams and burrows are saved at their canonical places: on a globe the frame of this visit is not the next one's)
+    return { dams: out.slice(0, MAX_DAM_TILES).map(d => { const [x, y] = canonTile(d.x, d.y); return [x, y, d.sticks, d.stones] as [number, number, number, number]; }), trust: [...trust].slice(0, MAX_TRUSTED), burrows: [...burrows].slice(0, MAX_TRUSTED).map(([k, v]) => { const [x, y] = canonTile(v[0], v[1]); return [k, x, y, v[2]] as [string, number, number, number]; }), pop: pop.slice(0, 4 * MAX_TRUSTED), abandoned: [...abandoned].slice(0, MAX_TRUSTED) };
   }
 
   private water(x: number, y: number) { return this.world.terrainAt(x, y) === WATER; }

@@ -5,7 +5,7 @@ Three kinds of world (`World.kind`, chosen in the world list as Hills / Flat / L
 - **procedural** (flat): `worldgen.ts` `generateChunk`: biomes and water from noise, no height.
 - **lakedistrict**: a real map (`lakedistrict.ts`, `lakeLoader.ts`), heights from a corner grid.
 - **terraced on a real map** (the "Terraced" option under Lake District; `World.map`, `World.realTerrain`): the terraced world below with the Lake District's real elevation and lakes instead of noise, see "The terraced Lake District".
-- **terraced** ("Hills"): an infinite Godus-style stepped height field, described below. The to-do list for it is [ROADMAP_TERRACE.md](ROADMAP_TERRACE.md).
+- **terraced** ("Hills"): a Godus-style stepped height field (a new seeded one is a small round planet, a *cube-sphere* of six 10080-tile faces, see `src/domain/cube.ts`; Hills made before that, and the real-map ones, are endless), described below. The to-do list for it is [ROADMAP_TERRACE.md](ROADMAP_TERRACE.md).
 
 ## The terraced world
 

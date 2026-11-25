@@ -15,6 +15,7 @@
  * All sprites come from one atlas: the sheet plus a few extra cells (shadow, a white dot, a haze gradient, the cloud pictures).
  */
 import type { TerraceMesh } from '../domain/terrace';
+import { shaderTables, eyeFrame } from '../domain/cube';
 import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl } from '../domain/terrace';
 import { dbgBits, dbgOn } from '../domain/dbg';
@@ -36,15 +37,45 @@ const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
 uniform float uFar, uHole, uBand, uTerrace; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
 // (a far level is sunk a little where it overlaps the finer ground, see below)
-uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC;   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down)
-out vec2 vUv; out vec4 vCol; out vec3 vPos;
-void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; p.z += uCurveC * dot(d, d);
+uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC, uPlanet, uCurveK, uCubeN; uniform vec3 uGS, uGE, uGSo, uFC[6], uFA[6], uFB[6]; uniform vec2 uFCell[6], uXT[24]; uniform vec4 uXA[24];   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down). A cube-planet world is a true ball instead: uPlanet its radius in tiles (0 = no ball), uCurveK how far the ground has been bent onto it (0 flat .. 1), uCubeN a face's width in tiles; uFC/uFA/uFB/uFCell the six faces (centre, net-x axis, net-y axis, net cell), uXA/uXT the 24 extensions past a face's side (see cube.ts), uGS/uGE/uGSo the eye's up, east and south on the ball
+out vec2 vUv; out vec4 vCol; out vec3 vPos; out float vSD;   // vSD: the distance over the ball from the point under the eye (a cube planet), what the far levels' hole and bands are measured in
+int faceAt(vec2 q) { vec2 c = floor(q / uCubeN + 0.5); for (int i = 0; i < 6; i++) if (uFCell[i] == c) return i; return -1; }
+// the direction of a net point that is inside a face's rect (w is 0 where it is not)
+vec4 faceDir(vec2 q) {
+  int f = faceAt(q); if (f < 0) return vec4(0.0);
+  vec2 uv = q - uFCell[f] * uCubeN; vec2 t = tan(uv / uCubeN * 1.5707963);
+  return vec4(normalize(uFC[f] + uFA[f] * t.x + uFB[f] * t.y), 1.0);
+}
+// the direction of a net point (the plane's chart: its face, and the strip of the next one past a cut edge, found as cube.ts canonInto does); w is 0 where the point is not on the planet
+vec4 chartDir(vec2 q) {
+  int f = faceAt(q);
+  if (f < 0) {
+    float best = 1501.0; int bi = -1;
+    for (int i = 0; i < 6; i++) { vec2 uv = q - uFCell[i] * uCubeN; float eu = abs(uv.x) - uCubeN * 0.5, ev = abs(uv.y) - uCubeN * 0.5;
+      if (eu > 0.0 && ev <= 0.0 && eu < best) { best = eu; bi = i * 4 + (uv.x > 0.0 ? 0 : 1); } else if (ev > 0.0 && eu <= 0.0 && ev < best) { best = ev; bi = i * 4 + (uv.y > 0.0 ? 2 : 3); } }
+    if (bi < 0) return vec4(0.0);
+    vec4 A = uXA[bi]; q = vec2(A.x * q.x + A.y * q.y + uXT[bi].x, A.z * q.x + A.w * q.y + uXT[bi].y); f = faceAt(q);
+    if (f < 0) return vec4(0.0);
+  }
+  return faceDir(q);
+}
+void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
+  if (uPlanet > 0.0) {   // (a cube planet: the ground, and all that stands on it, is wrapped onto the ball face by face, standing out from it by its height, and the ball is turned so the point under the eye is straight below it. Within the plane's chart that is eased in with height (uCurveK); ground of other faces, which are nowhere on the chart, is always on the ball)
+    vec4 cd = chartDir(p.xy); bool inChart = cd.w > 0.5; vec4 dd = inChart ? cd : faceDir(p.xy);
+    if (dd.w > 0.5) {
+      vSD = uPlanet * atan(length(cross(dd.xyz, uGS)), dot(dd.xyz, uGS));
+      vec3 w = dd.xyz * (uPlanet - p.z) - uGS * uPlanet; vec3 q = vec3(uEye.xy + vec2(dot(w, uGE), dot(w, uGSo)), -dot(w, uGS));
+      p = mix(p, q, inChart ? uCurveK : 1.0);
+    } else { vSD = 1e9; p = vec3(uEye.xy, uPlanet); }   // (off the planet: sunk into it)
+  }
+  else p.z += uCurveC * dot(d, d);
   // The far levels' coarse triangles run in slopes from one terrace to the next, so over a ledge they lie above the finer ground they are meant to sit under, and show through it as wedges that flicker as the view moves (worse where the depth buffer is short on precision: phones). Where a far level overlaps the finer ground, and for a few tiles past it, it is sunk most of a layer, so it lies under that ground; beyond that it fades back up to its own height.
   if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) p.z += uTerrace * 0.7 * (1.0 - smoothstep(uHole + uBand, uHole + uBand + 24.0, length(d)));
  gl_Position = uVP * vec4(p, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D; precision highp int;
-in vec2 vUv; in vec4 vCol; in vec3 vPos;
+in vec2 vUv; in vec4 vCol; in vec3 vPos; in float vSD;
+uniform float uCubeN;
 uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
 uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
@@ -63,12 +94,12 @@ void main() {
   vec4 tex0 = textureGrad(uTex, vUv, dUx, dUy);
   float dn = (uDbg & 8) != 0 ? 0.5 : fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));   // (nostipple: every pixel has the same share, so the hand-over is a clean cut half way across the band)
   if (uFar > 0.5) {          // a far level: from uHole (where it starts to show through the finer one) to uHoleMax (where it has given way to the next, coarser, one)
-    float fd = distance(vPos.xy, uEye.xy);
+    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
     if (fd < uHole || fd > uHoleMax) discard;
     if (dn >= smoothstep(uHole, uHole + uBand, fd)) discard;
     if (uBandOut > 0.0 && dn < smoothstep(uHoleMax - uBandOut, uHoleMax, fd)) discard;   // (the last level has no coarser one to give way to)
   } else if (uTerr > 0.5 && uBase.a > 0.5 && uHoleMax > 0.0) {   // a real chunk (the ground of the near ring): it gives way to the far mesh across uHole .. uHole + uBand, the first far level's own entry band
-    float fd = distance(vPos.xy, uEye.xy);
+    float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
     if (fd > uHole + uBand || dn < smoothstep(uHole, uHole + uBand, fd)) discard;
   }
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
@@ -484,8 +515,18 @@ export class WorldGL {
   space = 0;
   /** The planet's curve as drawn: the ground drops by curveC * d^2 (tiles) at d tiles from the eye. The screen sets it from the height (0 low down, so nothing changes there). */
   curveC = 0;
+  /** A globe world's planet: its radius in tiles (0 = none, the paraboloid above) and how far the ground is bent onto it (0 flat low down .. 1 a ball, from the height up). */
+  planet = 0; curveK = 0;
+  /** A cube planet's face width in tiles (0 = none): the chart is wrapped onto the ball face by face (see the vertex shader). */
+  cubeN = 0;
+  /** A cube planet's far levels: the first `ringCount` are rings round the eye, the rest are whole faces (index ringCount + face), drawn behind the last ring wherever they are on the ball. */
+  ringCount = 0;
+  private cubeT: ReturnType<typeof shaderTables> | null = null;
   /** The sine of how far the planet's rim has sunk below level for this eye: the tangent from the eye to the curved ground (z = curveC d^2) falls at 2 sqrt(curveC H). */
-  dipSin() { const H = Math.max(0, -this.eye[2]); if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
+  dipSin() {
+    const H = Math.max(0, -this.eye[2]);
+    if (this.planet > 0) { if (!(this.curveK > 0) || !(H > 0)) return 0; const q = this.planet / (this.planet + H); return this.curveK * Math.sqrt(1 - q * q); }   // (a ball: the tangent from the eye to it dips by acos(R / (R + H)) below level)
+    if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
@@ -620,7 +661,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -1015,7 +1056,12 @@ export class WorldGL {
     }
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(this.loc.uVP, false, this.vp);
-    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]); gl.uniform1f(this.loc.uCurveC, this.curveC);
+    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]); gl.uniform1f(this.loc.uCurveC, this.curveC); gl.uniform1f(this.loc.uPlanet, this.planet); gl.uniform1f(this.loc.uCurveK, this.curveK);
+    if (this.planet > 0 && this.cubeN > 0) {   // (the cube planet: its faces and extensions, and the eye's frame on the ball: up, east and south at its place)
+      const T = (this.cubeT ??= shaderTables()), fr = eyeFrame(this.eye[0], this.eye[1]);
+      gl.uniform1f(this.loc.uCubeN, this.cubeN); gl.uniform3fv(this.loc.uFC, T.c); gl.uniform3fv(this.loc.uFA, T.a); gl.uniform3fv(this.loc.uFB, T.b); gl.uniform2fv(this.loc.uFCell, T.cell); gl.uniform4fv(this.loc.uXA, T.xa); gl.uniform2fv(this.loc.uXT, T.xt);
+      if (fr) { gl.uniform3f(this.loc.uGS, fr.up[0], fr.up[1], fr.up[2]); gl.uniform3f(this.loc.uGE, fr.east[0], fr.east[1], fr.east[2]); gl.uniform3f(this.loc.uGSo, fr.south[0], fr.south[1], fr.south[2]); }
+    }
     { const sp = 1 - 0.45 * this.space; gl.uniform3f(this.loc.uFog, this.sky[0] * sp, this.sky[1] * sp, this.sky[2] * sp); }   // (the same haze as the sky's below the horizon)
     // no distance haze, except high up over a hilly world: the far ground fades into the haze before the edge of what is drawn, so it meets the sky with no gap
     { const hk = this.farOn && this.farMesh ? this.highK() : 0, st = this.reach * (0.55 + 3 * (1 - hk)); if (hk > 0) gl.uniform2f(this.loc.uFogRange, st, st + this.reach * 0.42); else gl.uniform2f(this.loc.uFogRange, 1e7, 2e7); }
@@ -1243,17 +1289,18 @@ export class WorldGL {
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
     const kk = Math.max(1, this.drawK), E = this.farRing ? this.farRing.map((v, i) => (i === 1 || i === 2 ? v * kk : v)) : [260 * kk, 820 * kk, 2600, 8000];   // (the draw distance stretches the fine and medium rings: more of the far map in detail, at no cost in chunks)
     // the levels in use: from the finest one wanted (and built) to the coarsest. The first starts at the hole; each next one a little inside where the one before ends (no crack)
-    const n = this.farMesh!.length;
-    let lo = n > 3 ? Math.min(this.farMin, n - 1) : 0; while (lo > 0 && !this.farMesh![lo]) lo--;   // (the one wanted is not built yet: the next finer one stands in)
+    const n = this.farMesh!.length, rc = this.cubeN > 0 && this.ringCount > 0 ? Math.min(this.ringCount, n) : n;   // (rc: the rings; any levels past them are the cube planet's faces)
+    let lo = rc > 3 ? Math.min(this.farMin, rc - 1) : 0; while (lo > 0 && !this.farMesh![lo]) lo--;   // (the one wanted is not built yet: the next finer one stands in)
     gl.enable(gl.POLYGON_OFFSET_FILL);
     let prevEnd = -1;
     this.farMesh!.forEach((f, i) => {
-      if (i < lo || !f) return;
-      const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = i === n - 1 ? 1e9 : hole + E[Math.min(i, E.length - 1)];
+      const face = i >= rc;
+      if ((i < lo && !face) || !f) return;
+      const s0 = prevEnd < 0 ? hole : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
       const bandIn = prevEnd < 0 ? this.nearBand : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
-      prevEnd = e0;
+      if (!face) prevEnd = e0;   // (faces all begin where the last ring ends)
       gl.polygonOffset(1 + i * 1.5, 1 + i * 1.5);                         // (where two levels overlap the finer one wins every pixel, so they never fight; and all of them give way to the real ground in the ring where it overlaps the first: it was pulled in front of it, and its coarse triangles showed through beside the ledges)
-      gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, i === n - 1 ? 0 : 20 * kk);
+      gl.uniform1f(this.loc.uHole, s0); gl.uniform1f(this.loc.uHoleMax, e0); gl.uniform1f(this.loc.uBand, bandIn); gl.uniform1f(this.loc.uBandOut, e0 >= 1e8 ? 0 : 20 * kk);
       gl.bindBuffer(gl.ARRAY_BUFFER, f.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, f.ibo);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, stride, 12); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 20);
       let first = 0, count = f.n;

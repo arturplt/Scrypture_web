@@ -5,6 +5,7 @@
  * Only the bushes picked and not yet ripe again are kept, and saved with the world.
  */
 import { hash01, tileKey, keyX, keyY, DECO_BUSH, type World } from './worldgen';
+import { GN, canonTile } from './cube';
 
 export const BERRY_CHANCE = 0.5;         // the share of bushes that bear berries
 export const BERRY_YIELD = 2;            // berries from one picking
@@ -16,7 +17,7 @@ export const MAX_PICKED_BUSHES = 2000;
 export type SavedBerry = [number, number, number];
 
 /** Does a bush on this tile bear berries? */
-export const isBerryBush = (seed: number, x: number, y: number) => hash01(x, y, seed & 0xffff, 501) < BERRY_CHANCE;
+export const isBerryBush = (seed: number, x: number, y: number) => { if (GN) [x, y] = canonTile(x, y); return hash01(x, y, seed & 0xffff, 501) < BERRY_CHANCE; };   // (on a cube-sphere by the tile's canonical place)
 
 export function sanitizeBerries(raw: unknown): SavedBerry[] {
   const out: SavedBerry[] = [], seen = new Set<number>();
@@ -40,11 +41,11 @@ export class BerryPatch {
 
   constructor(world: World, saved: SavedBerry[] = []) {
     this.world = world;
-    for (const [x, y, left] of saved) if (left > 0) this.picked.set(tileKey(x, y), left);
+    for (const [x, y, left] of saved) if (left > 0) this.picked.set(this.world.ck(x, y), left);
   }
 
   /** A tile already known to hold a bush: are there berries on it now? (For drawing: no look at the tile itself.) */
-  ripeBush(x: number, y: number) { return isBerryBush(this.world.seed, x, y) && !this.picked.has(tileKey(x, y)); }
+  ripeBush(x: number, y: number) { return isBerryBush(this.world.seed, x, y) && !this.picked.has(this.world.ck(x, y)); }
   ripe(x: number, y: number) { return this.world.stateAt(x, y).d === DECO_BUSH && this.ripeBush(x, y); }
 
   /** The nearest ripe bush within reach of (px, py), or null. A bush stands in the middle of its tile. */
@@ -62,7 +63,7 @@ export class BerryPatch {
   pick(x: number, y: number): number {
     if (!this.ripe(x, y)) return 0;
     if (this.picked.size >= MAX_PICKED_BUSHES) this.picked.delete(this.picked.keys().next().value!);   // the oldest grows back early
-    this.picked.set(tileKey(x, y), BERRY_REGROW);
+    this.picked.set(this.world.ck(x, y), BERRY_REGROW);
     this.dirty = true;
     return BERRY_YIELD;
   }

@@ -832,7 +832,7 @@ export const pl: Record<Key, string> = {
   "sanCenter": "Środek",
   // Bobr world map (ported from Android + web-only strings)
   "world": "Paperplane",
-  "worldHint": "Lataj papierowym samolotem nad nieskończonym światem z jeziorami, lasami i pustyniami. Woda paruje w chmury, wiatr je niesie, a deszcz zazielenia ziemię.",
+  "worldHint": "Lataj papierowym samolotem nad światem z jeziorami, lasami i pustyniami. Woda paruje w chmury, wiatr je niesie, a deszcz zazielenia ziemię.",
   "worldNew": "Nowy świat",
   "worldName": "Nazwa świata",
   "worldSeed": "Ziarno (słowa lub liczba, opcjonalnie)",
@@ -852,7 +852,7 @@ export const pl: Record<Key, string> = {
   "worldLakeTerraced": "Tarasowa: pocięta na warstwy (25 m)",
   "worldLakeTerracedHint": "Prawdziwe góry i jeziora jako stopnie. Większe pobranie i dłuższe wczytywanie.",
   "worldKindLakeTerraced": "Tarasowa Kraina Jezior",
-  "worldTerraced": "Tarasowe wzgórza (warstwice jak schodki)",
+  "worldTerraced": "Tarasowe wzgórza (warstwice jak schodki) na małej, okrągłej planecie: leć dość daleko albo wejdź na orbitę, a wrócisz tam, skąd zacząłeś",
   "worldKind": "Rodzaj świata",
   "worldKindFlat": "Płaski",
   "worldKindHills": "Wzgórza",

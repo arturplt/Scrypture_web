@@ -4,6 +4,7 @@
  * Positions are in tiles (y south, like the map); heights are in tiles above the ground (about 0.18 tiles per metre for the glider).
  */
 import { hash01 } from './worldgen';
+import { insideFace } from './cube';
 
 export const HOOP_CELL = 36;
 export const HOOP_RADIUS = 3.6;
@@ -13,10 +14,11 @@ export interface Hoop { key: string; x: number; y: number; h: number; angle: num
 export function hoopInCell(seed: number, i: number, j: number): Hoop | null {
   const s = seed & 0xffff;
   if (hash01(i, j, s, 201) > 0.55) return null;
+  const x = (i + 0.2 + 0.6 * hash01(i, j, s, 202)) * HOOP_CELL, y = (j + 0.2 + 0.6 * hash01(i, j, s, 203)) * HOOP_CELL;
+  if (!insideFace(x, y, 20)) return null;   // (on a cube-sphere net cells are the places: a hoop stands on a face, off its edges)
   return {
     key: `${i},${j}`,
-    x: (i + 0.2 + 0.6 * hash01(i, j, s, 202)) * HOOP_CELL,
-    y: (j + 0.2 + 0.6 * hash01(i, j, s, 203)) * HOOP_CELL,
+    x, y,
     h: 4.5 + 6 * hash01(i, j, s, 204),
     angle: hash01(i, j, s, 205) * Math.PI,
     r: HOOP_RADIUS,

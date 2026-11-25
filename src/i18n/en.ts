@@ -831,7 +831,7 @@ export const en = {
   "sanCenter": "Center",
   // Bobr world map (ported from Android + web-only strings)
   "world": "Paperplane",
-  "worldHint": "Fly a paper plane over an endless world with lakes, forests and deserts. Water evaporates into clouds, wind carries them, rain makes the land green.",
+  "worldHint": "Fly a paper plane over a world with lakes, forests and deserts. Water evaporates into clouds, wind carries them, rain makes the land green.",
   "worldNew": "New world",
   "worldName": "World name",
   "worldSeed": "Seed (words or a number, optional)",
@@ -851,7 +851,7 @@ export const en = {
   "worldLakeTerraced": "Terraced: cut into layers (25 m detail)",
   "worldLakeTerracedHint": "The real fells and lakes as stepped terraces. Bigger download, and slower to load.",
   "worldKindLakeTerraced": "Terraced Lake District",
-  "worldTerraced": "Terraced hills (stepped, like contour layers)",
+  "worldTerraced": "Terraced hills (stepped, like contour layers) on a small round planet: fly far enough, or orbit, and you come back to where you began",
   "worldKind": "World type",
   "worldKindFlat": "Flat",
   "worldKindHills": "Hills",
