@@ -924,6 +924,7 @@ export const la: Record<Key, string> = {
   "worldMapRecentre": "Ad aeroplanum redi",
   "worldMapSize": "Magnitudo mappae",
   "worldClouds": "Nubes caeli",
+  "worldMilkyway": "Via Lactea",
   "worldHeat": "Aestus",
   "worldCold": "Gelu",
   "worldStats": "{clouds} nubes, {water} aquae",

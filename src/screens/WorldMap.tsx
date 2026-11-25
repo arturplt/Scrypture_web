@@ -52,6 +52,7 @@ import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
 import { rocketFuel, spaceFactor, airDensity, warpAllowed, nextWarp, ORBIT, setPlanetRadius } from '../domain/orbit';
 import { newLadder, startLadder, stepLadder } from '../domain/skyway';
 import { cubeRadius, canonInto, newCanon, canonChunk, turnVector, applyCanon, FACES, eyeFrame } from '../domain/cube';
+import { skyAt, localHour, shiftToHour, SKY_WARP_MAX, DAYS_PER_SECOND } from '../domain/celestial';
 import { GlobeMap, renderGlobe } from '../domain/globemap';
 import { HEATSHIELD_K } from '../domain/shop';
 import { ORBIT_BONUS, addOrbit, heightPoints, type SavedOrbit } from '../domain/worldsave';
@@ -77,6 +78,8 @@ const AUTO_DRAW_MIN = 0.75;
 const NEAR_ALL = 80;
 const MAX_REAL = 320;   // chunks asked for at once in the 3D view (about 80 MB of pictures); past that the far mesh covers the ground
 const DECO_VIEW = 100;   // tiles: how far trees, bushes and rocks are built on a hilly world
+/** Hoops (and the sky ladder's rung) and lightning are drawn only this near the plane, in metres (a line of sight through the air: height counts too), however far the ground is drawn. */
+const NEAR_FX_M = 150;
 const HOOP_VIEW = 100;   // tiles: how far hoops, rain clouds and their rain are drawn, whatever the draw distance
 const LAKE_START_ALT = 50, LAKE_START_SPEED = 7;   // the Lake District starts in flight: metres above the ground, and ground speed in m/s
 const LAKE_THROTTLE_MAX = 20;
@@ -135,7 +138,7 @@ const loadGfx = (): Gfx => { try { const r = JSON.parse(localStorage.getItem(GFX
 
 /** Every setting in the menu that is a choice of the pilot's (not the world's and not a debug aid), kept in this browser and brought back on the next visit. */
 const PREFS_KEY = 'scrypture:worldPrefs';
-const PREF_DEFAULTS = { invertPitch: false, aero: false, freeStall: false, showEco: false, showFps: false, showInst: true, miniHoops: true, miniHeat: true, showMini: true, showArrows: true, hints: true, showRivers: false, billboards: false, gl3d: true, windAuto: true, muted: false, tilt: 16, walkDist: 100, mapUiSize: 50, instSize: 50, miniScale: 2, miniSize: 2, camMode: 'chase' as CamMode, kbOpen: false, kbPos: null as { l: number; t: number } | null, keyHotkeys: {} as Record<string, string>, secs: { debug: true } as Record<string, boolean> };
+const PREF_DEFAULTS = { invertPitch: false, aero: false, freeStall: false, showEco: false, showFps: false, showInst: true, miniHoops: true, miniHeat: true, showMini: true, showArrows: true, hints: true, showRivers: false, billboards: false, milkyway: true, gl3d: true, windAuto: true, muted: false, tilt: 16, walkDist: 100, mapUiSize: 50, instSize: 50, miniScale: 2, miniSize: 2, camMode: 'chase' as CamMode, kbOpen: false, kbPos: null as { l: number; t: number } | null, keyHotkeys: {} as Record<string, string>, secs: { debug: true } as Record<string, boolean> };
 type Prefs = typeof PREF_DEFAULTS;
 const PREF_RANGE: Partial<Record<keyof Prefs, [number, number]>> = { tilt: [0, 16], walkDist: [25, 200], mapUiSize: [50, 160], instSize: [50, 160], miniScale: [0.5, 64], miniSize: [2, 3] };
 function loadPrefs(): Prefs {
@@ -213,7 +216,7 @@ function WorldView({ id }: { id: string }) {
   const [shopOpen, setShopOpen] = useState(false);   // the boost shop (from the result popup or the button beside Throw)
   const [burnPop, setBurnPop] = useState<{ n: number; key: number } | null>(null), burnedRef = useRef(initial.burned ?? 0), deadRef = useRef(false), respawnReq = useRef(false);   // fire or lightning got the plane: GAME OVER with how many times it has burned
   const [runResult, setRunResult] = useState<{ hoops: number; metres: number; height: number; bonus: number; soft: boolean; water: boolean; saved: 'insurance' | 'float' | null; dbl: number; coins: number; key: number; trick: number; tag?: { pts: number; you: number; ai: number }; tricks: { name: string; n: number; pts: number }[] } | null>(null);   // the popup after a run: how it ended and what it scored
-  const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; explored: Set<number> } | null>(null);
+  const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; days: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
     const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural', initial.kind === 'terraced' ? initial.map : null, initial.size ?? 0);
     setPlanetRadius(world.size ? cubeRadius(world.size) : null);   // (a cube-sphere is a small round planet of its own: R = 2N / pi)
@@ -223,7 +226,7 @@ function WorldView({ id }: { id: string }) {
     flight.heading = initial.plane.heading; flight.pitch = initial.plane.pitch;
     const eco = new Ecosystem(world, Math.random, { ...initial.wind });
     const picked = { sticks: new Set<string>(initial.sticks ?? []), stones: new Set<string>(initial.stones ?? []) };   // what has been taken off the ground, by the player or a beaver
-    sim.current = { world, eco, beavers: new BeaversManager(world, eco, Math.random, picked, initial.beavers), berries: new BerryPatch(world, initial.berries), flight, glider: newGlider(initial.plane.x, -initial.plane.y, initial.plane.heading), hour: initial.hour, explored: new Set(initial.explored) };
+    sim.current = { world, eco, beavers: new BeaversManager(world, eco, Math.random, picked, initial.beavers), berries: new BerryPatch(world, initial.berries), flight, glider: newGlider(initial.plane.x, -initial.plane.y, initial.plane.heading), hour: initial.hour, days: initial.days ?? (world.size ? shiftToHour(0, eyeFrame(initial.plane.x, initial.plane.y)?.up ?? [1, 0, 0], initial.hour, true) : 0), explored: new Set(initial.explored) };
     sim.current.beavers.dayNight = true;   // the beavers keep to the sky's clock
     { const g0 = sim.current.glider; g0.z = 0; g0.vx = g0.vy = g0.vz = 0; g0.landed = true; g0.impact = null; }   // every visit starts on the ground (on foot, Throw ready), no touchdown popup
     sim.current.glider.boostCharges = initial.boosts ?? START_BOOSTS;   // the boosts left from last time
@@ -366,6 +369,7 @@ function WorldView({ id }: { id: string }) {
   const [decoClouds, setDecoClouds] = useState(gfx0.clouds);
   const [showRivers, setShowRivers] = useState(prefs0.showRivers);
   const [billboards, setBillboards] = useState(prefs0.billboards);
+  const [milkyway, setMilkyway] = useState(prefs0.milkyway);   // the Milky Way's picture in the night sky (off: only the scattered stars)
   const [camDist] = useState(DEFAULT_CAMERA_DISTANCE);
   const [gl3d, setGl3d] = useState(prefs0.gl3d);   // the 3D view (a real camera: tilt, behind the plane, free, flyby, FPV); off = the flat north-up canvas, which has no tilt and no turn
   const [shaders, setShaders] = useState(gfx0.shaders);   // the 3D view's extras: living water, sunlight, glow and sun rays
@@ -384,7 +388,7 @@ function WorldView({ id }: { id: string }) {
   const [kbPos, setKbPos] = useState(prefs0.kbPos);   // where its panel was dragged to (set when a drag ends)
   const [keyHotkeys, setKeyHotkeys] = useState<Record<string, string>>(prefs0.keyHotkeys), keyHotkeysRef = useRef(keyHotkeys); keyHotkeysRef.current = keyHotkeys;   // the player's own keys for it (the menu's list)
   const kbFocus = useRef<KeyFocus>(FOCUS_START), padSeen = useRef(false);   // a gamepad's highlight on it (the d-pad moves it, A presses it), shown once a pad has been used
-  useEffect(() => { savePrefs({ invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys }); }, [invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys]);   // every choice in the menu is remembered
+  useEffect(() => { savePrefs({ invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, milkyway, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys }); }, [invertPitch, aero, freeStall, showEco, showFps, showInst, showMini, showArrows, miniHoops, miniHeat, hints, showRivers, billboards, milkyway, gl3d, windAuto, muted, tilt, walkDist, mapUiSize, instSize, miniScale, miniSize, camMode, secs, kbOpen, kbPos, keyHotkeys]);   // every choice in the menu is remembered
   const camZRef = useRef<number | null>(null);   // the height above the ground the camera works from: eased on hills, or the view would breathe with every bump
   const camPos = useRef({ x: initial.plane.x, y: initial.plane.y });
   const [paused, setPaused] = useState(false);
@@ -396,8 +400,8 @@ function WorldView({ id }: { id: string }) {
   const hudRef = useRef<Hud>({ landed: false, hour: initial.hour, temp: 20, weather: null, x: 0, y: 0, layer: 5, clouds: 0, water: 0, fps: 0, ms: 0, biome: '' });
   const knobEl = useRef<HTMLImageElement>(null);
   const setKnob = (k: { x: number; y: number }) => { if (knobEl.current) knobEl.current.style.transform = `translate(${k.x * Number(knobEl.current.dataset.travel ?? 45)}%, ${k.y * Number(knobEl.current.dataset.travel ?? 45)}%)`; };
-  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
-  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
+  const live = useRef({ mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, milkyway, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume });
+  live.current = { mouseFly, invertPitch, freeStall, aero, debugLift, debugLiftV, throttle, drawDist, walkDist, camMode, trimPitch, trimRoll, trimYaw, hideUi: hideUi || lookUi, lookUi, resScale, resAuto, crt, milkyway, ecoPaused, fpsCap, decoDensity, lookFly, showInst, windAuto, aimText: t('worldAim'), turbText: t('worldTurb'), geText: t('worldGroundEffect'), mowerText: t('worldTrickMower'), invertedText: t('worldTrickInverted'), skimText: t('worldTrickSkim'), comboText: t('worldCombo'), slalomTrick: t('worldTrickSlalom'), stallTrick: t('worldTrickStall'), thermalTrick: t('worldTrickThermal'), rollTrick: t('worldTrickRoll'), loopTrick: t('worldTrickLoop'), immelmanTrick: t('worldTrickImmelman'), splitSTrick: t('worldTrickSplitS'), turn90Trick: t('worldTrickTurn90'), uTurnTrick: t('worldTrickUTurn'), miniHoops, miniHeat, hints, glideKeys: t('worldGlideKeys'), boostText: t('worldBoost'), hoopsText: t('worldHoops'), bestText: t('worldBest'), hoopText: t('worldHoop'), skyText: t('worldSky'), gateText: t('worldGate'), rungText: (n: number) => t('worldRung', { n }), landedText: t('worldLanded'), stallText: t('worldStall'), wetText: t('worldWet'), liftText: (n: string) => t('worldLift', { n }), miniScale, mode, speed, pitch, wind: windLive.current, decoClouds, showRivers, billboards, camDist, tilt, gl3d, shaders, paused, tool, brush, radius, volume: muted ? 0 : volume };
 
   useEffect(() => { const s = sim.current!; s.flight.mode = mode; s.flight.speed = speed; s.flight.pitch = pitch; }, [mode, speed, pitch]);
   const startedLanded = useRef(false);
@@ -892,7 +896,11 @@ function WorldView({ id }: { id: string }) {
       if (k.size) { dx += (k.has('arrowright') || k.has('d') ? 1 : 0) - (k.has('arrowleft') || k.has('a') ? 1 : 0); dy += (k.has('arrowdown') || k.has('s') ? 1 : 0) - (k.has('arrowup') || k.has('w') ? 1 : 0); }
       const climb = (k.has('e') ? 1 : 0) - (k.has('q') ? 1 : 0) - pd.ry;                   // E up (lower layer number), Q down
       if (climb && f.mode !== 'glide') { const np = Math.max(-45, Math.min(45, f.pitch + climb * 40 * dt)); f.pitch = np; setPitch(Math.round(np * 10) / 10); }
-      if (!L.paused) s.hour = advanceHour(s.hour, dt);
+      if (!L.paused && !s.world.size) s.hour = advanceHour(s.hour, dt);
+      else if (s.world.size) {   // a planet's clock: days go by at the warp's rate, and the hour is the local solar time under the plane (the planet spins under the sun, so it is not the same everywhere)
+        s.days += simDt * DAYS_PER_SECOND * Math.min(warpRef.current, SKY_WARP_MAX);
+        const fr = eyeFrame(s.flight.x, s.flight.y); if (fr) s.hour = localHour(s.days, fr.up);
+      }
       const gl = s.glider;
       const tenv = thermalEnv();
       let layer: number, walking = false;
@@ -1467,6 +1475,7 @@ function WorldView({ id }: { id: string }) {
         const G = glr!, ffp = fp!, cdrop = G.cell(SHEET.drop[0], SHEET.drop[1]), cplane = G.cell(SHEET.plane[0], SHEET.plane[1]);
         const at = G.atlas, cells = at.clouds.slice(0, cloudSprites.length), pickCell = (n: number) => cells[Math.abs(Math.floor(n)) % cells.length], ex = G.eye[0], ey = G.eye[1], lim2 = (G.reach * 0.98) * (G.reach * 0.98);
         const dens = L.decoDensity * (L.resAuto ? autoK : 1), px0 = f.x, py0 = f.y;   // (how far things are drawn is measured from the plane, not from the camera: the free view's camera stands off to one side, and the distance would change with where it is)
+        const nearM = (s.world.kind === 'lakedistrict' ? lakeData()?.tileM ?? 50 : 1), nearFx = (x: number, y: number, hAbs: number): boolean => { const dz = f.mode === 'glide' ? (hAbs - planeAbs.current) / 0.18 : 0, dx = (x - px0) * nearM, dy = (y - py0) * nearM; return dx * dx + dy * dy + dz * dz <= NEAR_FX_M * NEAR_FX_M; };   // (is a spot, at this height in tiles above the sea, within NEAR_FX_M metres of the plane)
         const far = (x: number, y: number) => (x - px0) * (x - px0) + (y - py0) * (y - py0) > lim2;
         // heights above the ground, in tiles: layer 10 (low) 4 .. layer 1 (high) 22, for the plane and the clouds alike, so a plane on layer 5 flies between
         // the clouds of layer 4 and 6. Nothing goes above the camera (it hangs about 28 tiles up, lower when it is tipped back).
@@ -1475,8 +1484,8 @@ function WorldView({ id }: { id: string }) {
         const eyeH = -G.eye[2], nearFade = (x: number, y: number, h: number) => Math.max(0, Math.min(1, (Math.hypot(x - ex, y - ey, h - eyeH) - 3) / 8));   // (a cloud the camera is passing through thins out instead of filling the screen)
         { const rc = L.resScale / 100; glScale = L.resAuto ? Math.min(glScale, rc) : rc; }   // (the resolution setting is the ceiling; with auto on it still drops by itself when frames are slow)
         if (L.crt) { G.crt = true; G.renderScale = glScale; G.resize(W, H, dpr, glCv); } else { G.crt = false; G.renderScale = 1; G.resize(W, H, dpr * glScale, glCv); }   // (the CRT look draws the scene small into a texture and stretches it over a canvas of the screen's own size)
-        { G.setHour(s.hour); G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, kR = ORBIT.R / 15000, k = Math.max(0, Math.min(1, (hA - 2000 * kR) / (6000 * kR))); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); G.planet = s.world.size ? ORBIT.R : 0; G.cubeN = s.world.size; G.curveK = k * k * (3 - 2 * k); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunElevation(s.hour)); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
-        G.fx = L.shaders;
+        { let sunE = sunElevation(s.hour); { const fz = s.world.size ? eyeFrame(G.eye[0], G.eye[1]) : null; if (fz) { const sk = skyAt(s.days, fz); G.setCelestial(sk, s.hour); sunE = -sk.sun[2]; } else G.setHour(s.hour); } /* (a planet's sun and moon stand where its spin, year and month put them over the eye; any other world has the old sun on its one great circle) */ G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, kR = ORBIT.R / 15000, k = Math.max(0, Math.min(1, (hA - 2000 * kR) / (6000 * kR))); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); G.planet = s.world.size ? ORBIT.R : 0; G.cubeN = s.world.size; G.curveK = k * k * (3 - 2 * k); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunE); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
+        G.fx = L.shaders; G.milkyway = L.milkyway;
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
         G.uploadMax = loading || warming || aim.current.on || uploadBoost > 0 ? 6 : Math.max(frameEma < 0.02 ? 2 : 1, Math.min(4, Math.round(frameEma * 40)));   // (slow frames: more a frame, or the ground arrives a few chunks a second)   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
@@ -1681,7 +1690,7 @@ function WorldView({ id }: { id: string }) {
           else G.board('blend', wx, wy, 0, 1.25 * k, 1.25 * k * FLAME_ASPECT, true, at.flames[Math.abs(fi)], 1, 1, 1, 1 + GLOW);
         }
         if (at.bolt) for (const b of s.eco.strikes) {
-          if (far(b.x, b.y) || (b.age > 0.12 && Math.floor(b.age * 30) % 2 === 0)) continue;   // it flickers after the first instant
+          if (far(b.x, b.y) || !nearFx(b.x, b.y, G.groundH(b.x, b.y)) || (b.age > 0.12 && Math.floor(b.age * 30) % 2 === 0)) continue;   // it flickers after the first instant
           const hh = Math.max(6, cloudH(b.layer)), w = Math.max(hh * 1.15, hh / BOLT_ASPECT * 0.6);
           G.board('blend', b.x + G.R[0] * w * (0.5 - BOLT_TIP), b.y + G.R[1] * w * (0.5 - BOLT_TIP), 0, w, hh, true, at.bolt, 1, 1, 1, 1 + GLOW);
           G.flat('decal', b.x, b.y, 0.03, 4, 4, 0, -1, at.haze, 0.7, 0.85, 1, 0.8 + GLOW);
@@ -1699,7 +1708,7 @@ function WorldView({ id }: { id: string }) {
         // hoops: upright discs standing in the air, gold until the plane has flown through, then a faint green; a shadow on the ground shows where
         mark('beavers-clouds');
         for (const hp of hoopsIn(s.world.seed, ffp.minX - 5, ffp.minY - 5, ffp.maxX + 5, ffp.maxY + 5)) {
-          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || (hp.x - px0) * (hp.x - px0) + (hp.y - py0) * (hp.y - py0) > HOOP_VIEW * HOOP_VIEW) continue;   // (hoops are seen to 100 tiles, however far the ground is drawn)
+          if (far(hp.x, hp.y) || !ffp.inside(hp.x, hp.y, hp.r + 2) || !nearFx(hp.x, hp.y, hp.h + G.groundH(hp.x, hp.y))) continue;   // (hoops are seen within NEAR_FX_M metres, however far the ground is drawn)
           const done = hoopsDone.has(hp.key), tx = -Math.sin(hp.angle), ty = Math.cos(hp.angle);
           G.quad('blend', hp.x, hp.y, -hp.h - G.groundH(hp.x, hp.y), tx * hp.r, ty * hp.r, 0, 0, 0, -hp.r, at.ring, done ? 0.4 : 1, done ? 1 : 0.78, done ? 0.5 : 0.15, done ? 0.45 : 0.85 + 0.15 * Math.sin(anim * 3 + hp.x));
           G.flat('decal', hp.x, hp.y, 0.02, hp.r * 0.75, hp.r * 2, tx, ty, at.ring, 0, 0, 0, done ? 0.16 : 0.3);   // the shadow of an upright ring is a squashed ring on the ground, as wide as the hoop and not as deep
@@ -1708,7 +1717,7 @@ function WorldView({ id }: { id: string }) {
         }
         {   // the sky ladder's rung (cyan; pink for the orbit gate): as far off as it can be seen, the further the bigger
           const rg = ladder.on ? ladder.rung : null;
-          if (rg) {
+          if (rg && nearFx(rg.x, rg.y, rg.h + G.groundH(rg.x, rg.y))) {
             const tx = -Math.sin(rg.angle), ty = Math.cos(rg.angle), pulse = 0.85 + 0.15 * Math.sin(anim * 4);
             G.quad('blend', rg.x, rg.y, -rg.h - G.groundH(rg.x, rg.y), tx * rg.r, ty * rg.r, 0, 0, 0, -rg.r, at.ring, rg.gate ? 1 : 0.3, rg.gate ? 0.4 : 0.9, rg.gate ? 0.9 : 1, pulse);
             const hc = G.projectAgl(rg.x, rg.y, rg.h), he = G.projectAgl(rg.x, rg.y, rg.h + rg.r);
@@ -2162,7 +2171,7 @@ function WorldView({ id }: { id: string }) {
     let savedExplored = -1;   // (the explored list is big: it is only written, and so only synced to the cloud, when it grew)
     const persist = () => {
       const f = s.flight;
-      const grew = s.explored.size !== savedExplored; savedExplored = s.explored.size; actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, wind: { ...s.eco.wind }, plane: savedPlane(f.x, f.y, f.heading, f.pitch, s.glider.landed),  ...(grew ? { explored: [...s.explored].slice(0, 20000) } : {}), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
+      const grew = s.explored.size !== savedExplored; savedExplored = s.explored.size; actions.saveWorld(id, { boosts: s.glider.boostCharges, changes: encodeChanges(s.world.changes), hour: s.hour, ...(s.world.size ? { days: s.days } : {}), wind: { ...s.eco.wind }, plane: savedPlane(f.x, f.y, f.heading, f.pitch, s.glider.landed),  ...(grew ? { explored: [...s.explored].slice(0, 20000) } : {}), beavers: s.beavers.toSaved(), berries: s.berries.toSaved() });
     };
     raf = requestAnimationFrame(frame);
     const onHide = () => persist();
@@ -2494,6 +2503,7 @@ function WorldView({ id }: { id: string }) {
               <div className="row world-tools">
                 <PixelButton size="compact" scale={1} variant={shaders ? 'green' : 'red'} aria-pressed={shaders} onClick={() => setShaders(v => !v)}>{t('worldShaders')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={decoClouds ? 'green' : 'red'} aria-pressed={decoClouds} onClick={() => setDecoClouds(c => !c)}>{t('worldClouds')}</PixelButton>
+                <PixelButton size="compact" scale={1} variant={milkyway ? 'green' : 'red'} aria-pressed={milkyway} onClick={() => setMilkyway(v => !v)}>{t('worldMilkyway')}</PixelButton>
               </div>
             </Sec>
             <Sec id="display" title={t('worldSecDisplay')} open={!!secs["display"]} onToggle={toggleSec}>
@@ -2511,7 +2521,7 @@ function WorldView({ id }: { id: string }) {
               <div className="world-slider"><span>{t('worldInstSize')}</span><PixelSlider min={50} max={160} step={10} value={instSize} onChange={setInstSize} label={t('worldInstSize')} valueText={`${instSize}%`} /><b>{instSize}%</b></div>
             </Sec>
             <Sec id="world" title={t('worldSecWorld')} open={!!secs["world"]} onToggle={toggleSec}>
-              <TimeSlider hud={hudRef} label={t('worldTime')} onSet={h => { if (sim.current) { sim.current.hour = h; hudRef.current = { ...hudRef.current, hour: h }; } }} />
+              <TimeSlider hud={hudRef} label={t('worldTime')} onSet={h => { const s = sim.current; if (s) { const fr = s.world.size ? eyeFrame(s.flight.x, s.flight.y) : null; if (fr) s.days = shiftToHour(s.days, fr.up, h); s.hour = h; hudRef.current = { ...hudRef.current, hour: h }; } }} />
               <div className="row world-tools">
               <PixelButton size="compact" scale={1} variant={tool === 'paint' ? 'green' : 'red'} aria-pressed={tool === 'paint'} onClick={() => setTool(x => (x === 'paint' ? 'fly' : 'paint'))}>{t('worldPaint')}</PixelButton>
               <PixelButton size="compact" scale={1} onClick={strikeNow}>{t('worldStrike')}</PixelButton>

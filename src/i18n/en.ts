@@ -923,6 +923,7 @@ export const en = {
   "worldMapRecentre": "Back to plane",
   "worldMapSize": "Minimap size",
   "worldClouds": "Sky clouds",
+  "worldMilkyway": "Milky Way",
   "worldHeat": "Heat wave",
   "worldCold": "Cold snap",
   "worldStats": "{clouds} clouds, {water} water tiles",

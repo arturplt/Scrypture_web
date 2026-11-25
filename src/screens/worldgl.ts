@@ -16,6 +16,7 @@
  */
 import type { TerraceMesh } from '../domain/terrace';
 import { shaderTables, eyeFrame } from '../domain/cube';
+import type { SkyState } from '../domain/celestial';
 import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl } from '../domain/terrace';
 import { dbgBits, dbgOn } from '../domain/dbg';
@@ -32,6 +33,23 @@ import STARS_URL from '../assets/milkyway.png';   // a square night sky, seen fr
 // (cirrus, stratocumulus and cumulus are built from every picture in public/assets/Clouds: see loadSkyBands)
 import MOUNTAIN_URL from '../assets/mountainrange.png';
 import TREELINE_URL from '../assets/treeline.png';
+
+/** Atmospheric scattering, the same in the sky and in the haze on the ground: single scattering of the sun's light (Rayleigh, which makes the sky blue, and Mie, the glow round the sun) through an air that thins with height, with the light's own path through the air (it goes red as the sun sinks). It is an analytic stand-in, not a ray march: the airmass of a ray is 1 / (its height over the horizon), capped. */
+const SCATTER_GLSL = `
+const vec3 TAU_R = vec3(0.04, 0.10, 0.25);   // the air's optical depth straight up, for red, green and blue (blue scatters most)
+const float TAU_M = 0.03;                    // and the haze's (Mie: it scatters all colours alike, forward, towards the sun)
+float airmass(float s) { return min(1.0 / (max(s, 0.0) + 0.06), 9.0); }
+// the light the air scatters towards the eye along a ray of am airmasses (one airmass = the air straight up), cg = the cosine of its angle to the sun, the sun standing se over the horizon where the light is scattered, e = the ray's height over the horizon
+vec3 inscatter(float am, float cg, float se, float e) {
+  float g = 0.76, pr = 0.75 * (1.0 + cg * cg), pm = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cg, 1.5);
+  vec3 tot = TAU_R + TAU_M;
+  // the sunlight that reaches the air along the ray: through the air on its way (long when the sun is low), less of it the higher up the ray goes (up high the air it passes is only the thin top of it)
+  vec3 sl = exp(-tot * airmass(se) * (0.25 + 0.75 * (1.0 - clamp(e, 0.0, 1.0)))) * smoothstep(-0.28, 0.02, se);
+  return (TAU_R * pr + TAU_M * pm) / tot * (1.0 - exp(-tot * am)) * sl * 3.5;
+}
+// the colour of the air looking along a ray that stands e (sine of its angle) over the horizon, from inside the air
+vec3 scatter(float e, float cg, float se) { return 1.0 - exp(-inscatter(airmass(e), cg, se, e)); }
+`;
 
 const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
@@ -80,9 +98,9 @@ void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D; precision highp int;
 in vec2 vUv; in vec4 vCol; in vec3 vPos, vW; in float vSD; in vec3 vSl;
-uniform float uCubeN, uFarSm;
-uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight;   // uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+uniform float uCubeN, uFarSm, uPlanet, uSpaceK;   // uSpaceK: 0 in the air .. 1 in space
+${SCATTER_GLSL}uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
+uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight, uMoonD; uniform float uMoonK;   // uMoonD: the moon's direction, uMoonK its lit part (-1: no phases, a full moon). uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -142,7 +160,13 @@ void main() {
   }
   if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), bedK * 0.8), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
   vec3 vE = uFar > 0.5 && uCubeN > 0.0 ? vW : vPos;   // (a planet's far ground: its distance, fog and view angle are those of the ball, not of the net)
-  float vDist = distance(vE, uEye), nk = clamp(uNight.a / 0.7, 0.0, 1.0);
+  float nA = uNight.a; vec3 nCol = uNight.rgb;
+  float eF = -uSun.z;   // (the sun's height over this ground)
+  if (uCubeN > 0.0 && uPlanet > 0.0) {   // a planet has a day side and a night side: how dark it is here is the sun's height over THIS ground (the ball's up at the point), not over the eye: the dusk line sweeps across the land, and from orbit it is a terminator
+    eF = dot(normalize(vW - vec3(uEye.xy, uPlanet)), uSun);
+    nA = 0.7 * (1.0 - smoothstep(-0.1, 0.1, eF)); nCol = vec3(6.0, 10.0, 36.0) / 255.0;
+  }
+  float vDist = distance(vE, uEye), nk = clamp(nA / 0.7, 0.0, 1.0);
   vec3 V = (vE - uEye) / max(vDist, 1e-4), moon = vec3(0.0);
   if (fxq > 0.5) {
     float k = tint.g, sd = tint.b, t = uTime;
@@ -222,9 +246,9 @@ void main() {
         w = mix(wx, w, clamp(texel - 1.0, 0.0, 1.0));
       }
       float sp = mix(step(0.6, hash(floor(wq * 16.0) + floor(t * 8.0) * 7.0)), 0.4, clamp(texel - 1.0, 0.0, 1.0));   // glitter: art pixels that flash, evened out far away
-      float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, -uSun), 0.0);
+      float sd = max(dot(Rf, uSun), 0.0), md = max(dot(Rf, uMoonD), 0.0);
       w += vec3(1.0, 0.86, 0.6) * (pow(sd, 60.0) * (0.25 + 1.75 * sp) + 3.0 * pow(sd, 400.0)) * uDay;
-      moon = vec3(0.75, 0.85, 1.0) * pow(md, 80.0) * (0.2 + 0.8 * sp) * nk * wm * 0.8;
+      moon = vec3(0.75, 0.85, 1.0) * pow(md, 80.0) * (0.2 + 0.8 * sp) * nk * wm * 0.8 * (uMoonK < 0.0 ? 1.0 : uMoonK);
       c.rgb = mix(c.rgb, w, wm);
     }
   }
@@ -296,10 +320,15 @@ void main() {
   if (onGround) fog = vec3(0.30, 0.46, 0.13) * (0.45 + 0.55 * uDay);          // the ground and what stands on it fade into the endless grass plane of the sky (same colour), never into grey sky: that left a grey line at its far edge
   if (uFx > 0.5) {
     if (lit < 0.5) c.rgb *= uLight;                                                           // warm light when the sun is low
-    if (!onGround) fog += vec3(1.0, 0.78, 0.45) * 0.30 * pow(max(dot(V, uSun), 0.0), 14.0) * uDay;   // the haze glows towards the sun, as the sky behind it does
+    if (!onGround) fog = scatter(0.04, dot(normalize(vec3(V.xy, -0.04)), uSun), eF) * (1.0 - 0.45 * uSpaceK);   // far ground and what stands on it fades into the colour of the air at the horizon in its direction: the same as the sky's there (blue away from the sun, golden and glowing towards it, red at sunset)
   }
   c.rgb = mix(c.rgb, fog, clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0));
-  if (lit < 0.5) c.rgb = mix(c.rgb, uNight.rgb, uNight.a);                  // night: the same tint the flat map lays over everything, done here
+  if (uFx > 0.5 && uSpaceK > 0.0 && uCubeN > 0.0 && uPlanet > 0.0 && lit < 0.5) {   // seen from above the air, the ground is behind a column of it that is longer the more slanting the view: towards the planet's edge it fades into the scattered light (blue by day, red at the terminator)
+    float amG = airmass(max(dot(normalize(vW - vec3(uEye.xy, uPlanet)), -V), 0.0));
+    vec3 tt = TAU_R + TAU_M;
+    c.rgb = mix(c.rgb, 1.0 - exp(-inscatter(amG, dot(V, uSun), eF, 0.0)), (1.0 - exp(-dot(tt, vec3(0.3333)) * amG)) * uSpaceK);
+  }
+  if (lit < 0.5) c.rgb = mix(c.rgb, nCol, nA);                  // night: the same tint the flat map lays over everything, done here
   c.rgb += moon;                                                             // (the moon's path on the water stays bright)
   o = c;
   if (uSurf > 0.5) o.a = (uDbg & 16) != 0 && abs(vPos.z) < 1e-4 ? 1.0 : mix(0.45, 0.92, cur);   // a sheet of inland water: see-through (several lie over a deep bed, so it darkens with the depth)
@@ -312,9 +341,24 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vN;
-uniform vec3 uF, uR, uU, uHor, uZen, uSun; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh, uDip;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
+uniform vec3 uF, uR, uU, uHor, uZen, uSun, uMoonD, uMoonR, uMoonU; uniform float uMoonK; uniform vec3 uAtm; uniform vec2 uTan, uPos; uniform vec4 uNight; uniform float uDay, uNoon, uHasStars, uHasMoon, uSpin, uTime, uFx, uSpace, uHigh, uDip;   // uSpace: 0 in the air .. 1 in space (the sky goes black, the stars come out and the layers fade)
 uniform sampler2D uMoon, uStars, uCirrus, uStrato, uCumulus, uMount, uTrees; uniform vec4 uHas, uDrop; uniform float uHasT, uSea;   // uDrop: how far (degrees) the mountains, then the far, middle and near tree lines have sunk, the higher the eye   // uHas: which of cirrus, strato, cumulus, mountains are loaded; uHasT: the tree line
 out vec4 o;
+${SCATTER_GLSL}
+float mh3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float mvn3(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(mh3(i), mh3(i + vec3(1.0, 0.0, 0.0)), f.x), mix(mh3(i + vec3(0.0, 1.0, 0.0)), mh3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(mh3(i + vec3(0.0, 0.0, 1.0)), mh3(i + vec3(1.0, 0.0, 1.0)), f.x), mix(mh3(i + vec3(0.0, 1.0, 1.0)), mh3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
+// the centre of the cell of a cube-sphere (the planet's own kind: six faces of n x n cells, equal-angle) that a direction falls in
+vec3 cubeCell(vec3 d, float n) {
+  vec3 a = abs(d); float m = max(a.x, max(a.y, a.z));
+  vec3 u = atan(d / m) / 0.7853982;                                          // each component -1..1 across a face
+  vec3 p = tan(((floor((u * 0.5 + 0.5) * n) + 0.5) / n * 2.0 - 1.0) * 0.7853982);
+  if (a.x >= a.y && a.x >= a.z) p.x = sign(d.x); else if (a.y >= a.z) p.y = sign(d.y); else p.z = sign(d.z);   // (the face's own axis stays on the cube)
+  return normalize(p);
+}
 // (360 / span must be a whole number, even for the mirrored mountains and trees, or the sky shows a seam where the angle wraps: the clouds repeat 180 -> 2, the mountains 60 -> 6, the trees 20 -> 18)
 // one band of picture: it runs from elevation eb (the picture's row vb) up by hDeg degrees to the top row, and repeats every span degrees round the horizon
 vec4 band(sampler2D tex, float az, float elDeg, float span, float hDeg, float vb, float eb, float drift, float far) {
@@ -330,16 +374,30 @@ vec4 band(sampler2D tex, float az, float elDeg, float span, float hDeg, float vb
 void main() {
   vec3 ray = normalize(uF + uR * (vN.x * uTan.x) + uU * (vN.y * uTan.y));
   float e = clamp(-ray.z + uDip, 0.0, 1.0);                                   // height of the ray over the horizon (z is down). High up the horizon is the planet's rim, uDip below level: the whole sky (its colours, the stars' dome, the picture bands) stands on the rim, or the rays between the rim and level would all sample one row of it and streak
-  vec3 c = mix(uHor, uZen, pow(e, 0.5));
+  float d = dot(ray, uSun), se = clamp(-uSun.z + uDip, -1.0, 1.0);   // (se: the sun's height over the rim, which is the horizon of the sky)
+  vec3 c = uFx > 0.5 ? scatter(e, d, se) : mix(uHor, uZen, pow(e, 0.5));   // (with the shaders on, the sky is the air scattering the sun's light)
   float nk = max(clamp(uNight.a / 0.7, 0.0, 1.0), uSpace);
+  // from space the air is a shell round the planet (uAtm = the planet's radius, the eye's distance from its centre, the shell's scale height, in tiles): a ray that misses the ball passes through it, nearest the ball at its tangent point, where the air is thickest. It shines with the scattered sunlight of that spot (blue by day, red where the sun is setting over it, dark on the night side) and thins out exponentially with the height of the tangent point
+  float amSh = 0.0; vec3 shell = vec3(0.0);
+  if (uFx > 0.5 && uAtm.x > 0.0 && ray.z > 0.0) {
+    float ht = uAtm.y * sqrt(1.0 - ray.z * ray.z) - uAtm.x;
+    if (ht > 0.0) {
+      amSh = 0.35 * sqrt(6.2831853 * uAtm.x / uAtm.z) * exp(-ht / uAtm.z);
+      shell = 1.0 - exp(-inscatter(amSh, d, dot(normalize(ray.z * ray - vec3(0.0, 0.0, 1.0)), uSun), 0.0));
+    }
+  }
+  vec3 Tr = uFx > 0.5 ? exp(-(TAU_R + TAU_M) * mix(airmass(e), amSh, uSpace)) : vec3(1.0);   // what gets through the air along this ray: the sun, the moon and the stars behind it go red and dim towards the horizon, and are seen through its glow, not in front of it
   c = mix(c, vec3(0.004, 0.006, 0.016), uSpace * smoothstep(-0.1, 0.5, e + 0.35 * uSpace));           // space: black above, the air's blue left only low down
-  c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(-ray.z + uDip) * 22.0);      // and a thin blue limb of air along the rim
-  float d = dot(ray, uSun);
-  c += vec3(1.0, 0.78, 0.45) * (0.30 * pow(max(d, 0.0), 14.0) + 0.25 * pow(max(d, 0.0), 120.0)) * uDay;   // the sun's glow
-  c += vec3(1.0, 0.55, 0.25) * 0.22 * pow(max(d, 0.0), 4.0) * pow(1.0 - e, 6.0) * uDay * uFx;               // and the haze low on its side of the horizon
+  if (uFx > 0.5) {
+    c += shell * uSpace;   // (the shell of air round the planet, from space)
+    c += vec3(1.0, 0.78, 0.45) * 0.25 * pow(max(d, 0.0), 120.0) * uDay;   // the sun's own glow (the wider glow is the haze scattering forward, above)
+  } else {
+    c += vec3(0.20, 0.45, 1.0) * uSpace * (0.35 + 0.65 * uDay) * exp(-abs(-ray.z + uDip) * 22.0);      // and a thin blue limb of air along the rim
+    c += vec3(1.0, 0.78, 0.45) * (0.30 * pow(max(d, 0.0), 14.0) + 0.25 * pow(max(d, 0.0), 120.0)) * uDay;   // the sun's glow
+  }
   float sunMask = smoothstep(0.9990, 0.9994, d) * uDay;
   vec3 S = vec3(1.0, 0.96, 0.8) * (1.0 + 3.0 * uFx) * sunMask; c *= 1.0 - sunMask;   // the sun's disc (brighter than white when the glow pass is on, so it blooms) goes in the layer that everything in front dims: stars and moon behind it too
-  float m = dot(ray, -uSun);
+  float m = dot(ray, uMoonD);
   c = mix(c, uNight.rgb, uNight.a);
   vec3 q = floor(ray * 150.0);
   float h = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -349,16 +407,37 @@ void main() {
     vec2 suv = 0.5 + 0.5 * r * vec2(cos(az2), sin(az2));
     S += texture(uStars, suv).rgb * 1.15 * nk * mix(smoothstep(0.04, 0.35, e), 1.0, uSpace) * (1.0 + uFx * 0.25 * sin(uTime * 2.3 + h * 60.0));   // (they twinkle)
   }                                         // stars, only up high at night
-  if (uHasMoon > 0.5) {                                                                                      // the moon opposite the sun, in front of the stars and the Milky Way: its picture laid across the sky, about seven degrees wide
-    // the picture's up is the normal of the sun's orbit plane (north and a little up, for the 75 degree arc in setHour): always at right angles to the moon, so there is no overhead spot where it breaks, and it turns smoothly with the night like a real moon
-    vec3 md = -uSun, up2 = vec3(0.0, -0.96593, -0.25882), rt = normalize(cross(up2, md));
+  if (uMoonK >= 0.0) {   // a planet's moon is a ball of the same chunky cube-sphere cells as the planet, lit by the sun: each phase has its own natural terminator, and the one face always looks at the planet
+    vec3 md = uMoonD, up2 = uMoonU, rt = uMoonR;
     vec2 q = vec2(dot(ray, rt), dot(ray, up2)) / 0.062;
-    if (dot(ray, md) > 0.0 && abs(q.x) < 1.0 && abs(q.y) < 1.0) { vec4 mt = texture(uMoon, vec2(0.5 + 0.5 * q.x, 0.5 - 0.5 * q.y)); c = mix(c, mt.rgb * 1.08, mt.a * nk); S *= 1.0 - mt.a * nk; }
+    float r2 = dot(q, q);
+    if (dot(ray, md) > 0.0 && r2 < 1.0) {
+      vec3 cc = cubeCell(vec3(q, sqrt(1.0 - r2)), 14.0);                       // the cell on the near side (x right, y up, z towards the viewer: the moon's own frame)
+      vec3 nw = rt * cc.x + up2 * cc.y - md * cc.z;                              // its normal in the sky: the whole cell is lit alike, so the terminator steps along the cells
+      float mare = smoothstep(0.50, 0.60, mvn3(cc * 2.3 + 1.7) * 0.7 + mvn3(cc * 5.1 + 9.2) * 0.3);   // dark seas and pale highlands
+      vec3 alb = mix(vec3(0.86, 0.84, 0.90), vec3(0.46, 0.47, 0.60), mare);
+      alb *= 1.0 - 0.30 * step(0.955, mh3(floor(cc * 31.0))) + 0.10 * step(0.97, mh3(floor(cc * 17.0) + 5.0));   // a few darker and brighter cells for craters
+      float lit = smoothstep(-0.04, 0.28, dot(nw, uSun));
+      vec3 mc = alb * (vec3(0.07, 0.09, 0.14) + lit * vec3(1.06, 1.03, 0.98));   // (the dark side keeps a faint earthshine)
+      float vis = mix(0.55, 1.0, nk);                                            // (it shows in the daytime sky too, paler)
+      S = S * (1.0 - vis) + mc * vis;                                            // (in the layer behind the air, with the sun and the stars: seen through the haze, dimmed by clouds, not painted over them)
+    }
+  } else if (uHasMoon > 0.5) {                                                                               // the moon opposite the sun (worlds that are not a planet), in front of the stars and the Milky Way: its picture laid across the sky, about seven degrees wide
+    vec3 md = uMoonD, up2 = uMoonU, rt = uMoonR;
+    vec2 q = vec2(dot(ray, rt), dot(ray, up2)) / 0.062;
+    if (dot(ray, md) > 0.0 && abs(q.x) < 1.0 && abs(q.y) < 1.0) {
+      vec4 mt = texture(uMoon, vec2(0.5 + 0.5 * q.x, 0.5 - 0.5 * q.y));
+      c = mix(c, mt.rgb * 1.08, mt.a * nk); S *= 1.0 - mt.a * nk;
+    }
   } else c = mix(c, vec3(0.88, 0.92, 1.0), smoothstep(0.9989, 0.9993, m) * nk);                              // (until the picture loads)
   // the layers, far to near, over the sun and the stars: so the sun sets behind the mountains and the clouds drift across it
   float az = atan(ray.y, ray.x), el = degrees(asin(clamp(-ray.z + uDip, -1.0, 1.0)));
   if (el > -91.0) {
     vec3 night = mix(uNight.rgb, vec3(0.03, 0.04, 0.10), 0.6);
+    // the light on the far mountains and trees: the pictures are painted in dusk light, so what lights them is worked out here. Direct sunlight only while the sun is over the rim; it lights the slopes that face the viewer when the sun is behind the viewer (the far side from the sun), and leaves those between the viewer and the sun in shade, as silhouettes (up high, with the sun overhead, it lights them all)
+    float sunUp = smoothstep(-0.06, 0.08, se);
+    float face = clamp(0.5 + 0.5 * dot(-normalize(ray.xy + vec2(1e-5)), normalize(uSun.xy + vec2(1e-5))), 0.0, 1.0);
+    vec3 slope = mix(vec3(0.30, 0.34, 0.50), vec3(1.0), sunUp * mix(0.25, 1.0, mix(1.0, face, smoothstep(0.1, 0.8, length(uSun.xy)))));
     // clouds: the art is dusk light (peach and violet); at midday it turns white and bluish, at night dark
     vec3 whiteCloud = vec3(1.0, 1.0, 1.04);
     for (int i = 0; i < 3; i++) {
@@ -379,7 +458,7 @@ void main() {
       t.a *= 1.0 - uSpace;
       if (t.a > 0.01) {
         float lum = dot(t.rgb, vec3(0.3, 0.59, 0.11));
-        vec3 col = mix(t.rgb, vec3(0.40, 0.52, 0.72) * (0.5 + 1.1 * lum), uNoon * 0.55);   // midday haze
+        vec3 col = mix(t.rgb, vec3(0.40, 0.52, 0.72) * (0.5 + 1.1 * lum), uNoon * 0.55) * slope;   // midday haze, and the sun's light on the slopes
         col = mix(col, night * 0.8 + 0.15 * col, nk * 0.9);
         c = mix(c, col, t.a);
         S *= 1.0 - t.a;
@@ -400,7 +479,7 @@ void main() {
         vec4 t = band(uTrees, az + shift * 6.2831853 / (360.0 / (20.0 * sc)), el + dr, 20.0 * sc, 6.6667 * sc, 0.80, -0.7 * sc, 0.0, i == 0 ? 4500.0 : (i == 1 ? 1800.0 : 700.0));   // (360 / span stays whole: 36, 24, 18)
         t.a *= 1.0 - uSpace;
         if (t.a < 0.01) continue;
-        vec3 col = mix(t.rgb, t.rgb * vec3(0.9, 1.0, 1.0) + 0.04, uNoon * 0.3);
+        vec3 col = mix(t.rgb, t.rgb * vec3(0.9, 1.0, 1.0) + 0.04, uNoon * 0.3) * mix(vec3(1.0), slope, 0.7);
         col = mix(col, mix(col, uHor * 0.8, 0.5), i == 0 ? 0.55 : (i == 1 ? 0.28 : 0.0));   // distance haze
         col = mix(col, night * 0.5 + 0.1 * col, nk * 0.9);
         c = mix(c, col, t.a);
@@ -413,7 +492,7 @@ void main() {
     vec3 hz = mix(uHor * (1.0 - 0.45 * uSpace), uNight.rgb, uNight.a);
     c = mix(c, hz, k); S *= 1.0 - k;
   }
-  c += S;
+  c += S * Tr;
   o = vec4(c, 1.0);
 }`;
 
@@ -540,13 +619,24 @@ export class WorldGL {
     const H = Math.max(0, -this.eye[2]);
     if (this.planet > 0) { if (!(this.curveK > 0) || !(H > 0)) return 0; const q = this.planet / (this.planet + H); return this.curveK * Math.sqrt(1 - q * q); }   // (a ball: the tangent from the eye to it dips by acos(R / (R + H)) below level)
     if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
+  /**
+   * How much daylight the sky shows for this eye (0..1) and how far the eye is above the rim (0..1). `dayK` is the sun's height at the eye's own level; from up high the horizon is the planet's rim, sunk below level
+   * (dipSin), so the sun is still up over it after it has set at the eye's level, and it must go down AT the rim, behind the planet, and not fade out in the open sky first.
+   */
+  private seenDay(): { day: number; high: number } {
+    const dip = this.dipSin(), high = Math.max(0, Math.min(1, dip * 20)), h = -this.sunDir[2] + dip;
+    const t = Math.max(0, Math.min(1, (h + 0.07) / 0.04)), up = t * t * (3 - 2 * t);   // (a disc is about 0.04 across: it is gone when it is wholly under the rim)
+    return { day: this.dayK + (Math.max(this.dayK, up) - this.dayK) * high, high };
+  }
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
   private post: { w: number; h: number; sw: number; sh: number; hdr: boolean; depth: WebGLRenderbuffer; depthBits: number; wantMs: boolean; ms?: { fb: WebGLFramebuffer; color: WebGLRenderbuffer; depth: WebGLRenderbuffer; samples: number }; scene: Target; a: Target; b: Target } | null = null;
   private postBroken = false; private postOn = false;
   private layerTex: (WebGLTexture | null)[] = [null, null, null, null, null]; private starsTex: WebGLTexture | null = null; private moonTex: WebGLTexture | null = null; private spin = 0; private noonK = 0;
-  private sunDir: Vec3 = [0, 0, -1]; private dayK = 1; private zenith: [number, number, number] = [0.3, 0.52, 0.85];                    // how much the camera stands on the ground (0 = the chase camera)
+  /** The Milky Way's picture in the night sky (a setting); off, only the scattered stars are drawn. */
+  milkyway = true;
+  private sunDir: Vec3 = [0, 0, -1]; private moonD: Vec3 = [0, 0, 1]; private moonR: Vec3 = [1, 0, 0]; private moonU: Vec3 = [0, 1, 0]; private moonK = -1; private dayK = 1; private zenith: [number, number, number] = [0.3, 0.52, 0.85];                    // how much the camera stands on the ground (0 = the chase camera)
   readonly gl: WebGL2RenderingContext;
   private prog: WebGLProgram;
   private loc: Record<string, WebGLUniformLocation | null> = {};
@@ -674,8 +764,8 @@ export class WorldGL {
       const pp = this.postProg = { bright: link(POST_VS, BRIGHT_FS), blur: link(POST_VS, BLUR_FS), comp: link(POST_VS, COMP_FS) };
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
-    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uMoonD', 'uMoonR', 'uMoonU', 'uMoonK', 'uAtm', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uMoonD', 'uMoonK', 'uSpaceK', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -941,13 +1031,25 @@ export class WorldGL {
 
   // ---- drawing ------------------------------------------------------------------------------------------------------
 
-  /** Set the sun for the time of day (hours): its direction, a warmer horizon at dawn and dusk, and the sky colour the ground fades into. */
+  /** Set the sun for the time of day (hours), on a world that is not a planet: its direction, a warmer horizon at dawn and dusk, and the sky colour the ground fades into. The moon is opposite it, always full. */
   setHour(hour: number) {
-    const e = sunElevation(hour);
     // the sun's path is one great circle, turned at a steady rate: up in the east at 6h, highest in the south (75 degrees) at noon, down in the west at 18h,
     // and on under the ground to the north and back (so the moon, opposite it, takes the same smooth path across the night sky). No kinks, no jump at midnight.
     const th = ((hour - 6) / 24) * Math.PI * 2, dl = (75 * Math.PI) / 180;
     this.sunDir = [Math.cos(th), Math.sin(th) * Math.cos(dl), -Math.sin(th) * Math.sin(dl)];
+    this.applySun(sunElevation(hour), hour);
+    // the moon's picture: its up is the normal of the sun's orbit plane (north and a little up, for the 75 degree arc): always at right angles to the moon, so there is no overhead spot where it breaks
+    const md: Vec3 = [-this.sunDir[0], -this.sunDir[1], -this.sunDir[2]], up2: Vec3 = [0, -0.96593, -0.25882];
+    const rx = up2[1] * md[2] - up2[2] * md[1], ry = up2[2] * md[0] - up2[0] * md[2], rz = up2[0] * md[1] - up2[1] * md[0], rl = Math.hypot(rx, ry, rz) || 1;
+    this.moonD = md; this.moonU = up2; this.moonR = [rx / rl, ry / rl, rz / rl]; this.moonK = -1;
+  }
+  /** Set the sky of a planet: where the sun and the moon stand over the eye (see celestial.ts), and the local solar time (for the stars' slow sway). */
+  setCelestial(sky: SkyState, hour: number) {
+    this.sunDir = sky.sun; this.moonD = sky.moon; this.moonR = sky.moonRt; this.moonU = sky.moonUp; this.moonK = sky.moonK;
+    this.applySun(-sky.sun[2], hour);
+  }
+  /** What follows from the sun's height `e` (sine of its elevation, -1 .. 1): day and noon light, the warmth at dawn and dusk, and the colours of the sky. */
+  private applySun(e: number, hour: number) {
     this.dayK = Math.max(0, Math.min(1, (e + 0.1) / 0.2));
     this.spin = Math.sin((hour / 24) * Math.PI * 2) * 0.1;   // (it only sways a few degrees to and fro over the day, so it never jumps at midnight)
     { const t = Math.max(0, Math.min(1, (e - 0.15) / 0.45)); this.noonK = t * t * (3 - 2 * t); }
@@ -1024,10 +1126,11 @@ export class WorldGL {
     // where the sun is on the screen: the rays fade out as it leaves the picture, and there are none when it is behind the camera or down
     const s = this.sunDir, e = this.eye, at = this.project(e[0] + s[0] * 1e4, e[1] + s[1] * 1e4, e[2] + s[2] * 1e4);
     let rays = 0, su = 0.5, sv = 0.5;
-    if (at && this.dayK > 0) {
+    const seen = this.seenDay();
+    if (at && seen.day > 0) {
       su = at[0] / this.W; sv = 1 - at[1] / this.H;
       const out = Math.max(0, -su, su - 1, -sv, sv - 1);
-      rays = this.fx ? this.dayK * (1 - this.night[3]) * 0.55 * Math.max(0, 1 - out / 0.5) : 0;
+      rays = this.fx ? seen.day * (1 - this.night[3] * (1 - seen.high)) * 0.55 * Math.max(0, 1 - out / 0.5) : 0;
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, p.w, p.h); gl.useProgram(pp.comp);
     gl.bindTexture(gl.TEXTURE_2D, p.scene.tex); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, p.a.tex); gl.activeTexture(gl.TEXTURE0);
@@ -1052,8 +1155,10 @@ export class WorldGL {
       gl.uniform3f(L.uF, this.F[0], this.F[1], this.F[2]); gl.uniform3f(L.uR, this.R[0], this.R[1], this.R[2]); gl.uniform3f(L.uU, this.U[0], this.U[1], this.U[2]);
       gl.uniform3f(L.uHor, this.sky[0], this.sky[1], this.sky[2]); gl.uniform3f(L.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
       gl.uniform3f(L.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform2f(L.uTan, this.tanX, this.tanY);
-      gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.dayK); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
-      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uDip, this.dipSin()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
+      gl.uniform3f(L.uMoonD, this.moonD[0], this.moonD[1], this.moonD[2]); gl.uniform3f(L.uMoonR, this.moonR[0], this.moonR[1], this.moonR[2]); gl.uniform3f(L.uMoonU, this.moonU[0], this.moonU[1], this.moonU[2]); gl.uniform1f(L.uMoonK, this.moonK);
+      { const R = this.planet, ok = R > 0 && this.curveK > 0, H = Math.max(0, -this.eye[2]); gl.uniform3f(L.uAtm, ok ? R : 0, R + H, 0.06 * Math.max(R, 1)); }   // (the shell of air: scale height 6 % of the radius)
+      gl.uniform4f(L.uNight, nt[0], nt[1], nt[2], nt[3]); gl.uniform1f(L.uDay, this.seenDay().day); gl.uniform1f(L.uNoon, this.noonK); gl.uniform1f(L.uTime, performance.now() / 1000);
+      gl.uniform1f(L.uSpace, this.space); gl.uniform1f(L.uHigh, this.highK()); gl.uniform1f(L.uDip, this.dipSin()); gl.uniform1f(L.uFx, this.fx ? 1 : 0); gl.uniform1f(L.uHasStars, this.starsTex && this.milkyway ? 1 : 0); gl.uniform1f(L.uSpin, this.spin);
       gl.uniform2f(L.uPos, Math.tanh(this.eye[0] / 400) * 400, Math.tanh(this.eye[1] / 400) * 400);   // (the position is squashed to +-400 tiles: the shift changes with the azimuth, so a big shift would squeeze and stretch the clouds; this keeps every layer within about 9% of its width)
       gl.uniform1f(L.uHasMoon, this.moonTex ? 1 : 0);
       if (this.moonTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.moonTex); gl.uniform1i(L.uMoon, 8); gl.activeTexture(gl.TEXTURE0); }
@@ -1082,7 +1187,7 @@ export class WorldGL {
     gl.uniform1i(this.loc.uTex, 0);
     gl.uniform4f(this.loc.uNight, nt[0], nt[1], nt[2], nt[3]);
     gl.uniform1f(this.loc.uFx, this.fx ? 1 : 0); gl.uniform1f(this.loc.uTime, (performance.now() / 1000) % 3600); gl.uniform1f(this.loc.uDay, this.dayK);
-    gl.uniform3f(this.loc.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform3f(this.loc.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
+    gl.uniform3f(this.loc.uSun, this.sunDir[0], this.sunDir[1], this.sunDir[2]); gl.uniform3f(this.loc.uMoonD, this.moonD[0], this.moonD[1], this.moonD[2]); gl.uniform1f(this.loc.uMoonK, this.moonK); gl.uniform1f(this.loc.uSpaceK, this.space); gl.uniform3f(this.loc.uZen, this.zenith[0], this.zenith[1], this.zenith[2]);
     gl.uniform3f(this.loc.uLight, this.light[0], this.light[1], this.light[2]);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
     const stride = FLOATS * 4;

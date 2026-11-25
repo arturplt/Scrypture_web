@@ -924,6 +924,7 @@ export const pl: Record<Key, string> = {
   "worldMapRecentre": "Wróć do samolotu",
   "worldMapSize": "Rozmiar mapy",
   "worldClouds": "Chmury nieba",
+  "worldMilkyway": "Droga Mleczna",
   "worldHeat": "Upał",
   "worldCold": "Mróz",
   "worldStats": "chmur: {clouds}, wody: {water}",
