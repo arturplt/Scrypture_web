@@ -3,6 +3,7 @@
  * (the stick's place and the way it lies are fixed). Which ones have been taken is kept in the saved world, by key.
  */
 import { hash01 } from './worldgen';
+import { GW, wrapCell } from './globe';
 
 export const STICK_CELL = 10;
 export const STICK_CHANCE = 0.4;
@@ -10,9 +11,9 @@ export const STICK_PICK_RADIUS = 0.8;   // tiles
 export interface Stick { key: string; x: number; y: number; angle: number }
 
 export function stickInCell(seed: number, i: number, j: number): Stick | null {
-  const s = seed & 0xffff;
-  if (hash01(i, j, s, 301) > STICK_CHANCE) return null;
-  return { key: `${i},${j}`, x: (i + 0.1 + 0.8 * hash01(i, j, s, 302)) * STICK_CELL, y: (j + 0.1 + 0.8 * hash01(i, j, s, 303)) * STICK_CELL, angle: hash01(i, j, s, 304) * Math.PI };
+  const s = seed & 0xffff, wi = wrapCell(i, STICK_CELL), wj = wrapCell(j, STICK_CELL);   // (on a globe: hashed and keyed by the cell's place in the lap, so a stick taken stays taken a lap on)
+  if (hash01(wi, wj, s, 301) > STICK_CHANCE) return null;
+  return { key: `${wi},${wj}`, x: (i + 0.1 + 0.8 * hash01(wi, wj, s, 302)) * STICK_CELL, y: (j + 0.1 + 0.8 * hash01(wi, wj, s, 303)) * STICK_CELL, angle: hash01(wi, wj, s, 304) * Math.PI };
 }
 
 
@@ -26,7 +27,7 @@ function inBlocks(kind: 'stick' | 'stone', seed: number, cell: number, inCell: (
   const out: Stick[] = [], ci0 = Math.floor(x0 / cell), ci1 = Math.floor(x1 / cell), cj0 = Math.floor(y0 / cell), cj1 = Math.floor(y1 / cell), i0 = Math.floor(Math.floor(x0 / cell) / BLOCK), i1 = Math.floor(Math.floor(x1 / cell) / BLOCK), j0 = Math.floor(Math.floor(y0 / cell) / BLOCK), j1 = Math.floor(Math.floor(y1 / cell) / BLOCK);
   if (blocks.size > 6000) blocks.clear();
   for (let bj = j0; bj <= j1; bj++) for (let bi = i0; bi <= i1; bi++) {
-    const k = `${kind}|${seed}|${bi}|${bj}`;
+    const k = `${kind}|${seed}|${GW}|${bi}|${bj}`;
     let list = blocks.get(k);
     if (!list) { list = []; for (let j = bj * BLOCK; j < (bj + 1) * BLOCK; j++) for (let i = bi * BLOCK; i < (bi + 1) * BLOCK; i++) { const st = inCell(seed, i, j); if (st) list.push(st); } blocks.set(k, list); }
     for (const st of list) { const ci = Math.floor(st.x / cell), cj = Math.floor(st.y / cell); if (ci >= ci0 && ci <= ci1 && cj >= cj0 && cj <= cj1) out.push(st); }   // (only the cells that touch the rectangle: the same answer as working each one out)
@@ -42,9 +43,9 @@ export function sticksIn(seed: number, x0: number, y0: number, x1: number, y1: n
 /** Stones: the same idea, standing about instead of lying (they are drawn upright), about as common. Their keys are kept apart from the sticks'. */
 export const STONE_CELL = 10, STONE_CHANCE = 0.4;   // the same density as the sticks
 export function stoneInCell(seed: number, i: number, j: number): Stick | null {
-  const s = seed & 0xffff;
-  if (hash01(i, j, s, 311) > STONE_CHANCE) return null;
-  return { key: `${i},${j}`, x: (i + 0.1 + 0.8 * hash01(i, j, s, 312)) * STONE_CELL, y: (j + 0.1 + 0.8 * hash01(i, j, s, 313)) * STONE_CELL, angle: 0 };
+  const s = seed & 0xffff, wi = wrapCell(i, STONE_CELL), wj = wrapCell(j, STONE_CELL);
+  if (hash01(wi, wj, s, 311) > STONE_CHANCE) return null;
+  return { key: `${wi},${wj}`, x: (i + 0.1 + 0.8 * hash01(wi, wj, s, 312)) * STONE_CELL, y: (j + 0.1 + 0.8 * hash01(wi, wj, s, 313)) * STONE_CELL, angle: 0 };
 }
 export function stonesIn(seed: number, x0: number, y0: number, x1: number, y1: number): Stick[] {
   return inBlocks('stone', seed, STONE_CELL, stoneInCell, x0, y0, x1, y1);

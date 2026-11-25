@@ -11,8 +11,9 @@
  * Units: 1 tile = 1 m, seconds, m/s; x east, y NORTH (the world map flips y), z up.
  */
 import { hash01 } from './worldgen';
+import { wrapCell } from './globe';
 import { sunElevation } from './sky';
-import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir } from './orbit';
+import { ORBIT, airDensity, gravityAt, thinness, heatRate, orbitElements, clearsAir, trackK } from './orbit';
 
 export const G = 9.81;
 export const ALT_MAX = 120;                 // the altitude of layer 1 (the top of the picture)
@@ -301,7 +302,7 @@ function step(g: Glider, ctl: GlideControls, env: GlideEnv, dt: number) {
   g.vx += ax * dt; g.vy += ay * dt; g.vz += az * dt;
   // the wing axis goes round with the path as far as lift, drag, gravity and thrust bend it (not the fin's push: that is the path catching up with the nose)
   carry(g, ex, ey, ez, fx * dt / V, fy * dt / V, fz * dt / V);
-  g.x += g.vx * dt; g.y += g.vy * dt; g.z += g.vz * dt;
+  { const tk = trackK(hAbs); g.x += g.vx * dt * tk; g.y += g.vy * dt * tk; g.z += g.vz * dt; }   // (a round planet: the ground track of a plane at height is shorter than its path, so an orbit comes round to where it began)
   if (env.ground) { const gr = env.ground(g.x, g.y); g.z -= gr - (g.gnd ?? gr); g.gnd = gr; }   // a hill rising under the plane takes its height away
 
   // roll: ailerons set a roll rate, the dihedral slowly levels the wings, right rudder rolls right, a stall drops a wing.
@@ -413,17 +414,18 @@ export interface Thermal { x: number; y: number; r: number; w: number; heat: num
 export function thermalInCell(env: ThermalEnv, i: number, j: number, t: number): Thermal | null {
   const sun = sunFactor(env.hour);
   const s = env.seed & 0xffff;
-  const period = 90 + 80 * hash01(i, j, s, 1), phase = period * hash01(i, j, s, 2);
+  const wi = wrapCell(i, THERMAL_CELL), wj = wrapCell(j, THERMAL_CELL);   // (on a globe a cell is hashed by its place in the lap; where it stands is its unrolled cell's)
+  const period = 90 + 80 * hash01(wi, wj, s, 1), phase = period * hash01(wi, wj, s, 2);
   const epoch = Math.floor((t + phase) / period), age = ((t + phase) % period) / period;
   const memo = env.memo, mk = memo ? (((i + 32768) * 65536 + (j + 32768)) * 4 + (epoch & 3)) : 0;   // (two slots a cell would do, epochs only move on; four leave room for a prediction running ahead of the flight)
   let site = memo?.get(mk);
   if (!site || site.epoch !== epoch) {
-    if (hash01(i, j, s * 31 + epoch, 3) > 0.85) site = { epoch, x: 0, y: 0, r: 0, heat: 0, wb: 0 };   // (no thermal in this cell this time)
+    if (hash01(wi, wj, s * 31 + epoch, 3) > 0.85) site = { epoch, x: 0, y: 0, r: 0, heat: 0, wb: 0 };   // (no thermal in this cell this time)
     else {
-      const x = (i + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(i, j, s * 31 + epoch, 5)) * THERMAL_CELL;
-      const r = 15 + 10 * hash01(i, j, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
+      const x = (i + 0.15 + 0.7 * hash01(wi, wj, s * 31 + epoch, 4)) * THERMAL_CELL, y = (j + 0.15 + 0.7 * hash01(wi, wj, s * 31 + epoch, 5)) * THERMAL_CELL;
+      const r = 15 + 10 * hash01(wi, wj, s * 31 + epoch, 6);   // wide shafts: 15..25 tiles of core radius
       const heat = (env.heatAt(x, y) * 2 + env.heatAt(x + r, y) + env.heatAt(x - r, y) + env.heatAt(x, y + r) + env.heatAt(x, y - r)) / 6;
-      site = { epoch, x, y, r, heat, wb: 6.0 + 6.8 * hash01(i, j, s * 31 + epoch, 7) };
+      site = { epoch, x, y, r, heat, wb: 6.0 + 6.8 * hash01(wi, wj, s * 31 + epoch, 7) };
     }
     if (memo) { if (memo.size > 4096) memo.clear(); memo.set(mk, site); }
   }

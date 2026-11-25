@@ -10,6 +10,7 @@
 
 import { makeRealTerrain, realElevation, realLand, realLake, realLakeSheet, realLakeTile, realLakeShore, type RealTerrain } from './terrainreal';
 import type { LakeData } from './lakedistrict';
+import { GW, canonInto, newCanon, capAt, canonTile, canonChunk, unrollNear, CAP_LEVEL, type Canon } from './globe';
 
 /** Tiles per chunk side (worldgen's CHUNK; repeated here so this file needs nothing from worldgen). */
 const CHUNK = 16;
@@ -69,6 +70,25 @@ function noise(x: number, y: number, seed: number): number {   // -1..1
   const x1 = a + u * (c - a), x2 = b + u * (d - b);
   return (x1 + v * (x2 - x1)) * 2 - 1;
 }
+/** The same noise, repeating every n lattice cells in x (so the world wraps round seamlessly): the lattice index is taken mod n. */
+function noiseP(x: number, y: number, seed: number, n: number): number {   // -1..1
+  const xi = Math.floor(x), yi = Math.floor(y), u = fade(x - xi), v = fade(y - yi);
+  let x0 = xi % n; if (x0 < 0) x0 += n; const x1 = x0 + 1 === n ? 0 : x0 + 1;
+  const a = hash01(x0, yi, seed), b = hash01(x0, yi + 1, seed), c = hash01(x1, yi, seed), d = hash01(x1, yi + 1, seed);
+  const x1v = a + u * (c - a), x2 = b + u * (d - b);
+  return (x1v + v * (x2 - x1v)) * 2 - 1;
+}
+/**
+ * The noise at (x, y) at frequency f (plus a shift in lattice units). On a globe the frequency is snapped to a whole number of lattice cells to the world's width, so the field is the
+ * same one lap on; on an endless world it is plain `noise(x * f + ox, y * f + oy)`.
+ */
+function nz(x: number, y: number, f: number, seed: number, ox = 0, oy = 0): number {
+  if (GW === 0) return noise(x * f + ox, y * f + oy, seed);
+  const n = Math.max(1, Math.round(f * GW)), g = n / GW;
+  return noiseP(x * g + ox, y * g + oy, seed, n);
+}
+/** Scratch for the canonical point of the sample being worked out (the field's callers are single-threaded and do not nest). */
+const CN: Canon = newCanon();
 const smooth = (a: number, b: number, t: number) => { const k = Math.max(0, Math.min(1, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
 
 /**
@@ -82,20 +102,39 @@ export function elevation(x: number, y: number, seed: number, lakes = LAKE_ALL):
   lowAt(x, y, s, LOW_TMP, 0);
   return detailAt(x, y, s, LOW_TMP, 0, lakes);
 }
+/**
+ * The broad shape of the ground at a point, in layers: the continent, the big hills, the mountain ranges, the giant and (on a globe) the polar cap, without the small hills, the rolls and the lakes.
+ * For a map of a whole world, where one pixel is dozens of tiles and the fine detail would only be a speckle.
+ */
+export function elevationBroad(x: number, y: number, seed: number): number {
+  const s = (seed ^ 0x7e77ace) | 0, lo = LOW_TMP;
+  lowAt(x, y, s, lo, 0);
+  let cx = x, cy = y, cap = 0;
+  if (GW) { canonInto(x, y, CN); cx = CN.x; cy = CN.y; cap = capAt(cy); }
+  const wx = cx + lo[0], wy = cy + lo[1], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
+  const e = ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAt(cx, cy, s, lo, 0, wx, wy) + peakAt(cx, cy, s);
+  return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;
+}
 /** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2), the continent, the big hills, the big rolls. */
 const LOW_N = 8, LOW_TMP = new Float64Array(LOW_N);
 function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array, o: number) {
-  const dx = 26 * noise(x * 0.006, y * 0.006, s + 11), dy = 26 * noise(x * 0.006 + 31.7, y * 0.006 - 17.3, s + 12), wx = x + dx, wy = y + dy;
+  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; }   // (a globe: the field is a function of the canonical point)
+  const dx = 26 * nz(x, y, 0.006, s + 11), dy = 26 * nz(x, y, 0.006, s + 12, 31.7, -17.3), wx = x + dx, wy = y + dy;
   out[o] = dx; out[o + 1] = dy;
-  out[o + 2] = (noise(wx * 0.0032, wy * 0.0032, s + 21) + 0.5 * noise(wx * 0.0081, wy * 0.0081, s + 22)) / 1.5;   // the continent, about -0.7..0.7
-  out[o + 3] = noise(wx * 0.011, wy * 0.011, s + 31);
-  out[o + 4] = noise(wx * 0.022, wy * 0.022, s + 51);
-  out[o + 5] = noise(wx * 0.0011, wy * 0.0011, s + 61);   // the mountain ranges (see rangeAt): where the axes run (a range stands along the line where this is 0), ...
-  out[o + 6] = noise(wx * 0.00045, wy * 0.00045, s + 62);   // ... where along them it stands (so a range ends, and another picks up further on), ...
-  out[o + 7] = (noise(wx * 0.0006, wy * 0.0006, s + 63) + 1) / 2;   // ... and which kind of range it is, 0..1
+  out[o + 2] = (nz(wx, wy, 0.0032, s + 21) + 0.5 * nz(wx, wy, 0.0081, s + 22)) / 1.5;   // the continent, about -0.7..0.7
+  out[o + 3] = nz(wx, wy, 0.011, s + 31);
+  out[o + 4] = nz(wx, wy, 0.022, s + 51);
+  out[o + 5] = nz(wx, wy, 0.0011, s + 61);   // the mountain ranges (see rangeAt): where the axes run (a range stands along the line where this is 0), ...
+  out[o + 6] = nz(wx, wy, 0.00045, s + 62);   // ... where along them it stands (so a range ends, and another picks up further on), ...
+  out[o + 7] = (nz(wx, wy, 0.0006, s + 63) + 1) / 2;   // ... and which kind of range it is, 0..1
 }
 /** The elevation from the slow parts and the quick ones, with the inland lakes laid in: a lake is a level shelf (half a layer above its whole number) with a shore of level ground round it, and its water inset one step below that shore, which then blends into the land over a stretch, so it stands in a basin and the ground falls away in steps, not in a sheer drop. */
 function detailAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes = LAKE_ALL): number {
+  if (!GW) return detailCore(x, y, s, lo, o, lakes);
+  canonInto(x, y, CN); const cap = capAt(CN.y), e = detailCore(CN.x, CN.y, s, lo, o, lakes);
+  return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;   // (a globe: the polar cap is one flat sheet, so the fold at the pole is seamless)
+}
+function detailCore(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, lakes: number): number {
   const base = baseAt(x, y, s, lo, o);
   lakeProbe(x, y, s, lakes);
   if (lkW <= 0) return base;
@@ -161,20 +200,20 @@ function basinDips(x0: number, y0: number, room: number, s: number): { x: number
 }
 const BASIN_GRID = new Float64Array(11 * 11), BASIN_TRIES = 3;
 /** The lake of a cell of one scale: whether there is one (odds raised or lowered by the region's wetness), its place and radius from hashes, and its level and blend. Remembered per seed and scale. */
-const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null];   // (each scale's last cell: neighbouring points nearly always fall in the same one)
+const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null]; let lastGW = 0;   // (each scale's last cell: neighbouring points nearly always fall in the same one)
 function lakeOfCell(si: number, cx: number, cy: number, s: number): Lake | null {
-  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si]) return lastLake[si];
+  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si] && GW === lastGW) return lastLake[si];
   const l = lakeOfCellSlow(si, cx, cy, s);
-  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastLake[si] = l;
+  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastGW = GW; lastLake[si] = l;
   return l;
 }
 function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | null {
-  const ck = (s + si * 1000003) | 0;
+  const ck = (s + si * 1000003 + GW * 7919) | 0;
   let cache = lakeCaches.get(ck); if (!cache) { if (lakeCaches.size > 24) lakeCaches.clear(); cache = new Map(); lakeCaches.set(ck, cache); }
   const key = (cx + 32768) * 65536 + (cy + 32768); let l = cache.get(key);
   if (l !== undefined) return l;
   l = null;
-  const sc = LAKE_SCALES[si], wet = (noise((cx + 0.5) * sc.cell * 0.0035, (cy + 0.5) * sc.cell * 0.0035, s + 81) + 1) / 2;
+  const sc = LAKE_SCALES[si], wet = (nz((cx + 0.5) * sc.cell, (cy + 0.5) * sc.cell, 0.0035, s + 81) + 1) / 2;
   if (hash01(cx, cy, s + 71 + si * 10) < sc.odds * (0.15 + 1.7 * wet * wet * 1.6)) {
     const rWant = sc.rMin + hash01(cx, cy, s + 72 + si * 10) * sc.rSpan, edge = lakeEdge(rWant), room = sc.cell - 2 * edge;
     dips: for (const low of room > 2 ? basinDips(cx * sc.cell + edge, cy * sc.cell + edge, room, s) : []) for (const f of BASIN_FRACS) {   // the dips of the cell (ground lower than all round it, not just the foot of a slope), lowest first; the first that holds a lake takes it, at the biggest radius (up to the one the hashes asked for) whose ring is a rim
@@ -198,6 +237,7 @@ function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | n
 let lkW = 0, lkLevel = 0, lkWater = false, lkShore = false, lkDepth = -1e9, lkDeep = 1, lkSw = 3;
 function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
   lkW = 0; lkWater = false; lkShore = false; lkDepth = -1e9;
+  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; if (capAt(y) > 0) return; }   // (a globe: lakes are laid out on the canonical world, and there are none on the polar caps)
   for (let si = 0; si < lakes; si++) {
     const c = LAKE_SCALES[si].cell, l = lakeOfCell(si, Math.floor(x / c), Math.floor(y / c), s); if (!l) continue;
     const dx = x - l.x, dy = y - l.y, far = l.r * LAKE_REACH + LAKE_SHORE + l.blend + 4;
@@ -205,7 +245,7 @@ function lakeProbe(x: number, y: number, s: number, lakes = LAKE_ALL) {
     // the distance to the rim, in the lake's own odd shape: the point is turned to the lake's long axis and squeezed to make an ellipse, then the rim is pushed in and out by lobes (harmonics of the angle) and a slow wobble
     const cs = Math.cos(l.phi), sn = Math.sin(l.phi), u = (dx * cs + dy * sn) / l.sa, v = (-dx * sn + dy * cs) * l.sa, th = Math.atan2(v, u);
     const lobes = 1 + l.a2 * Math.cos(2 * th + l.p2) + l.a3 * Math.cos(3 * th + l.p3) + l.a5 * Math.cos(5 * th + l.p5);
-    const d = Math.hypot(u, v) / lobes + Math.min(1.2, l.r * 0.1) * noise(x * 0.07, y * 0.07, s + 61 + si);
+    const d = Math.hypot(u, v) / lobes + Math.min(1.2, l.r * 0.1) * nz(x, y, 0.07, s + 61 + si);
     const flat = l.r + LAKE_SHORE;
     const w = d <= flat ? 1 : d >= flat + l.blend ? 0 : 1 - smooth(0, 1, (d - flat) / l.blend);
     if (w <= lkW) continue;   // (where the blend of one lake meets the water of another, the lake with the most say wins; the bigger scale on a tie)
@@ -226,10 +266,25 @@ export function terraceLakesIn(x0: number, y0: number, x1: number, y1: number, s
   for (let si = 0; si < LAKE_SCALES.length; si++) {
     const c = LAKE_SCALES[si].cell;
     for (let cy = Math.floor(y0 / c); cy <= Math.floor(y1 / c); cy++) for (let cx = Math.floor(x0 / c); cx <= Math.floor(x1 / c); cx++) {
-      const l = lakeOfCell(si, cx, cy, s); if (l && l.x >= x0 && l.x <= x1 && l.y >= y0 && l.y <= y1) out.push({ x: l.x, y: l.y, r: l.r, level: l.level, spill: l.spill });
+      const [l, u] = cellLake(si, cx, cy, s); if (!l) continue;
+      const [lx, ly] = u(l.x, l.y);
+      if (lx >= x0 && lx <= x1 && ly >= y0 && ly <= y1) out.push({ x: lx, y: ly, r: l.r, level: l.level, spill: GW && u.flip ? l.spill + Math.PI : l.spill });
     }
   }
   return out;
+}
+/**
+ * The lake of a cell of the unrolled plane, and how to put a canonical point of it back where that cell is (`u`, with `u.flip` set when the globe's poles have turned it half round).
+ * On an endless world the cell is its own canonical cell and `u` is the identity.
+ */
+type Unroll = ((x: number, y: number) => [number, number]) & { flip: boolean };
+const ID_UNROLL: Unroll = Object.assign((x: number, y: number): [number, number] => [x, y], { flip: false });
+function cellLake(si: number, cx: number, cy: number, s: number): [Lake | null, Unroll] {
+  if (!GW) return [lakeOfCell(si, cx, cy, s), ID_UNROLL];
+  const c = LAKE_SCALES[si].cell, ref = newCanon();
+  canonInto((cx + 0.5) * c, (cy + 0.5) * c, ref);
+  const l = lakeOfCell(si, Math.floor(ref.x / c), Math.floor(ref.y / c), s), r = { ...ref };
+  return [l, Object.assign((x: number, y: number) => unrollNear(x, y, r), { flip: r.flip })];
 }
 /**
  * Where the inland lakes whose middles lie in a box spill over: along each lake's lowest side (where it fills to), the first tile out past its water and shore that lies a layer or more below the
@@ -241,7 +296,8 @@ export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: numbe
   for (let si = 0; si < LAKE_SCALES.length; si++) {
     const c = LAKE_SCALES[si].cell;
     for (let cy = Math.floor(y0 / c); cy <= Math.floor(y1 / c); cy++) for (let cx = Math.floor(x0 / c); cx <= Math.floor(x1 / c); cx++) {
-      const l = lakeOfCell(si, cx, cy, s); if (!l || l.x < x0 || l.x > x1 || l.y < y0 || l.y > y1) continue;
+      const [l, u] = cellLake(si, cx, cy, s); if (!l) continue;
+      { const [lx, ly] = u(l.x, l.y); if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue; }
       let o = OUTLETS.get(l);
       if (o === undefined) {
         o = null;
@@ -253,7 +309,7 @@ export function terraceLakeOutlets(x0: number, y0: number, x1: number, y1: numbe
         }
         OUTLETS.set(l, o);
       }
-      if (o) out.push(o);
+      if (o) { if (GW) { const [ox, oy] = u(o.x + 0.5, o.y + 0.5); out.push({ x: Math.floor(ox), y: Math.floor(oy), level: o.level }); } else out.push(o); }
     }
   }
   return out;
@@ -271,11 +327,11 @@ const HILL_LAYERS = 55;
 function baseRaw(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
   const wx = x + lo[o], wy = y + lo[o + 1], cont = lo[o + 2], h1 = lo[o + 3];
   const land = smooth(-0.1, 0.3, cont);
-  const h2 = noise(wx * 0.027, wy * 0.027, s + 32);
-  const rg = 1 - Math.abs(noise(wx * 0.045, wy * 0.045, s + 33));
+  const h2 = nz(wx, wy, 0.027, s + 32);
+  const rg = 1 - Math.abs(nz(wx, wy, 0.045, s + 33));
   const hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));   // 0..~1
-  const roll = lo[o + 4] * 2.2 + noise(wx * 0.06, wy * 0.06, s + 52) * 0.8;   // rolling ground everywhere on land, so a shelf is tens of tiles, not hundreds
-  const wig = 0.22 * noise(x * 0.12, y * 0.12, s + 41);
+  const roll = lo[o + 4] * 2.2 + nz(wx, wy, 0.06, s + 52) * 0.8;   // rolling ground everywhere on land, so a shelf is tens of tiles, not hundreds
+  const wig = 0.22 * nz(x, y, 0.12, s + 41);
   return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAt(x, y, s, lo, o, wx, wy);
 }
 
@@ -303,7 +359,7 @@ function rangeAt(x: number, y: number, s: number, lo: Float64Array | Float32Arra
   const core = smooth(0, 1, belt) * along * away * land;
   if (core <= 0) return 0;
   const [amp, crag, crest] = rangeKind(u);
-  const ridge = 1 - Math.abs(noise(wx * 0.008, wy * 0.008, s + 64)), c = 1 - Math.abs(noise(wx * 0.035, wy * 0.035, s + 65));
+  const ridge = 1 - Math.abs(nz(wx, wy, 0.008, s + 64)), c = 1 - Math.abs(nz(wx, wy, 0.035, s + 65));
   return amp * core * (1 - crest + crest * ridge * ridge * 1.4) + amp * 0.2 * crag * core * (c * c - 0.35);
 }
 
@@ -314,17 +370,17 @@ export const PEAK_M = 8000, PEAK_R = 600, PEAK_P = 1.8;
 /** How far from the middle of the world the giant's summit stands (tiles): the skirt starts well clear of where a world begins. */
 const PEAK_AT = [1100, 1500];
 interface Peak { x: number; y: number; add: number }
-let peakSeed = NaN, peakNow: Peak = { x: 0, y: 0, add: 0 };
+let peakSeed = NaN, peakGW = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
 /** Where the giant of a seed stands: of 32 places on two rings round the middle, the highest ground (the most inland), and how many layers are added there for the summit to reach PEAK_M. */
 export function peakOf(s: number): Peak {
-  if (s === peakSeed) return peakNow;
+  if (s === peakSeed && peakGW === GW) return peakNow;
   const tmp = new Float64Array(LOW_N); let best = -Infinity, bx = 0, by = 0;
   for (const d of PEAK_AT) for (let k = 0; k < 16; k++) {
     const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d), y = Math.round(Math.sin(a) * d);
     lowAt(x, y, s, tmp, 0); const e = baseRaw(x, y, s, tmp, 0);
     if (e > best) { best = e; bx = x; by = y; }
   }
-  peakSeed = s; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
+  peakSeed = s; peakGW = GW; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
   return peakNow;
 }
 /** The layers the giant adds at a point (0 beyond its skirt). */
@@ -343,8 +399,10 @@ const dither = (x: number, y: number): number => { const h = Math.sin(x * 127.1 
  * stippled (a mixed band some tiles wide, in pixel art's own way of blending) instead of a smooth line cut through the hills.
  */
 export const terraceMoist = (x: number, y: number, seed: number): number => {
-  const m = (noise(x * 0.004, y * 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
-  return (REAL ? 0.15 + 0.75 * m : m) + (dither(x, y) - 0.5) * 0.05;   // (a real map is the Lake District: wet, never dry country)
+  let cap = 0;
+  if (GW) { canonInto(x, y, CN); x = CN.x; y = CN.y; cap = capAt(y); }
+  const m = (nz(x, y, 0.004, (seed ^ 0xd00d) | 0) + 1) / 2;
+  return (REAL ? 0.15 + 0.75 * m : m * (1 - cap)) + (dither(x, y) - 0.5) * 0.05;   // (a real map is the Lake District: wet, never dry country; a globe's polar caps are dry, bare ground)
 };
 
 /** Each shelf is a little wetter or drier than its region says (up to 0.04), by its own layer: where the biome changes it likes to change at a ledge, so the edge follows the lie of the land, in steps, instead of cutting across it. */
@@ -430,6 +488,8 @@ function sweep(src: Float32Array, out: Float32Array, tmp: Float32Array, max: boo
 }
 
 const fillKey = (x: number, y: number) => (x + 1048576) * 2097152 + (y + 1048576);
+/** The key of a sculpted tile: on a globe, of the tile's canonical place (the same tile whichever lap it is seen on). The water (`fills`) is weather and stays on the unrolled plane. */
+const reliefKey = (x: number, y: number): number => { if (!GW) return fillKey(x, y); const [cx, cy] = canonTile(x, y); return fillKey(cx, cy); };
 /** The water the weather makes (see `TerraceField.setFill`) is blurred into a smooth field before it shapes the ground: the blur's sigma in tiles, where its edge lies, and how wide the ground eases across it. */
 const FILL_SIGMA = 0.5, FILL_RIM = 0.3, FILL_EASE = 0.1;
 /** The normal distribution's cumulative function (an Abramowitz and Stegun error function). */
@@ -511,7 +571,7 @@ export class TerraceField {
     for (let k = 0; k < 5; k++) { wx.push(normCdf((tx0 + k + 1 - px) / FILL_SIGMA) - normCdf((tx0 + k - px) / FILL_SIGMA)); wy.push(normCdf((ty0 + k + 1 - py) / FILL_SIGMA) - normCdf((ty0 + k - py) / FILL_SIGMA)); }
     const up = RELIEF_UP.fill(0), down = RELIEF_DOWN.fill(0); let any = false;
     for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) {
-      const d = this.relief.get(fillKey(tx0 + i, ty0 + j)); if (!d) continue;
+      const d = this.relief.get(reliefKey(tx0 + i, ty0 + j)); if (!d) continue;
       const w = wx[i] * wy[j], to = d > 0 ? up : down; any = true;
       for (let k = 0; k < Math.min(RELIEF_MAX, Math.abs(d)); k++) to[k] += w;
     }
@@ -524,7 +584,7 @@ export class TerraceField {
   private reliefChunks = new Map<number, number>();
   private layRelief(e: Float32Array, cx: number, cy: number) {
     let near = false;   // most chunks have no sculpting anywhere near: skip the 33 x 33 blurs
-    for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) if (this.reliefChunks.get((cx + dx + 32768) * 65536 + (cy + dy + 32768))) { near = true; break; }
+    for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) { const [qx, qy] = canonChunk(cx + dx, cy + dy); if (this.reliefChunks.get((qx + 32768) * 65536 + (qy + 32768))) { near = true; break; } }
     if (!near && this.reliefChunks.size) return;
     const n = TERRACE_G, x0 = cx * CHUNK, y0 = cy * CHUNK;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const r = this.reliefAt(x0 + i / TERRACE_SUB, y0 + j / TERRACE_SUB); if (r) e[j * n + i] += r; }
@@ -541,7 +601,7 @@ export class TerraceField {
   setRelief(tiles: readonly (readonly [number, number])[], by: number, floor = 0): [number, number][] {
     const changed: [number, number][] = [];
     for (const [x, y] of tiles) {
-      const k = fillKey(x, y), cur = this.relief.get(k) ?? 0, next = Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, cur + by));
+      const k = reliefKey(x, y), cur = this.relief.get(k) ?? 0, next = Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, cur + by));
       if (next === cur || (by < 0 && this.layerAt(x, y) + by < floor)) continue;
       if (next) this.relief.set(k, next); else this.relief.delete(k);
       changed.push([x, y]);
@@ -567,7 +627,7 @@ export class TerraceField {
   }
   /** Lay saved sculpting over the ground (before any grid is built, as a world opens). */
   loadRelief(list: readonly (readonly [number, number, number])[]) {
-    for (const [x, y, d] of list) if (d) this.relief.set(fillKey(x, y), Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, d)));
+    for (const [x, y, d] of list) if (d) this.relief.set(reliefKey(x, y), Math.max(-RELIEF_MAX, Math.min(RELIEF_MAX, d)));
     this.recountRelief();
     this.grids.clear(); this.lastKey = NaN;
     this.epoch++; this.allAt = this.epoch;
@@ -721,7 +781,7 @@ export class TerraceField {
   /** The layer of a tile (-1 = sea). */
   layerAt(x: number, y: number): number { return layerOf(this.elevationAt(x, y)); }
   /** The layer of a tile straight from the noise, nothing cached: for maps that read far more tiles than the game keeps. */
-  layerDirect(x: number, y: number): number { return layerOf(elevation(x + 0.5, y + 0.5, this.seed) + (this.relief.size ? this.relief.get(fillKey(x, y)) ?? 0 : 0)); }   // (the tile's own sculpting, unblurred: near enough for a map)
+  layerDirect(x: number, y: number): number { return layerOf(elevation(x + 0.5, y + 0.5, this.seed) + (this.relief.size ? this.relief.get(reliefKey(x, y)) ?? 0 : 0)); }   // (the tile's own sculpting, unblurred: near enough for a map)
 }
 
 /** Is a tile on a ledge (a neighbour on another layer)? Trees and rocks keep off these: they would hang over the edge. */

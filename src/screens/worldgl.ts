@@ -36,9 +36,11 @@ const VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in vec4 aCol;
 uniform float uFar, uHole, uBand, uTerrace; uniform int uDbg;   // (uDbg: the ?dbg= bisect switches, see domain/dbg.ts)
 // (a far level is sunk a little where it overlaps the finer ground, see below)
-uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC;   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down)
+uniform mat4 uVP; uniform vec3 uEye; uniform float uCurveC, uPlanet, uCurveK;   // uCurveC: the planet's curve high up (tiles of drop per tile squared of distance from the eye; 0 low down). A globe world is a true ball instead: uPlanet its radius in tiles (0 = no ball), uCurveK how far the ground has been bent onto it (0 flat .. 1)
 out vec2 vUv; out vec4 vCol; out vec3 vPos;
-void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; p.z += uCurveC * dot(d, d);
+void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy;
+  if (uPlanet > 0.0) { if (uCurveK > 0.0) { float dl = length(d), th = min(dl / uPlanet, 3.0), R = uPlanet - p.z, rho = R * sin(th), up = R * cos(th) - uPlanet; vec2 dir = dl > 0.0 ? d / dl : vec2(0.0); p = mix(p, vec3(uEye.xy + dir * rho, -up), uCurveK); } }   // (a globe: the ground, and all that stands on it, wraps onto a ball of radius uPlanet that touches the ground under the eye: a point d tiles away at height h goes to angle d / R round it, at radius R + h; z is down)
+  else p.z += uCurveC * dot(d, d);
   // The far levels' coarse triangles run in slopes from one terrace to the next, so over a ledge they lie above the finer ground they are meant to sit under, and show through it as wedges that flicker as the view moves (worse where the depth buffer is short on precision: phones). Where a far level overlaps the finer ground, and for a few tiles past it, it is sunk most of a layer, so it lies under that ground; beyond that it fades back up to its own height.
   if (uFar > 0.5 && uTerrace > 0.0 && (uDbg & 4) == 0) p.z += uTerrace * 0.7 * (1.0 - smoothstep(uHole + uBand, uHole + uBand + 24.0, length(d)));
  gl_Position = uVP * vec4(p, 1.0); vUv = aUv; vCol = aCol; vPos = aPos; }   // (the ground falls away from under the eye as a paraboloid, the small planet's surface; z is down)   // (the distance is taken per pixel: a ground quad is a whole chunk, and seen from the ground its corners say nothing about the fog in between)`;
@@ -484,8 +486,13 @@ export class WorldGL {
   space = 0;
   /** The planet's curve as drawn: the ground drops by curveC * d^2 (tiles) at d tiles from the eye. The screen sets it from the height (0 low down, so nothing changes there). */
   curveC = 0;
+  /** A globe world's planet: its radius in tiles (0 = none, the paraboloid above) and how far the ground is bent onto it (0 flat low down .. 1 a ball, from the height up). */
+  planet = 0; curveK = 0;
   /** The sine of how far the planet's rim has sunk below level for this eye: the tangent from the eye to the curved ground (z = curveC d^2) falls at 2 sqrt(curveC H). */
-  dipSin() { const H = Math.max(0, -this.eye[2]); if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
+  dipSin() {
+    const H = Math.max(0, -this.eye[2]);
+    if (this.planet > 0) { if (!(this.curveK > 0) || !(H > 0)) return 0; const q = this.planet / (this.planet + H); return this.curveK * Math.sqrt(1 - q * q); }   // (a ball: the tangent from the eye to it dips by acos(R / (R + H)) below level)
+    if (!(this.curveC > 0) || !(H > 0)) return 0; const m = 2 * Math.sqrt(this.curveC * H); return m / Math.sqrt(1 + m * m); }
   private light: [number, number, number] = [1, 1, 1];
   private postProg: { bright: WebGLProgram; blur: WebGLProgram; comp: WebGLProgram } | null = null;
   private postLoc: Record<string, WebGLUniformLocation | null> = {};
@@ -620,7 +627,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uZen', 'uLight', 'uDbg']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -1015,7 +1022,7 @@ export class WorldGL {
     }
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(this.loc.uVP, false, this.vp);
-    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]); gl.uniform1f(this.loc.uCurveC, this.curveC);
+    gl.uniform3f(this.loc.uEye, this.eye[0], this.eye[1], this.eye[2]); gl.uniform1f(this.loc.uCurveC, this.curveC); gl.uniform1f(this.loc.uPlanet, this.planet); gl.uniform1f(this.loc.uCurveK, this.curveK);
     { const sp = 1 - 0.45 * this.space; gl.uniform3f(this.loc.uFog, this.sky[0] * sp, this.sky[1] * sp, this.sky[2] * sp); }   // (the same haze as the sky's below the horizon)
     // no distance haze, except high up over a hilly world: the far ground fades into the haze before the edge of what is drawn, so it meets the sky with no gap
     { const hk = this.farOn && this.farMesh ? this.highK() : 0, st = this.reach * (0.55 + 3 * (1 - hk)); if (hk > 0) gl.uniform2f(this.loc.uFogRange, st, st + this.reach * 0.42); else gl.uniform2f(this.loc.uFogRange, 1e7, 2e7); }

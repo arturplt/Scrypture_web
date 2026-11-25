@@ -16,6 +16,7 @@
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, lakeData, type WorldKind, type LakeMapId } from './lakedistrict';
 import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceBareFrom, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
 export { terraceBiome };
+import { setWorldSize, GW, canonTile, canonTileKey, GLOBE_SIZES } from './globe';
 
 export const CHUNK = 16;                       // tiles per chunk side
 export const TILE_PX = 16;                     // tile size in the sheet
@@ -262,6 +263,7 @@ export function transitionFor(cur: Terrain, n: Terrain, s: Terrain, e: Terrain, 
 
 /** What a tile looks like when nothing has changed it: variants and bushes/trees rolled from a hash of the tile. */
 export function generatedState(x: number, y: number, t: Terrain, biome: Biome, seed: number, ledge = false): TileState {
+  if (GW) [x, y] = canonTile(x, y);   // (a globe: a tile is rolled by its canonical place, so it is the same tile on every lap and past a pole)
   const r = hash01(x, y, seed, 1), r2 = hash01(x, y, seed, 2), r3 = hash01(x, y, seed, 3);
   if (t === SAND) return { t, v: r < 0.05 ? 1 : 0, d: DECO_NONE, s: 1 };
   if (t !== GRASS) return plainTile(t);
@@ -277,6 +279,8 @@ export function generatedState(x: number, y: number, t: Terrain, biome: Biome, s
 }
 
 export const tileKey = (x: number, y: number) => (x + 1048576) * 2097152 + (y + 1048576);
+/** A tile's hash by its canonical place (on a globe a tile is the same one on every lap and past a pole). */
+const tileHash = (x: number, y: number, seed: number, k: number): number => { if (GW) [x, y] = canonTile(x, y); return hash01(x, y, seed, k); };
 export const keyX = (k: number) => Math.floor(k / 2097152) - 1048576;
 export const keyY = (k: number) => (k % 2097152) - 1048576;
 export const chunkOf = (t: number) => Math.floor(t / CHUNK);
@@ -317,14 +321,21 @@ export class World {
   /** The real map a terraced world stands on (null: the seeded hills, or not terraced). */
   readonly map: LakeMapId | null;
 
-  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null) {
+  /** How many tiles round the world is (a globe: it wraps, and has poles; see globe.ts), or 0 for the endless plane. Only the seeded hills can be a globe. */
+  readonly size: number;
+
+  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null, size = 0) {
     this.seed = seed; this.kind = kind;
     this.map = kind === 'terraced' && map && lakeData()?.map === map ? map : null;   // (the map must be loaded: see lakeLoader.ts)
+    this.size = kind === 'terraced' && !this.map && GLOBE_SIZES.includes(size) ? size : 0;
+    setWorldSize(this.size);   // (one world at a time, as with the real terrain: the last one opened sets the ground the generators read)
     if (kind === 'terraced') setRealTerrain(this.map ? lakeData() : null);
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
     this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
   }
+  /** The key a tile's change is kept under: on a globe, of its canonical tile (a lake dug on one lap is there on every lap). */
+  ck(x: number, y: number): number { return this.size ? canonTileKey(x, y) : (x + 1048576) * 2097152 + (y + 1048576); }
   /** Start telling `sink` of every change made from now on (the chunk worker's mirror). Changes made through the constructor are not told: they are the starting state. */
   record(sink: ((op: WorldOp) => void) | null) { this.sink = sink; if (this.field) this.field.sink = sink; }
   /** Everything that sets this world apart from a fresh one of the same seed: the tile changes, and the sculpting and the water as operations to `apply` (the chunk worker starts from this). */
@@ -368,12 +379,12 @@ export class World {
   chunkTerrain(cx: number, cy: number): Uint8Array {
     const g = this.cache.get(tileKey(cx, cy)) ?? (this.mapField ? generateTerraceChunk(cx, cy, this.mapField) : this.gen(cx, cy));
     const out = new Uint8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK, ch = this.changes.size > 0;
-    for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) out[j * CHUNK + i] = (ch ? this.changes.get(tileKey(x0 + i, y0 + j))?.t : undefined) ?? g.t[(j + MARGIN) * SIDE + i + MARGIN];
+    for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) out[j * CHUNK + i] = (ch ? this.changes.get(this.ck(x0 + i, y0 + j))?.t : undefined) ?? g.t[(j + MARGIN) * SIDE + i + MARGIN];
     return out;
   }
   /** One tile's terrain for a zoomed-out map, cheaply (a couple of noise reads, nothing generated or cached): beaches are left out, being narrower than a map pixel there. */
   mapSample(x: number, y: number, layer?: number): Terrain {
-    const c = this.changes.get(tileKey(x, y)); if (c) return c.t;
+    const c = this.changes.get(this.ck(x, y)); if (c) return c.t;
     if (this.kind === 'lakedistrict') return lakeWaterAt(x, y) !== LAKE_LAND ? WATER : GRASS;
     if (this.field) { const l = layer ?? this.field.layerDirect(x, y); return l < 0 || terraceLakeAt(x + 0.5, y + 0.5, this.seed) ? WATER : terraceLakeShoreAt(x + 0.5, y + 0.5, this.seed) ? SAND : l === 0 || terraceBiome(l, terraceMoist(x, y, this.seed)) === 3 ? SAND : GRASS; }
     const b = biomeAt(x, y, this.seed);
@@ -385,13 +396,13 @@ export class World {
     const step = Math.max(1, n / 4), m = Math.min(4, n);
     let b: Biome | null = null, hit = 0, cnt = 0;
     for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
-      const tx = Math.floor(x + i * step), ty = Math.floor(y + j * step), c = this.changes.get(tileKey(tx, ty));
+      const tx = Math.floor(x + i * step), ty = Math.floor(y + j * step), c = this.changes.get(this.ck(tx, ty));
       cnt++;
       if (c) { if (c.t === GRASS && c.d >= DECO_CONIFER) hit++; continue; }
       b ??= this.field ? BIOME_LIST[terraceBiome(this.field.layerDirect(tx, ty), terraceMoist(tx, ty, this.seed))] : biomeAt(tx, ty, this.seed);   // (one biome for the block: the first sample's)
       if (b.id === 'grassland' || b.id === 'desert' || b.id === 'ocean') continue;
-      const r = hash01(tx, ty, this.seed, 1);
-      if (r < (b.id === 'forest' ? 0.15 : 0.05) && Math.floor(hash01(tx, ty, this.seed, 2) * 5) >= 3 && (this.field || !isWater(tx, ty, this.seed, b))) hit++;
+      const r = tileHash(tx, ty, this.seed, 1);
+      if (r < (b.id === 'forest' ? 0.15 : 0.05) && Math.floor(tileHash(tx, ty, this.seed, 2) * 5) >= 3 && (this.field || !isWater(tx, ty, this.seed, b))) hit++;
     }
     return hit / cnt;
   }
@@ -427,7 +438,7 @@ export class World {
    */
   roughAt(x: number, y: number): { t: Terrain; b: Biome } {
     if (this.field && !this.cache.has(tileKey(chunkOf(x), chunkOf(y)))) {
-      const l = this.field.layerDirect(x, y), c = this.changes.get(tileKey(x, y));
+      const l = this.field.layerDirect(x, y), c = this.changes.get(this.ck(x, y));
       return { t: c ? c.t : this.mapSample(x, y, l), b: BIOME_LIST[terraceBiome(l, terraceMoist(x, y, this.seed))] };
     }
     return { t: this.terrainAt(x, y), b: this.biomeOf(x, y) };
@@ -439,16 +450,16 @@ export class World {
     return (this.base(cx, cy).b[(y - cy * CHUNK + MARGIN) * SIDE + (x - cx * CHUNK + MARGIN)] & LEDGE_BIT) !== 0;
   }
   terrainAt(x: number, y: number): Terrain {
-    return this.changes.get(tileKey(x, y))?.t ?? this.generatedTerrain(x, y);
+    return this.changes.get(this.ck(x, y))?.t ?? this.generatedTerrain(x, y);
   }
   stateAt(x: number, y: number): TileState {
-    return this.changes.get(tileKey(x, y)) ?? generatedState(x, y, this.generatedTerrain(x, y), this.biomeOf(x, y), this.seed, this.ledgeOf(x, y));
+    return this.changes.get(this.ck(x, y)) ?? generatedState(x, y, this.generatedTerrain(x, y), this.biomeOf(x, y), this.seed, this.ledgeOf(x, y));
   }
   /** Replace a tile. Setting it back to what the generator would give removes the override. */
   set(x: number, y: number, s: TileState): void {
     if (this.sink) this.sink({ k: 'set', x, y, s: { ...s } });
     const gen = generatedState(x, y, this.generatedTerrain(x, y), this.biomeOf(x, y), this.seed, this.ledgeOf(x, y));
-    const k = tileKey(x, y);
+    const k = this.ck(x, y);
     if (gen.t === s.t && gen.v === s.v && gen.d === s.d && gen.s === s.s) this.changes.delete(k); else this.changes.set(k, s);
     this.version++;
   }
@@ -488,7 +499,7 @@ export class World {
     const g = this.base(cx, cy), out: Drawn[] = new Array(CHUNK * CHUNK), ox = cx * CHUNK, oy = cy * CHUNK, any = this.changes.size > 0;
     // (water in a terraced world is drawn as sand: it is the see-through sheets laid over its stepped bed by the renderer, cut along the smooth rim of the bed, not a tile picture with a harsh edge; the world still counts it as water)
     const field = this.field, inland = field ? (_x: number, _y: number) => true : null;   // (all water of a terraced world has sheets over it: lakes, the water the weather made, and the sea, whose bed steps down under one sheet at sea level)
-    const ter = (i: number, j: number, x: number, y: number): Terrain => { const t = (any ? this.changes.get(tileKey(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain); if (inland && !(any && this.changes.has(tileKey(x, y))) && t === SAND && (g.b[(j + MARGIN) * SIDE + i + MARGIN] & PLAIN_BIT)) return GRASS;
+    const ter = (i: number, j: number, x: number, y: number): Terrain => { const t = (any ? this.changes.get(this.ck(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain); if (inland && !(any && this.changes.has(this.ck(x, y))) && t === SAND && (g.b[(j + MARGIN) * SIDE + i + MARGIN] & PLAIN_BIT)) return GRASS;
       return t === WATER && inland && inland(x, y) ? SAND : t; };
     // what each tile looks like, for the chunk and a ring round it (a swallowed tile counts as its surroundings for its neighbours too)
     const EW = CHUNK + 2, eff = new Uint8Array(EW * EW);
@@ -502,13 +513,13 @@ export class World {
     if (lays) for (let j = -1; j <= CHUNK; j++) for (let i = -1; i <= CHUNK; i++) lays[(j + 1) * EW + i + 1] = this.naturalLayerAt(ox + i, oy + j);
     const nbr = (i: number, j: number, di: number, dj: number, own: Terrain): Terrain => !lays || lays[(j + dj + 1) * EW + i + di + 1] === lays[(j + 1) * EW + i + 1] ? ef(i + di, j + dj) : own;
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
-      const x = ox + i, y = oy + j, k = tileKey(x, y), over = any ? this.changes.get(k) : undefined;
+      const x = ox + i, y = oy + j, k = this.ck(x, y), over = any ? this.changes.get(k) : undefined;
       const idx = (j + MARGIN) * SIDE + i + MARGIN;
       const raw = generatedState(x, y, g.t[idx] as Terrain, BIOME_LIST[g.b[idx] & ~(LEDGE_BIT | PLAIN_BIT)], this.seed, (g.b[idx] & LEDGE_BIT) !== 0);
       const here = ef(i, j), swallowed = here !== (over ?? raw).t;
       const st = swallowed ? plainTile(here) : over ?? raw;
       if (st.t === WATER) {
-        out[j * CHUNK + i] = !over && !swallowed && hash01(x, y, this.seed, 4) < 0.05
+        out[j * CHUNK + i] = !over && !swallowed && tileHash(x, y, this.seed, 4) < 0.05
           ? { ground: SHEET.water, deco: this.coast(x, y) <= 2 ? SHEET.waterRockBig : SHEET.waterRockSmall, scale: 1 }
           : { ground: SHEET.water, deco: null, scale: 1 };
         continue;
@@ -525,20 +536,20 @@ export class World {
     const seen = (px: number, py: number): Terrain => {
       const t = this.terrainAt(px, py);
       if (!this.field) return t;
-      if (t === SAND && !this.changes.has(tileKey(px, py)) && this.base(Math.floor(px / CHUNK), Math.floor(py / CHUNK)).b[(py - Math.floor(py / CHUNK) * CHUNK + MARGIN) * SIDE + (px - Math.floor(px / CHUNK) * CHUNK + MARGIN)] & PLAIN_BIT) return GRASS;
+      if (t === SAND && !this.changes.has(this.ck(px, py)) && this.base(Math.floor(px / CHUNK), Math.floor(py / CHUNK)).b[(py - Math.floor(py / CHUNK) * CHUNK + MARGIN) * SIDE + (px - Math.floor(px / CHUNK) * CHUNK + MARGIN)] & PLAIN_BIT) return GRASS;
       return t === WATER ? SAND : t;
     };   // (as in chunkDrawn: a terraced world's water is a sheet over a sand bed, not a tile picture)
     const eff = (px: number, py: number): Terrain => swallowedBy(seen(px, py), seen(px, py - 1), seen(px, py + 1), seen(px + 1, py), seen(px - 1, py));
     const real = this.stateAt(x, y), here = eff(x, y), st = here !== real.t ? plainTile(here) : real;   // (swallowed: see swallowedBy)
     if (st.t === WATER) {
-      if (here === real.t && hash01(x, y, this.seed, 4) < 0.05 && !this.changes.has(tileKey(x, y))) {   // a rock in the water (never on tiles the rain made)
+      if (here === real.t && tileHash(x, y, this.seed, 4) < 0.05 && !this.changes.has(this.ck(x, y))) {   // a rock in the water (never on tiles the rain made)
         return { ground: SHEET.water, deco: this.coast(x, y) <= 2 ? SHEET.waterRockBig : SHEET.waterRockSmall, scale: 1 };
       }
       return { ground: SHEET.water, deco: null, scale: 1 };
     }
     const f = this.field, same = (dx: number, dy: number): Terrain => (!f || this.naturalLayerAt(x + dx, y + dy) === this.naturalLayerAt(x, y) ? eff(x + dx, y + dy) : st.t);
     const tr = transitionFor(st.t, same(0, -1), same(0, 1), same(1, 0), same(-1, 0), same(-1, -1), same(1, -1), same(-1, 1), same(1, 1));
-    if (tr) return { ground: tr, deco: st.d && this.changes.has(tileKey(x, y)) ? DECO_CELL[st.d as 1 | 2 | 3] : null, scale: st.s };   // generated trees keep off coast tiles (Android), grown ones stay
+    if (tr) return { ground: tr, deco: st.d && this.changes.has(this.ck(x, y)) ? DECO_CELL[st.d as 1 | 2 | 3] : null, scale: st.s };   // generated trees keep off coast tiles (Android), grown ones stay
     const ground = st.t === SAND ? (st.v === 1 ? SHEET.sandAlt : SHEET.sand) : st.v === 1 ? SHEET.flowers : SHEET.grass;
     return { ground, deco: st.d ? DECO_CELL[st.d as 1 | 2 | 3] : rockOn(st), scale: st.s };
   }

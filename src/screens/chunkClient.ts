@@ -22,7 +22,7 @@ export interface WorkerLike {
   terminate(): void;
 }
 export interface BuiltChunk { key: number; cx: number; cy: number; px: Uint8ClampedArray; decos: Deco[]; /** the hill mesh, when it was asked for (`wantMesh`) and the world has hills */ mesh?: TerraceMesh; /** the worker's height grid for the chunk, and the page field's epoch when it was asked (see `TerraceField.adoptGrid`) */ grid?: { e: Float32Array; base?: Float32Array }; epoch: number; /** the ground changed under it while it was being built: build it again */ stale: boolean; ms: number }
-export interface ChunkInit { seed: number; kind: WorldKind; changes: [number, TileState][]; table: Uint8ClampedArray; ops: WorldOp[] }
+export interface ChunkInit { seed: number; kind: WorldKind; /** the world's size, if it is a globe (see globe.ts) */ size?: number; changes: [number, TileState][]; table: Uint8ClampedArray; ops: WorldOp[] }
 
 export class ChunkClient {
   state: 'starting' | 'ready' | 'failed' = 'starting';
@@ -157,10 +157,10 @@ export class FarClient {
   }
   get active() { return this.state === 'ready'; }
   /** Ask for one level; only one at a time (the map waits for `take` before asking again). */
-  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0) {
+  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0, size = 0) {
     if (this.state !== 'ready' || this.waiting !== null) return;
     this.waiting = this.nextId++;
-    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open });
+    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open, size });
   }
   get busy() { return this.waiting !== null && !this.result; }
   /** The level that has been built, once. */
