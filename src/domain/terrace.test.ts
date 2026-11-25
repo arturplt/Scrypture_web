@@ -139,6 +139,20 @@ describe('terraced height field', () => {
     }
   });
 
+  it('steps the sea\'s bed down under one sheet at sea level, each layer a shade deeper, with a wall at every step and at the shore', () => {
+    const G = TERRACE_G, e = new Float32Array(G * G);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) e[j * G + i] = -3.5 + (i / (G - 1)) * 4;   // (a slope from 3.5 layers under the sea up to the beach, half a layer over it)
+    const m = terraceChunkMesh(e, 0, 0);
+    const low = new Set<number>();
+    for (let v = 0; v < m.pos.length / 3; v++) { const l = -m.pos[v * 3 + 2] / TERRACE_STEP; expect(l).toBeCloseTo(Math.round(l), 5); expect(l).toBeLessThanOrEqual(0.0001); low.add(Math.round(l)); }
+    expect([...low].sort((a, b) => a - b)).toEqual([-4, -3, -2, -1, 0]);   // (a bed layer a step, down to SEA_DEEP, the beach at 0)
+    for (let v = 0; v < m.pos.length / 3; v++) if (m.nrm[v * 3 + 2] === -1 && m.pos[v * 3 + 2] > 0) expect(m.sub[v]).toBe(Math.min(5, Math.round(m.pos[v * 3 + 2] / TERRACE_STEP)));   // (the shade: layers under the surface)
+    for (let v = 0; v < m.wpos.length / 3; v++) expect(m.wpos[v * 3 + 2]).toBeCloseTo(0, 9);   // (one sheet, at sea level)
+    expect(m.widx.length).toBeGreaterThan(0);
+    const walls = new Set<number>(); for (let v = 0; v < m.pos.length / 3; v++) if (m.nrm[v * 3 + 2] === 0) walls.add(Math.round(-m.pos[v * 3 + 2] / TERRACE_STEP));
+    expect([...walls].sort((a, b) => a - b)).toEqual([-4, -3, -2, -1, 0]);   // (walls stand from -4 up to 0: the shore's own wall included)
+  });
+
   it('has no little blocks: no raised level is narrower than 5 grid points (2.5 tiles) along a row or a column', () => {
     const f = new TerraceField(42), G = TERRACE_G, cls = (v: number) => (v < 1 ? 0 : Math.floor(v));
     let runs = 0;

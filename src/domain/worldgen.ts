@@ -14,7 +14,7 @@
  */
 
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, lakeData, type WorldKind, type LakeMapId } from './lakedistrict';
-import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
+import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceBareFrom, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
 export { terraceBiome };
 
 export const CHUNK = 16;                       // tiles per chunk side
@@ -164,6 +164,8 @@ export function generateLakeChunk(cx: number, cy: number): { t: Uint8Array; b: U
 
 /** A biome grid entry with this bit set is on a terrace ledge (see terrace.onLedge): nothing stands there. */
 export const LEDGE_BIT = 0x80;
+/** A terraced tile that is sand for the game (dry country, the shelf behind a beach) but is drawn as grass: sand belongs on the beach, round a lake and on the bare tops, not in patches on the higher terraces. */
+export const PLAIN_BIT = 0x40;
 
 /**
  * The grids of a terraced chunk: water below the sea, sand on the lowest shelf and the beach shelf above it, on dry ground and the bare tops,
@@ -171,7 +173,7 @@ export const LEDGE_BIT = 0x80;
  */
 export function generateTerraceChunk(cx: number, cy: number, field: TerraceField): { t: Uint8Array; b: Uint8Array } {
   const R = 2, side = SIDE + R * 2, ox = cx * CHUNK - MARGIN - R, oy = cy * CHUNK - MARGIN - R, lay = new Int16Array(side * side);
-  for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) lay[j * side + i] = field.layerAt(ox + i, oy + j);
+  for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) { const e = field.naturalAt(ox + i, oy + j); lay[j * side + i] = e < 0 ? -1 : Math.floor(e); }   // (the natural ground: the water the weather lays over it, which may now sink below sea level, does not change what a tile is)
   const out = new Uint8Array(SIDE * SIDE), bio = new Uint8Array(SIDE * SIDE), road = realTerrainOn();
   for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) {
     const k = (j + R) * side + i + R, l = lay[k], x = ox + i + R, y = oy + j + R, o = j * SIDE + i;
@@ -185,6 +187,7 @@ export function generateTerraceChunk(cx: number, cy: number, field: TerraceField
     let sand = l === 0 || b === 3;
     if (!sand && l === 1) for (let dj = -2; dj <= 2 && !sand; dj++) for (let di = -2; di <= 2; di++) if (lay[k + dj * side + di] < 0) { sand = true; break; }
     out[o] = sand ? SAND : GRASS;
+    if (sand && l >= 1 && l < terraceBareFrom()) bio[o] |= PLAIN_BIT;   // (sand above the beach, short of the bare tops: drawn as grass)
   }
   return { t: out, b: bio };
 }
@@ -416,7 +419,7 @@ export class World {
   /** The biome of a tile, from the chunk's cached grid (same answer as `biomeAt`, without the noise). */
   biomeOf(x: number, y: number): Biome {
     const cx = chunkOf(x), cy = chunkOf(y);
-    return BIOME_LIST[this.base(cx, cy).b[(y - cy * CHUNK + MARGIN) * SIDE + (x - cx * CHUNK + MARGIN)] & ~LEDGE_BIT];
+    return BIOME_LIST[this.base(cx, cy).b[(y - cy * CHUNK + MARGIN) * SIDE + (x - cx * CHUNK + MARGIN)] & ~(LEDGE_BIT | PLAIN_BIT)];
   }
   /**
    * A tile's terrain and biome for a rough answer far off (the thermals' heat): from the chunk when it is cached, otherwise, on the terraced world, a point sample of the noise. Generating a
@@ -483,9 +486,10 @@ export class World {
    */
   chunkDrawn(cx: number, cy: number): Drawn[] {
     const g = this.base(cx, cy), out: Drawn[] = new Array(CHUNK * CHUNK), ox = cx * CHUNK, oy = cy * CHUNK, any = this.changes.size > 0;
-    // (an inland lake is drawn as sand: its water is the see-through sheets laid over its bed by the renderer, cut along the smooth rim of the bed, not a tile picture with a harsh edge; the world still counts it as water)
-    const field = this.field, inland = field ? (x: number, y: number) => terraceLakeAt(x + 0.5, y + 0.5, this.seed) || field.waterTopAt(x + 0.5, y + 0.5) >= 0 : null;   // (water that has sheets over it: a lake, or any the weather made above the lowest shelves)
-    const ter = (i: number, j: number, x: number, y: number): Terrain => { const t = (any ? this.changes.get(tileKey(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain); return t === WATER && inland && inland(x, y) ? SAND : t; };
+    // (water in a terraced world is drawn as sand: it is the see-through sheets laid over its stepped bed by the renderer, cut along the smooth rim of the bed, not a tile picture with a harsh edge; the world still counts it as water)
+    const field = this.field, inland = field ? (_x: number, _y: number) => true : null;   // (all water of a terraced world has sheets over it: lakes, the water the weather made, and the sea, whose bed steps down under one sheet at sea level)
+    const ter = (i: number, j: number, x: number, y: number): Terrain => { const t = (any ? this.changes.get(tileKey(x, y))?.t : undefined) ?? (g.t[(j + MARGIN) * SIDE + i + MARGIN] as Terrain); if (inland && !(any && this.changes.has(tileKey(x, y))) && t === SAND && (g.b[(j + MARGIN) * SIDE + i + MARGIN] & PLAIN_BIT)) return GRASS;
+      return t === WATER && inland && inland(x, y) ? SAND : t; };
     // what each tile looks like, for the chunk and a ring round it (a swallowed tile counts as its surroundings for its neighbours too)
     const EW = CHUNK + 2, eff = new Uint8Array(EW * EW);
     for (let j = -1; j <= CHUNK; j++) for (let i = -1; i <= CHUNK; i++) {
@@ -493,10 +497,14 @@ export class World {
       eff[(j + 1) * EW + i + 1] = swallowedBy(ter(i, j, X, Y), ter(i, j - 1, X, Y - 1), ter(i, j + 1, X, Y + 1), ter(i + 1, j, X + 1, Y), ter(i - 1, j, X - 1, Y));
     }
     const ef = (i: number, j: number) => eff[(j + 1) * EW + i + 1] as Terrain;
+    // (a terraced world: an edge between two different terrains is only drawn between tiles on one shelf; across a wall the lower tile's terrain does not reach up, so the tiles beside a ledge stay plain)
+    const lays = field ? new Int16Array(EW * EW) : null;
+    if (lays) for (let j = -1; j <= CHUNK; j++) for (let i = -1; i <= CHUNK; i++) lays[(j + 1) * EW + i + 1] = this.naturalLayerAt(ox + i, oy + j);
+    const nbr = (i: number, j: number, di: number, dj: number, own: Terrain): Terrain => !lays || lays[(j + dj + 1) * EW + i + di + 1] === lays[(j + 1) * EW + i + 1] ? ef(i + di, j + dj) : own;
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
       const x = ox + i, y = oy + j, k = tileKey(x, y), over = any ? this.changes.get(k) : undefined;
       const idx = (j + MARGIN) * SIDE + i + MARGIN;
-      const raw = generatedState(x, y, g.t[idx] as Terrain, BIOME_LIST[g.b[idx] & ~LEDGE_BIT], this.seed, (g.b[idx] & LEDGE_BIT) !== 0);
+      const raw = generatedState(x, y, g.t[idx] as Terrain, BIOME_LIST[g.b[idx] & ~(LEDGE_BIT | PLAIN_BIT)], this.seed, (g.b[idx] & LEDGE_BIT) !== 0);
       const here = ef(i, j), swallowed = here !== (over ?? raw).t;
       const st = swallowed ? plainTile(here) : over ?? raw;
       if (st.t === WATER) {
@@ -505,7 +513,7 @@ export class World {
           : { ground: SHEET.water, deco: null, scale: 1 };
         continue;
       }
-      const tr = transitionFor(st.t, ef(i, j - 1), ef(i, j + 1), ef(i + 1, j), ef(i - 1, j), ef(i - 1, j - 1), ef(i + 1, j - 1), ef(i - 1, j + 1), ef(i + 1, j + 1));
+      const tr = transitionFor(st.t, nbr(i, j, 0, -1, st.t), nbr(i, j, 0, 1, st.t), nbr(i, j, 1, 0, st.t), nbr(i, j, -1, 0, st.t), nbr(i, j, -1, -1, st.t), nbr(i, j, 1, -1, st.t), nbr(i, j, -1, 1, st.t), nbr(i, j, 1, 1, st.t));
       if (tr) { out[j * CHUNK + i] = { ground: tr, deco: st.d && over ? DECO_CELL[st.d as 1 | 2 | 3] : null, scale: st.s }; continue; }
       const ground = st.t === SAND ? (st.v === 1 ? SHEET.sandAlt : SHEET.sand) : st.v === 1 ? SHEET.flowers : SHEET.grass;
       out[j * CHUNK + i] = { ground, deco: st.d ? DECO_CELL[st.d as 1 | 2 | 3] : rockOn(st), scale: st.s };
@@ -514,7 +522,13 @@ export class World {
   }
 
   drawn(x: number, y: number): Drawn {
-    const eff = (px: number, py: number): Terrain => swallowedBy(this.terrainAt(px, py), this.terrainAt(px, py - 1), this.terrainAt(px, py + 1), this.terrainAt(px + 1, py), this.terrainAt(px - 1, py));
+    const seen = (px: number, py: number): Terrain => {
+      const t = this.terrainAt(px, py);
+      if (!this.field) return t;
+      if (t === SAND && !this.changes.has(tileKey(px, py)) && this.base(Math.floor(px / CHUNK), Math.floor(py / CHUNK)).b[(py - Math.floor(py / CHUNK) * CHUNK + MARGIN) * SIDE + (px - Math.floor(px / CHUNK) * CHUNK + MARGIN)] & PLAIN_BIT) return GRASS;
+      return t === WATER ? SAND : t;
+    };   // (as in chunkDrawn: a terraced world's water is a sheet over a sand bed, not a tile picture)
+    const eff = (px: number, py: number): Terrain => swallowedBy(seen(px, py), seen(px, py - 1), seen(px, py + 1), seen(px + 1, py), seen(px - 1, py));
     const real = this.stateAt(x, y), here = eff(x, y), st = here !== real.t ? plainTile(here) : real;   // (swallowed: see swallowedBy)
     if (st.t === WATER) {
       if (here === real.t && hash01(x, y, this.seed, 4) < 0.05 && !this.changes.has(tileKey(x, y))) {   // a rock in the water (never on tiles the rain made)
@@ -522,7 +536,8 @@ export class World {
       }
       return { ground: SHEET.water, deco: null, scale: 1 };
     }
-    const tr = transitionFor(st.t, eff(x, y - 1), eff(x, y + 1), eff(x + 1, y), eff(x - 1, y), eff(x - 1, y - 1), eff(x + 1, y - 1), eff(x - 1, y + 1), eff(x + 1, y + 1));
+    const f = this.field, same = (dx: number, dy: number): Terrain => (!f || this.naturalLayerAt(x + dx, y + dy) === this.naturalLayerAt(x, y) ? eff(x + dx, y + dy) : st.t);
+    const tr = transitionFor(st.t, same(0, -1), same(0, 1), same(1, 0), same(-1, 0), same(-1, -1), same(1, -1), same(-1, 1), same(1, 1));
     if (tr) return { ground: tr, deco: st.d && this.changes.has(tileKey(x, y)) ? DECO_CELL[st.d as 1 | 2 | 3] : null, scale: st.s };   // generated trees keep off coast tiles (Android), grown ones stay
     const ground = st.t === SAND ? (st.v === 1 ? SHEET.sandAlt : SHEET.sand) : st.v === 1 ? SHEET.flowers : SHEET.grass;
     return { ground, deco: st.d ? DECO_CELL[st.d as 1 | 2 | 3] : rockOn(st), scale: st.s };

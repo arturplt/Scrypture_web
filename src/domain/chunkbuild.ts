@@ -25,6 +25,9 @@ export function blocksFromTable(table: Uint8ClampedArray): BlockOf {
   };
 }
 
+/** The alpha a terraced tile's opaque pixels carry: 255 less its layer's low four bits (a hair of see-through at most: the picture is also drawn flat in the fallback view). The shader reads it back. */
+export const tileAlpha = (layer: number): number => 255 - (layer & 15);
+
 /**
  * Build a chunk into `px` (CPX x CPX x 4 bytes), a few rows at a time: it yields between slices so the main thread can spread the work over frames. Returns the chunk's
  * decorations. `roadAt` (the Lake District only) says which sand tiles are tarmac.
@@ -40,6 +43,10 @@ export function* chunkPixels(world: World, blockOf: BlockOf, roadAt: ((x: number
       const x = cx * CHUNK + i, y = cy * CHUNK + j, d = tiles[j * CHUNK + i];
       const b = blockOf(d.ground[0], d.ground[1], !!roadAt && world.terrainAt(x, y) === SAND && roadAt(x, y));
       for (let r = 0, o = (j * TILE_PX * CPX + i * TILE_PX) * 4; r < TILE_PX; r++, o += stride) px.set(b.subarray(r * row, r * row + row), o);
+      if (fld) {   // a terraced world: the tile's layer rides in its pixels' alpha (see tileAlpha), so the shader can tell a pixel that belongs to another shelf than the ground it lands on
+        const a = tileAlpha(world.naturalLayerAt(x, y));   // (the natural ground, not the water laid over it: a pond is a bed the shader paints on its own, and the natural layer is the same on the page and in the worker)
+        for (let r = 0, o = (j * TILE_PX * CPX + i * TILE_PX) * 4 + 3; r < TILE_PX; r++, o += stride) for (let c = 0; c < TILE_PX; c++) if (px[o + c * 4] === 255) px[o + c * 4] = a;
+      }
       if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
     }
   }

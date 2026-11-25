@@ -22,7 +22,7 @@ function reference(w: World, cx: number, cy: number, roadAt: ((x: number, y: num
     const x = cx * CHUNK + i, y = cy * CHUNK + j, d = w.drawn(x, y), road = !!roadAt && w.terrainAt(x, y) === SAND && roadAt(x, y);
     for (let r = 0; r < TILE_PX; r++) for (let c = 0; c < TILE_PX; c++) {
       const o = ((j * TILE_PX + r) * CPX + i * TILE_PX + c) * 4;
-      px[o] = d.ground[0] * 16; px[o + 1] = d.ground[1] * 16; px[o + 2] = road ? 200 : 50; px[o + 3] = 255;
+      px[o] = d.ground[0] * 16; px[o + 1] = d.ground[1] * 16; px[o + 2] = road ? 200 : 50; px[o + 3] = w.field ? 255 - (w.naturalLayerAt(x, y) & 15) : 255;
     }
     if (d.deco) decos.push({ x, y, cell: d.deco, scale: d.scale });
   }

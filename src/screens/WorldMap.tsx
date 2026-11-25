@@ -31,6 +31,7 @@ import { exitFullscreen, isFullscreen } from '../ui/fullscreen';
 import type { Key, TFn } from '../i18n';
 import { ChunkClient, FarClient, type WorkerLike } from './chunkClient';
 import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels, meshSig, sameBytes, sameDecos } from '../domain/chunkbuild';
+import { DBG_FLAGS, dbgOn, setDbg, type DbgFlag } from '../domain/dbg';
 import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
@@ -248,6 +249,7 @@ function WorldView({ id }: { id: string }) {
   const [mode, setMode] = useState<FlightMode>('glide');
   const [invertPitch, setInvertPitch] = useState(prefs0.invertPitch);
   const [debugLiftV, setDebugLiftV] = useState(initial.kind === 'lakedistrict' ? 1.6 : 3), [throttle, setThrottle] = useState(0);   // debug: the updraft's strength in m/s, and a throttle (0..100 %) pushing along the nose
+  const [dbgTick, setDbgTick] = useState(0);   // the bisect switches live in domain/dbg.ts; this only redraws their buttons
   const [debugLift, setDebugLift] = useState(initial.kind === 'lakedistrict');   // debug: a constant 3 m/s updraft everywhere
   const [aero, setAero] = useState(prefs0.aero);   // loops, rolls and inverted flight
   const [freeStall, setFreeStall] = useState(prefs0.freeStall);   // let a hard pull stall the plane
@@ -820,7 +822,7 @@ function WorldView({ id }: { id: string }) {
       camEffRef.current = camEff; poseOkRef.current = !glFailed;
       for (const m of ['chase', 'free', 'flyby', 'duel', 'fpv'] as const) camZoomNow.current[m] += (camZoom.current[m] - camZoomNow.current[m]) * (1 - Math.exp(-12 * dt));
       const wantGL = (L.gl3d || camEff !== 'chase') && !glFailed && L.tool === 'fly';
-      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
+      if (wantGL && !glr && sheet.current && shadowSprite.current) { glr = WorldGL.create(glCv, sheet.current, shadowSprite.current, [...cloudSprites, ...cirrusSprites], [stickImg.current, ...leafImgs.current, stoneImg.current, berryImg.current], { flames: flameSprites, bolt: boltSprite.current }, beaverSprites); if (!glr) glFailed = true; else { if (planeModel.current) glr.setModel(planeModel.current); if (s.world.hilly) { glr.terrain = (x, y) => s.world.heightAt(x, y); glr.terrainSoft = s.world.field ? (x, y) => s.world.field!.softHeightAt(x, y) : null; glr.terrainSub = s.world.field ? TERRACE_SUB : 1; if (s.world.field) { const fld = s.world.field; glr.terraceMesh = (cx, cy) => terraceChunkMesh(fld.grid(cx, cy).e, cx, cy, (x, y) => fld.waterSheetAt(x, y), (x, y) => fld.heightAt(x, y)); } glr.terraceStep = s.world.field ? TERRACE_STEP : 0; } glr.setFar(s.world.realMap ? lakeFarLods() : null); } }
       const useGL = wantGL && !!glr;
       if (import.meta.env.DEV && glr) (window as unknown as Record<string, unknown>).__wgl = glr;   // (dev builds only: for headless tests that starve the chunk uploads)
       if (glr) { glr.drawK = L.drawDist / 100 * (L.resAuto && s.world.field ? autoDraw : 1); glr.walkK = L.walkDist / 100; if (s.world.field && !s.world.realTerrain) { glr.nearCap = Math.max(NEAR_ALL, HILLS_NEAR * Math.max(0.5, glr.drawK)); glr.farRing = [90, 260, 820, 2600, 8000]; } else { glr.nearCap = Infinity; glr.farRing = null; } }
@@ -2048,6 +2050,7 @@ function WorldView({ id }: { id: string }) {
           const avg = Object.entries(perf.ph).map(([k, v]) => `${k} ${(v / Math.max(1, perf.n)).toFixed(1)}`);
           perf.txt = [
             `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
+            glr ? glr.gpuInfo : '',
             `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
             (() => {   // the ring of chunks round the plane (5 chunks): how many exist, how many are on the GPU, and the nearest that is missing (tiles), so a patch of missing ground can be told apart: never built, built but not uploaded, or not drawn
               const pcx = chunkOf(f.x), pcy = chunkOf(f.y); let tot = 0, built = 0, gpu = 0, near = Infinity, nearGpu = Infinity;
@@ -2450,6 +2453,10 @@ function WorldView({ id }: { id: string }) {
                 <PixelButton size="compact" scale={1} variant={showRivers ? 'green' : 'red'} aria-pressed={showRivers} onClick={() => setShowRivers(r => !r)}>{t('worldRivers')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={showFps ? 'green' : 'red'} aria-pressed={showFps} onClick={() => setShowFps(v => !v)}>{t('worldFps')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={showEco ? 'green' : 'red'} aria-pressed={showEco} onClick={() => setShowEco(v => !v)}>{t('worldEcoButton')}</PixelButton>
+              </div>
+              <div className="muted small">Render switches (find what flickers; kept in this browser): a lit button is on. nopond applies to water made after the change; msaa needs the glow pass.</div>
+              <div className="row world-tools" data-tick={dbgTick}>
+                {DBG_FLAGS.map((f: DbgFlag) => <PixelButton key={f} size="compact" scale={1} variant={dbgOn(f) ? 'green' : 'red'} aria-pressed={dbgOn(f)} onClick={() => { setDbg(f, !dbgOn(f)); setDbgTick(n => n + 1); }}>{f}</PixelButton>)}
               </div>
               <div className="world-slider"><span>{t('worldDebugLiftV')}</span><PixelSlider min={-5} max={15} step={0.1} value={debugLiftV} onChange={v => setDebugLiftV(Math.round(v * 10) / 10)} label={t('worldDebugLiftV')} valueText={`${debugLiftV} m/s`} /><b>{debugLiftV}</b></div>
               <div className="world-slider"><span>{t('worldThrottle')}</span><PixelSlider min={0} max={initial.kind === 'lakedistrict' ? LAKE_THROTTLE_MAX : 100} step={initial.kind === 'lakedistrict' ? 1 : 5} value={throttle} onChange={setThrottle} label={t('worldThrottle')} valueText={`${throttle}%`} /><b>{throttle}</b></div>

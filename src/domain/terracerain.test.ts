@@ -141,9 +141,9 @@ describe('ponds on the terraced hills', () => {
     }
     expect(found).toBe(true); expect(underVerts).toBeGreaterThan(0);
     expect(deepest).toBeGreaterThan(1);   // (a lake's bed steps down: its middle has more sheets than its rim)
-    const dry = terraceChunkMesh(new TerraceField(5).grid(40, 40).e, 40, 40, () => -1);
-    expect(dry.widx.length).toBe(0);
-    expect(dry.sub.some(v => v)).toBe(false);
+    const dry = terraceChunkMesh(new TerraceField(5).grid(40, 40).e, 40, 40, () => -1);   // (no lake water: only the sea has a sheet, one, at sea level, over a bed that steps down)
+    for (let v = 0; v < dry.wpos.length / 3; v++) expect(dry.wpos[v * 3 + 2]).toBeCloseTo(0, 9);
+    for (let v = 0; v < dry.pos.length / 3; v++) if (dry.sub[v]) expect(dry.pos[v * 3 + 2]).toBeGreaterThan(-1e-9);   // (ground under water lies at or below sea level: z is down)
   });
 
   it('sinks the water the weather makes, deeper the more water surrounds a tile, to the same surface', () => {
@@ -187,7 +187,7 @@ describe('ponds on the terraced hills', () => {
     expect(f.heightAt(cx + 0.5, cy + 0.5)).toBeLessThan(w.heightAt(cx + 0.5, cy + 0.5) + 1e-9);
   });
 
-  it('sheets the water on the beach shelf too (a thin film, it cannot sink), and sinks the water a loaded world already has', () => {
+  it('sinks water on the beach shelf below sea level like the sea (one sheet at the surface, no film on the sand), and sinks the water a loaded world already has', () => {
     const base = new World(7, undefined, 'terraced');
     let at: [number, number] | null = null;
     for (let y = -250; y < 250 && !at; y += 3) for (let x = -250; x < 250 && !at; x += 3) {
@@ -203,7 +203,9 @@ describe('ponds on the terraced hills', () => {
     expect(f.waterTopAt(cx + 0.5, cy + 0.5)).toBe(0);   // (the water a world was loaded with has its sheet: no flat tile picture)
     const gx = Math.floor(cx / 16), gy = Math.floor(cy / 16), m = terraceChunkMesh(f.grid(gx, gy).e, gx, gy, (x, y) => f.waterSheetAt(x, y));
     expect(m.widx.length).toBeGreaterThan(0);
-    for (let v = 0; v < m.wpos.length / 3; v++) expect(-m.wpos[v * 3 + 2]).toBeCloseTo(TERRACE_STEP * 0.18, 6);
+    for (let v = 0; v < m.wpos.length / 3; v++) expect(m.wpos[v * 3 + 2]).toBeCloseTo(0, 9);   // (every sheet at sea level: no film lying over the sand)
+    let sunk = 0; for (let v = 0; v < m.pos.length / 3; v++) if (m.sub[v] && m.pos[v * 3 + 2] > 1e-6) sunk++;
+    expect(sunk).toBeGreaterThan(0);   // (the pond's bed lies under sea level, one layer down at least)
     expect(spawnOf(7)).toBeDefined();
   });
   it('hangs a curtain of falling water (kind 2) on a ledge where the water on the high side stands over its lip and the water below is lower', () => {

@@ -50,6 +50,8 @@ export function setRealTerrain(d: LakeData | null) {
 export const realTerrainOn = (): boolean => REAL !== null;
 /** From which layer the tops are bare: 700 m on a real map (the fells), else TERRACE_BARE. */
 const bareFrom = (): number => (REAL ? Math.ceil(700 / TERRACE_LAYER_M) : TERRACE_BARE);
+/** The first layer of the bare tops (sand-coloured ground on purpose). */
+export const terraceBareFrom = bareFrom;
 
 // ---- noise (own copy of worldgen's hash and value noise, so the two files do not import each other) ---------------------------------
 
@@ -375,7 +377,7 @@ export const BAND_CYCLE: readonly (readonly [number, number, number])[] = [[1, 1
 /** Kept for callers that still ask: layers are no longer darkened every other one, the cycle tells them apart. */
 export const BAND_ALT = 1;
 /** How a layer tints the grass (see BAND_STOPS and BAND_CYCLE). */
-export function bandTint(layer: number): [number, number, number] {
+export function bandTint(layer: number, cycle = true): [number, number, number] {   // (`cycle` off: the plain height ramp, for the far meshes, whose vertices lie further apart than a layer is wide: each layer's own colour there is only noise that shimmers as the view moves)
   const S = BAND_STOPS, last = S[S.length - 1];
   let r = last[1], g = last[2], b = last[3];
   if (layer <= S[0][0]) { r = S[0][1]; g = S[0][2]; b = S[0][3]; }
@@ -383,6 +385,7 @@ export function bandTint(layer: number): [number, number, number] {
     const t = (layer - S[i][0]) / (S[i + 1][0] - S[i][0]);
     r = S[i][1] + (S[i + 1][1] - S[i][1]) * t; g = S[i][2] + (S[i + 1][2] - S[i][2]) * t; b = S[i][3] + (S[i + 1][3] - S[i][3]) * t; break;
   }
+  if (!cycle) return [r, g, b];
   const c = BAND_CYCLE[((layer % 6) + 6) % 6];
   return [r * c[0], g * c[1], b * c[2]];
 }
@@ -392,7 +395,7 @@ export function bandGlsl(): string {
   let c = `vec3(${f(S[0][1])}, ${f(S[0][2])}, ${f(S[0][3])})`;
   for (let i = 0; i < S.length - 1; i++) c = `mix(${c}, vec3(${f(S[i + 1][1])}, ${f(S[i + 1][2])}, ${f(S[i + 1][3])}), clamp((lay - ${f(S[i][0])}) / ${f(S[i + 1][0] - S[i][0])}, 0.0, 1.0))`;
   const cyc = BAND_CYCLE.map((v) => `vec3(${f(v[0])}, ${f(v[1])}, ${f(v[2])})`).join(', ');
-  return `const vec3 BAND_CYC[6] = vec3[6](${cyc});\nvec3 bandTint(float lay) { return (${c}) * BAND_CYC[int(mod(floor(lay + 0.5), 6.0))]; }`;
+  return `const vec3 BAND_CYC[6] = vec3[6](${cyc});\nvec3 bandRamp(float lay) { return ${c}; }\nvec3 bandCyc(float lay) { return BAND_CYC[int(mod(floor(lay + 0.5), 6.0))]; }\nvec3 bandTint(float lay) { return bandRamp(lay) * bandCyc(lay); }`;
 }
 
 // ---- the field: a seed and its cached chunk grids -----------------------------------------------------------------------------------
@@ -708,6 +711,8 @@ export class TerraceField {
   calls = 0;
   /** Ground height in tiles at a point: the stepped height of the elevation there (a wall is a jump, not a slope). */
   heightAt(px: number, py: number): number { this.calls++; return terraceH(this.elevationNear(px, py)); }
+  /** The ground without the steps: the elevation read linearly, in tiles (never lower than `heightAt`, at most one step over it). For the camera, which must clear the ground but should not jump a step at every ledge. */
+  softHeightAt(px: number, py: number): number { return Math.max(0, this.elevationNear(px, py)) * TERRACE_STEP; }
   /** Elevation at a tile's centre, from the grid (the centre is a grid point). */
   elevationAt(x: number, y: number): number {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), g = this.grid(cx, cy).e;
@@ -740,6 +745,12 @@ export function terraceSpawn(seed: number): { x: number; y: number } {
 
 // ---- the chunk mesh -------------------------------------------------------------------------------------------------------------------
 
+/** How many layers the sea's bed steps down below sea level (the drawn bed only: the ground you walk and fly over is still flat at 0 there). */
+export const SEA_DEEP = 4;
+/** A mesh's height for an elevation: whole layers, the beach at 0 and the sea's bed stepping down to SEA_DEEP layers below it. */
+const meshH = (e: number): number => TERRACE_STEP * Math.max(Math.floor(e), -SEA_DEEP);
+/** The depth shade a piece of ground under water carries (1 .. 5 layers down to the surface), kept in the mesh's `sub`. */
+const depthOf = (top: number, bed: number): number => Math.max(1, Math.min(5, top - bed));
 /** A terraced chunk's ground: positions (z is minus the height, the renderer's axis), unit normals, and triangle indices. */
 export interface TerraceMesh { pos: Float32Array; nrm: Float32Array; idx: Uint32Array; sub: Uint8Array; wpos: Float32Array; widx: Uint32Array; wkind: Uint8Array }
 /** The most sheets of water stacked over one tile (one a layer from the bed to the surface): each is see-through, so the deeper the bed, the darker the water over it. */
@@ -767,11 +778,12 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     if (tn + 3 > idx.length) { const q = new Uint32Array(idx.length * 2); q.set(idx); idx = q; }
     idx[tn++] = a; idx[tn++] = b; idx[tn++] = c;
   };
-  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) vert(x0 + i * st, y0 + j * st, terraceH(e[j * G + i]), 0, 0, -1);
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) vert(x0 + i * st, y0 + j * st, meshH(e[j * G + i]), 0, 0, -1);
   // the sheets of inland water (a lake, a beck, a tarn, a pond): over each piece of ground that lies under water (the callback says, at the piece's middle, the layer of the surface there, or -1),
   // a copy at each layer from just over the piece up to the surface, so the water is flush with the ground beside it and, being see-through, shows the bed and the foot of the walls; the more
   // layers (the deeper the bed), the darker it is. The sheets are cut from the same pieces as the ground, so their edge is the smooth curve of the bed's own wall.
-  const cls = (v: number) => (v < 1 ? 0 : Math.floor(v));
+  const cls = (v: number) => Math.max(Math.floor(v), -SEA_DEEP);
+  const seaV = new Int32Array(G * G).fill(-1);   // (the sea's one sheet shares a vertex at every grid point, so a whole bay costs a thousand vertices a chunk, not thousands)
   const wp: number[] = [], wi: number[] = [], wk: number[] = [];
   let kindNow = 0;   // (what the last sheetTop found: 0 for a lake, a beck, a tarn; 1 for a beaver's pond, which is tinted differently)
   const sheetTop = (pts: number[][]): number => {
@@ -807,13 +819,7 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     }
   };
   const sheets = (pts: number[][], bed: number, top: number) => {
-    if (top === 0) {   // water on the beach shelf, which cannot be sunk below the sea: a thin film just over the ground
-      const b = wp.length / 3;
-      for (const p of pts) { wp.push(p[0], p[1], -TERRACE_STEP * 0.18); wk.push(kindNow); }
-      for (let k = 2; k < pts.length; k++) wi.push(b, b + k - 1, b + k);
-      return;
-    }
-    for (let L = Math.max(bed + 1, top - WATER_SHEETS_MAX + 1); L <= top; L++) {
+    for (let L = top === 0 ? 0 : Math.max(bed + 1, top - WATER_SHEETS_MAX + 1); L <= top; L++) {   // (the sea has one sheet, at sea level: its depth is told by the bed's colour)
       const b = wp.length / 3;
       for (const p of pts) { wp.push(p[0], p[1], -TERRACE_STEP * L); wk.push(kindNow); }
       for (let k = 2; k < pts.length; k++) wi.push(b, b + k - 1, b + k);
@@ -832,7 +838,7 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
     return out;
   };
   const cut = (x1: number, y1: number, e1: number, x2: number, y2: number, e2: number, x3: number, y3: number, e3: number) => {
-    const lo = Math.min(e1, e2, e3), hi = Math.max(e1, e2, e3), tMin = lo < 1 ? 1 : Math.floor(lo) + 1, tMax = Math.floor(hi);
+    const lo = Math.min(e1, e2, e3), hi = Math.max(e1, e2, e3), tMin = Math.max(Math.floor(lo) + 1, 1 - SEA_DEEP), tMax = Math.floor(hi);
     const det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
     if (Math.abs(det) < 1e-12) return;
     const gx = ((e2 - e1) * (y3 - y1) - (e3 - e1) * (y2 - y1)) / det, gy = ((e3 - e1) * (x2 - x1) - (e2 - e1) * (x3 - x1)) / det, gl = Math.hypot(gx, gy) || 1;
@@ -845,7 +851,7 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
       if (poly.length < 3) continue;
       let area = 0; for (let k = 0; k < poly.length; k++) { const p = poly[k], q = poly[(k + 1) % poly.length]; area += p[0] * q[1] - q[0] * p[1]; }
       if (Math.abs(area) < 1e-9) continue;
-      const h = m === 0 ? terraceH(lo) : TERRACE_STEP * (tMin + m - 1), bedL = Math.round(h / TERRACE_STEP), top = sheetTop(poly), under = top >= 0 && (bedL < top || top === 0) ? 1 : 0, v0 = vert(poly[0][0], poly[0][1], h, 0, 0, -1, under);
+      const h = m === 0 ? meshH(lo) : TERRACE_STEP * (tMin + m - 1), bedL = Math.round(h / TERRACE_STEP), top0 = sheetTop(poly), top = bedL < 0 && top0 < 0 ? 0 : top0, under = top >= 0 && bedL < top ? depthOf(top, bedL) : 0, v0 = vert(poly[0][0], poly[0][1], h, 0, 0, -1, under);
       let prev = vert(poly[1][0], poly[1][1], h, 0, 0, -1, under);
       for (let k = 2; k < poly.length; k++) { const cur = vert(poly[k][0], poly[k][1], h, 0, 0, -1, under); tri(v0, prev, cur); prev = cur; }
       if (under) sheets(poly, bedL, top);
@@ -857,8 +863,9 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
         if ((es[a] < t) !== (es[b] < t)) { const s = (t - es[a]) / (es[b] - es[a]); q.push(xs[a] + (xs[b] - xs[a]) * s, ys[a] + (ys[b] - ys[a]) * s); }
       }
       if (q.length < 4 || Math.hypot(q[0] - q[2], q[1] - q[3]) < 1e-6) continue;
-      const top = TERRACE_STEP * t, bot = t === 1 ? 0 : TERRACE_STEP * (t - 1);
-      const a = vert(q[0], q[1], bot, wx, wy, 0), b = vert(q[2], q[3], bot, wx, wy, 0), c = vert(q[2], q[3], top, wx, wy, 0), d = vert(q[0], q[1], top, wx, wy, 0);
+      const top = TERRACE_STEP * t, bot = TERRACE_STEP * (t - 1);
+      const wv = waterTop ? waterTop((q[0] + q[2]) / 2, (q[1] + q[3]) / 2) : -1, wl = wv < 0 ? (t <= 0 ? 0 : -1) : Math.floor(wv + 1e-9), wd = wl >= t ? depthOf(wl, t - 1) : 0;   // (a wall standing in water, up to its top at the surface or under it, carries the depth of its foot)
+      const a = vert(q[0], q[1], bot, wx, wy, 0, wd), b = vert(q[2], q[3], bot, wx, wy, 0, wd), c = vert(q[2], q[3], top, wx, wy, 0, wd), d = vert(q[0], q[1], top, wx, wy, 0, wd);
       tri(a, b, c); tri(a, c, d);
     }
   };
@@ -869,7 +876,11 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
       const xy = (k: number) => [x0 + (k % G) * st, y0 + Math.floor(k / G) * st];
       if (cls(e1) === cls(e2) && cls(e2) === cls(e3)) {
         tri(p[0], p[1], p[2]);
-        if (waterTop) { const pts = [xy(p[0]), xy(p[1]), xy(p[2])], top = sheetTop(pts), bedL = cls(e1); if (top >= 0 && (bedL < top || top === 0)) { sub[p[0]] = sub[p[1]] = sub[p[2]] = 1; sheets(pts, bedL, top); } }
+        const bedL = cls(e1);
+        if (bedL < 0 && !waterTop || bedL < 0 && sheetTop([xy(p[0]), xy(p[1]), xy(p[2])]) < 0) {   // the open sea: one sheet at sea level over the stepped bed (the bed's depth shades it)
+          sub[p[0]] = Math.max(sub[p[0]], depthOf(0, bedL)); sub[p[1]] = Math.max(sub[p[1]], depthOf(0, bedL)); sub[p[2]] = Math.max(sub[p[2]], depthOf(0, bedL));
+          for (const q of p) { if (seaV[q] < 0) { seaV[q] = wp.length / 3; wp.push(x0 + (q % G) * st, y0 + Math.floor(q / G) * st, 0); wk.push(0); } wi.push(seaV[q]); }
+        } else if (waterTop) { const pts = [xy(p[0]), xy(p[1]), xy(p[2])], top = sheetTop(pts); if (top >= 0 && bedL < top) { const d = depthOf(top, bedL); for (const q of p) sub[q] = Math.max(sub[q], d); sheets(pts, bedL, top); } }
         continue;
       }
       const [xa, ya] = xy(p[0]), [xb, yb] = xy(p[1]), [xc, yc] = xy(p[2]);
@@ -911,7 +922,7 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, step: numb
       else {
         const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(x0 + i * step, y0 + j * step, seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
         if (lay === 0 || bio === 3) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }
-        else { const t = bandTint(lay), c = BIOME_FAR[bio] ?? BIOME_FAR[0]; r = c[0] * t[0]; g = c[1] * t[1]; b = c[2] * t[2]; }
+        else { const t = bandTint(lay, false), c = BIOME_FAR[bio] ?? BIOME_FAR[0]; r = c[0] * t[0]; g = c[1] * t[1]; b = c[2] * t[2]; }
         const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * step), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * step), nl = Math.hypot(gx, gy, 1);
         const sh = Math.max(0.55, Math.min(1.25, 0.5 + 0.9 * Math.max(0, (-gx * L[0] - gy * L[1] + L[2]) / nl)));
         r *= sh; g *= sh; b *= sh;

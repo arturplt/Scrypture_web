@@ -15,7 +15,8 @@
  */
 import { Pond, POND_MAX, type PondEnv } from './hydrology';
 import { setPondSurface, lakeWaterAt, LAKE_WATER, LAKE_RIVER, LAKE_LAND } from './lakedistrict';
-import { onLedge, TERRACE_LAYER_M, terraceLakeOutlets } from './terrace';
+import { onLedge, SEA_DEEP, TERRACE_LAYER_M, terraceLakeOutlets } from './terrace';
+import { dbgOn } from './dbg';
 import { hash01, GRASS, SAND, WATER, DECO_BUSH, DECO_CONIFER, DECO_DECIDUOUS, CHUNK, tileKey, keyX, keyY, plainTile, type World, type Terrain, type TileState, chunkOf } from './worldgen';
 
 export const LAYER_CAPACITY = [1, 2, 3, 5, 8, 13, 8, 21, 3, 1];       // layers 1..10
@@ -527,7 +528,7 @@ export class Ecosystem {
     let near = true, far = true;   // water on all eight sides, and on all sixteen beyond them
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (!wet(x + dx, y + dy)) { far = false; if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) near = false; }
     if (!near) far = false;
-    return [Math.max(0, top - (far ? 3 : near ? 2 : 1)), top, this.damWater.has(tileKey(x, y)) ? 1 : 0];
+    return [Math.max(dbgOn('nopond') ? 0 : -SEA_DEEP, top - (far ? 3 : near ? 2 : 1)), top, this.damWater.has(tileKey(x, y)) ? 1 : 0];   // (on the beach shelf too: the bed goes under sea level, as the sea's does, with one sheet at the surface, not a film lying on the sand)
   }
   /** A world loaded with changes: the water already in it (floods, becks, ponds made in earlier visits) is sunk and sheeted too, not left as flat tile pictures. */
   private restoreWater() {
