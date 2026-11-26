@@ -243,19 +243,15 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set({ ...state, inventory: { ...state.inventory, stone: state.inventory.stone - n } });
       return true;
     },
-    /** A rock-throwing game ended: save it, pay XP, stat points and item drops, check achievements. */
+    /** A rock-throwing game ended: save it, pay the item drops (no XP, no stat points), check achievements. */
     finishRockGame(result: RockResult): { rewards: Rewards; newHighScore: boolean } {
       const now = clock();
       const rewards = calculateRewards(result.score, result.level, result.targetsHit, result.mode);
       const newHighScore = result.score > 0 && result.score > state.rockGame.stats.highScore;
-      const xp = addXP(state.stats, rewards.xp);
-      noteXp('game', xp.stats.totalExperiencePoints - state.stats.totalExperiencePoints);
-      if (xp.leveledUp) pushEvents({ type: 'levelUp', level: xp.leveledUp });
       const inventory = { ...state.inventory };
       for (const id of rewards.items) inventory[id] = (inventory[id] ?? 0) + 1;
       set(withAchievements({
         ...state,
-        stats: xp.stats,
         inventory, rockGame: recordGame(state.rockGame, result, genId(), now),
       }));
       return { rewards, newHighScore };

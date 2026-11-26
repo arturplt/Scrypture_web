@@ -331,14 +331,13 @@ describe('full screen preference', () => {
 describe('rock throwing results', () => {
   const result = (over: object = {}) => ({ mode: 'ARCADE' as const, score: 1200, level: 5, targetsHit: 20, throws: 18, longestCombo: 4, bullseyes: 2, fastLevel: false, perfectLevel: false, farHit: false, ...over });
 
-  it('pays xp and drops (no stat points), saves the game and flags a new high score', () => {
+  it('pays item drops only (no XP, no stat points), saves the game and flags a new high score', () => {
     const { s } = make();
     const r = s.actions.finishRockGame(result());
     expect(r.newHighScore).toBe(true);
-    expect(r.rewards).toEqual({ xp: 120 + 50 + 40, items: ['bcoin', 'stone', 'hay', 'stick'] });
+    expect(r.rewards).toEqual({ items: ['bcoin', 'stone', 'hay', 'stick'] });
     const st = s.getState();
-    expect(st.stats.totalExperiencePoints).toBe(210);
-    expect(st.stats).toMatchObject({ body: 0, mind: 0, soul: 0 });
+    expect(st.stats).toMatchObject({ totalExperiencePoints: 0, body: 0, mind: 0, soul: 0 });
     expect(st.inventory).toMatchObject({ bcoin: 1, stone: 1, hay: 1, stick: 1 });
     expect(st.rockGame.stats).toMatchObject({ gamesPlayed: 1, highScore: 1200, bestLevel: 5, bullseyes: 2 });
     expect(st.rockGame.sessions).toHaveLength(1);
@@ -356,10 +355,11 @@ describe('rock throwing results', () => {
     expect(done).toEqual(['rock_game_bullseye_10', 'rock_game_combo_10', 'rock_game_first', 'rock_game_max_distance', 'rock_game_perfect_level', 'rock_game_score_1000', 'rock_game_speed_30s']);
     expect(s.getEvents().filter(e => e.type === 'achievement')).toHaveLength(7);
   });
-  it('can level the player up', () => {
+  it('never pays XP, however well it went', () => {
     const { s } = make();
     s.actions.finishRockGame(result({ score: 3000, level: 10, targetsHit: 80 }));
-    expect(s.getEvents().some(e => e.type === 'levelUp')).toBe(true);
+    expect(s.getState().stats.totalExperiencePoints).toBe(0);
+    expect(s.getEvents().some(e => e.type === 'levelUp')).toBe(false);
   });
   it('playing again costs stone and is refused without enough', () => {
     const { s } = make();

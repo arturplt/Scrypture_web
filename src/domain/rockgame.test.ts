@@ -32,11 +32,10 @@ describe('scoring tables', () => {
 });
 
 describe('rewards', () => {
-  it('xp = score/10 + level*10 + targets*2', () => { expect(calculateRewards(1234, 3, 12, 'ARCADE').xp).toBe(123 + 30 + 24); });
-  it('pays no Body, Mind or Soul points, in any mode', () => {
+  it('pays items only: no XP and no Body, Mind or Soul points, in any mode', () => {
     for (const mode of ['ARCADE', 'PRACTICE', 'TIMETRIAL'] as const) {
       const r = calculateRewards(5000, 8, 40, mode) as unknown as Record<string, unknown>;
-      expect(Object.keys(r).sort()).toEqual(['items', 'xp']);
+      expect(Object.keys(r)).toEqual(['items']);
     }
   });
   it('item drops: bcoin at 1000, stone at level 5, more at 10', () => {

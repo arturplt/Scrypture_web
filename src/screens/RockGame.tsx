@@ -180,7 +180,6 @@ export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold
             <dl className="rock-results">
               <dt>{t('levelReached')}</dt><dd>{outcome.level}</dd>
               <dt>{t('targetsHit')}</dt><dd>{outcome.targetsHit}</dd>
-              <dt>{t('xpEarned')}</dt><dd>+{outcome.rewards.xp}</dd>
             </dl>
             {outcome.rewards.items.length > 0 && <div className="row wrap">{outcome.rewards.items.map(id => <Icon key={id} name={ITEM_SPRITE[id as ItemId] ?? id} size={32} alt={id} />)}</div>}
             <div className="col-actions">

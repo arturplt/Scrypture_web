@@ -2,7 +2,7 @@
  * Where XP came from, so Bóbr can say it when the stars fly on Home. Every place that pays XP leaves a note here (not saved: it only has to last
  * until the Home screen shows the gain); XP that arrives any other way (another device or tab, an import) is noted as `sync`.
  */
-export type XpKind = 'task' | 'habit' | 'event' | 'game' | 'sync';
+export type XpKind = 'task' | 'habit' | 'event' | 'sync';
 export interface XpNote { kind: XpKind | 'other'; name?: string; xp: number; at: number }
 
 const NOTES: XpNote[] = [];

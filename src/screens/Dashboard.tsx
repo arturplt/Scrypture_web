@@ -63,7 +63,7 @@ export function Dashboard() {
   useEffect(() => {
     if (!rush) return;
     const n = explainXp(rush.gain);
-    const key = n.kind === 'task' ? 'xpWhyTask' : n.kind === 'habit' ? 'xpWhyHabit' : n.kind === 'event' ? 'xpWhyEvent' : n.kind === 'game' ? 'xpWhyGame' : n.kind === 'sync' ? 'xpWhySync' : 'xpWhyOther';
+    const key = n.kind === 'task' ? 'xpWhyTask' : n.kind === 'habit' ? 'xpWhyHabit' : n.kind === 'event' ? 'xpWhyEvent' : n.kind === 'sync' ? 'xpWhySync' : 'xpWhyOther';
     setWhy({ text: t(key, { xp: rush.gain, name: n.name ?? '' }), key: rush.key });
   }, [rush?.key]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!why) return; const id = setTimeout(() => setWhy(null), 7000); return () => clearTimeout(id); }, [why?.key]);   // eslint-disable-line react-hooks/exhaustive-deps
