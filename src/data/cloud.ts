@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 import { store } from './hooks';
 import { applyRows, hashOf, itemHashes, keyOf, localChanges, profileOf, withLists, type Row } from './items';
-import { mergeProfile, mergeSaves } from './merge';
+import { mergeProfile, mergeSaves, takeCloudProfile } from './merge';
 import { normalize } from './storage';
 import type { AppState } from './state';
 import type { UserStats } from '../domain';
@@ -35,12 +35,14 @@ interface Meta {
   profileHash: string | null;
   /** the counters (XP ...) as of the last sync, so progress made on two devices can be added up */
   statsBase: UserStats | null;
+  /** the inventory as of the last sync, for the same reason (what each device picked up or spent since is added up) */
+  invBase: Record<string, number> | null;
   /** an older all-in-one cloud save has been looked at (and merged in) */
   legacyDone: boolean;
   /** when this device last changed its save (the later side wins settings and the like) */
   at: number;
 }
-const EMPTY: Meta = { uid: null, hashes: {}, cursor: null, profileStamp: null, profileHash: null, statsBase: null, legacyDone: false, at: 0 };
+const EMPTY: Meta = { uid: null, hashes: {}, cursor: null, profileStamp: null, profileHash: null, statsBase: null, invBase: null, legacyDone: false, at: 0 };
 function readMeta(): Meta {
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY) ?? 'null');
@@ -137,8 +139,12 @@ async function syncOnce(): Promise<void> {
   if (prof && prof.updated_at !== meta.profileStamp) {
     const cloud = normalize(prof.data), here = store.getState();
     const clean = meta.profileHash !== null && meta.profileHash === hashOf(profileOf(here));
-    applyState(withLists(clean ? cloud : mergeProfile(here, cloud, meta.statsBase, meta.at, Date.parse(prof.updated_at as string) || 0), here));
-    meta = patchMeta({ profileStamp: prof.updated_at as string, ...(clean ? { profileHash: hashOf(profileOf(store.getState())), statsBase: store.getState().stats } : {}) });
+    const taken = clean ? takeCloudProfile(here, cloud, meta.invBase) : null;
+    applyState(withLists(taken ? taken.state : mergeProfile(here, cloud, meta.statsBase, meta.at, Date.parse(prof.updated_at as string) || 0, meta.invBase), here));
+    // (`raised`: this device kept more than the cloud has, so its profile is not the cloud's: no fingerprint, and step 4 uploads it)
+    meta = patchMeta({ profileStamp: prof.updated_at as string, ...(taken ? (taken.raised ? { profileHash: null } : { profileHash: hashOf(profileOf(store.getState())), statsBase: store.getState().stats, invBase: { ...store.getState().inventory } }) : {}) });
+  } else if (prof && meta.invBase === null && meta.profileHash !== null && meta.profileHash === hashOf(profileOf(store.getState()))) {
+    meta = patchMeta({ invBase: { ...store.getState().inventory } });   // same as the cloud: from here on what each device gains or spends can be added up
   }
 
   // 3. items changed here
@@ -167,7 +173,7 @@ async function syncOnce(): Promise<void> {
       if (!data?.length) { again = true; return; }   // someone saved it in between: look again
       stamp = data[0].updated_at as string;
     }
-    patchMeta({ profileStamp: stamp, profileHash: ph, statsBase: snap2.stats });
+    patchMeta({ profileStamp: stamp, profileHash: ph, statsBase: snap2.stats, invBase: { ...snap2.inventory } });
     if (store.getState() !== snap2) again = true;
   }
 }

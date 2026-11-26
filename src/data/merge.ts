@@ -39,11 +39,36 @@ function mergeList(dev: Item[], cl: Item[], was: string[] | undefined, prefer: '
 }
 
 /**
+ * The inventory is a set of counters too: what each side picked up or spent since the last sync (`base`) is added up.
+ * With no record of the last sync (`base` null) nothing can be told to be "spent", so the larger amount of each item is kept: an inventory is never lowered by guesswork.
+ */
+export function mergeInventory(device: Record<string, number>, cloud: Record<string, number>, base: Record<string, number> | null): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of new Set([...Object.keys(device), ...Object.keys(cloud)])) {
+    const d = device[id] ?? 0, c = cloud[id] ?? 0, b = base?.[id] ?? 0;
+    out[id] = base === null ? Math.max(d, c) : Math.max(0, b + (d - b) + (c - b));
+  }
+  return out;
+}
+
+/**
+ * This device has not changed its profile since the last sync, so the cloud's profile is taken whole, except for the inventory when there is no
+ * record of the last sync (an older copy of the app, or a first sync): the cloud may have been overwritten by a device that knew less, so the larger
+ * amounts are kept. `raised`: some item is now above the cloud's, so this device's profile still has to be uploaded.
+ */
+export function takeCloudProfile(here: AppState, cloud: AppState, invBase: Record<string, number> | null): { state: AppState; raised: boolean } {
+  if (invBase !== null) return { state: cloud, raised: false };
+  const inventory = mergeInventory(here.inventory, cloud.inventory, null);
+  const raised = Object.keys(inventory).some(id => inventory[id] !== (cloud.inventory[id] ?? 0));
+  return { state: raised ? { ...cloud, inventory } : cloud, raised };
+}
+
+/**
  * The parts of a save that are not lists of items (settings, pet, counters, achievements ...). Progress counters add up what each
  * side earned since the last sync (`statsBase`, or the larger value when there is none), achievements unlock if either side has
  * them, and everything else comes from whichever side changed last.
  */
-export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserStats | null, deviceAt: number, cloudAt: number): AppState {
+export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserStats | null, deviceAt: number, cloudAt: number, invBase: Record<string, number> | null = null): AppState {
   const prefer = deviceAt > cloudAt ? 'device' : 'cloud';
   const lead = prefer === 'device' ? device : cloud;
   const stats = { ...lead.stats };
@@ -52,6 +77,8 @@ export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserS
     stats[k] = b === undefined ? Math.max(d, c) : Math.max(0, b + (d - b) + (c - b));
   }
   stats.level = calculateLevel(stats.totalExperiencePoints);
+
+  const inventory = mergeInventory(device.inventory, cloud.inventory, invBase);
 
   // unlocked on either side counts, with the earlier unlock time
   const other = new Map((lead === device ? cloud : device).achievements.map(x => [x.id, x]));
@@ -65,7 +92,7 @@ export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserS
   const have = new Set(achievements.map(x => x.id));
   for (const x of [...device.achievements, ...cloud.achievements]) if (!have.has(x.id)) { have.add(x.id); achievements.push(x); }
 
-  return { ...lead, stats, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])], orbitsReached: Math.max(device.orbitsReached ?? 0, cloud.orbitsReached ?? 0) };
+  return { ...lead, stats, inventory, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])], orbitsReached: Math.max(device.orbitsReached ?? 0, cloud.orbitsReached ?? 0) };
 }
 
 /** The shortlist only names open tasks that still exist. */

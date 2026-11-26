@@ -4,7 +4,8 @@ Rebuild of the web version, ported from the Android app ("Scrypture: Grimoirium 
 Live at **scrypture.app**. Open work: `BACKLOG.md` (finished items are in `BACKLOG_DONE.md`), in the order of `ROADMAP_APP.md`. World simulation: `ROADMAP.md`, `ROADMAP_BEAVERS.md`, `ROADMAP_TERRACE.md`.
 
 ## Run
-- `./start.sh` — dev server on port **2137**, prints localhost + LAN links (open the LAN one on your phone)
+- `./start.sh` — dev server on port **2137** over plain http, prints localhost + LAN links (open the LAN one on your phone)
+- `./start_https.sh` — the same over https (self-signed certificate), which a phone needs for the camera in Pushups mode
 - `./stop.sh` — stops whatever is listening on that port (safe to run when nothing is running)
 - `npm test` — unit tests (game rules, storage, old-save fixtures, chat, i18n, the world models)
 - `npm run e2e` — a new user's first minutes in headless Chromium on the built app (`npm run build` first); `E2E_SIZE=390x844 npm run e2e` runs it as a touch phone, `E2E_URL=…` tests another server (e.g. the LAN address). CI runs both sizes on every push
