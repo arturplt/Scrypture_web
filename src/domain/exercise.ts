@@ -32,6 +32,8 @@ export interface Workout {
   /** set while paused: when the pause began */
   pausedAt?: number;
   bodyPointsAwarded: number;
+  /** arcade score of a Pushups session (see pushups.ts); unset for every other workout */
+  score?: number;
   exercises: Exercise[];
 }
 export type WeightUnit = 'kg' | 'lb';
@@ -138,6 +140,27 @@ export function exercisePR(workouts: Workout[], name: string): number | undefine
   const ws = doneSets(finished(workouts), name).flatMap(s => (s.weight === undefined ? [] : [s.weight]));
   return ws.length ? Math.max(...ws) : undefined;
 }
+/** The name Pushups sessions are saved under, so the history and the progress chart treat them as one exercise. */
+export const PUSHUPS = 'Push-ups';
+/** The best Pushups session so far: highest score, and most reps in one go (0 when there is none). */
+export function pushupBest(workouts: readonly Workout[]): { score: number; reps: number } {
+  let score = 0, reps = 0;
+  for (const w of workouts) {
+    if (!w.completed) continue;
+    const r = w.exercises.filter(e => sameName(e.name, PUSHUPS)).flatMap(e => e.sets).reduce((n, x) => n + (x.completed ? x.reps ?? 0 : 0), 0);
+    if (!r) continue;
+    reps = Math.max(reps, r); score = Math.max(score, w.score ?? 0);
+  }
+  return { score, reps };
+}
+/** What the history shows for a Pushups session instead of exercise and set counts: the reps, the pace in reps a minute (null when the time is unknown), and the score. Null for any other workout. */
+export function pushupSummary(w: Workout): { reps: number; perMin: number | null; score: number } | null {
+  if (w.score === undefined) return null;
+  const reps = w.exercises.filter(e => sameName(e.name, PUSHUPS)).flatMap(e => e.sets).reduce((n, x) => n + (x.completed ? x.reps ?? 0 : 0), 0);
+  const minutes = (w.duration ?? 0) / 60_000;
+  const perMin = minutes > 0 && reps > 0 ? Math.round((reps / minutes) * (reps / minutes < 10 ? 10 : 1)) / (reps / minutes < 10 ? 10 : 1) : null;
+  return { reps, perMin, score: w.score };
+}
 /** The weight of the most recently completed set of this exercise (the active workout counts too). */
 export function lastWeight(workouts: Workout[], name: string): number | undefined {
   const sets = doneSets(workouts, name).filter(s => s.weight !== undefined).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
@@ -241,7 +264,7 @@ export function sanitizeWorkout(r: unknown): Workout | null {
   return {
     id: r.id, name: typeof r.name === 'string' ? cleanWorkoutName(r.name) : undefined, startTime, endTime: num(r.endTime), duration: num(r.duration),
     completed, pausedMs: num(r.pausedMs) ?? 0, pausedAt: completed ? undefined : num(r.pausedAt),
-    bodyPointsAwarded: Math.trunc(num(r.bodyPointsAwarded) ?? 0), exercises,
+    bodyPointsAwarded: Math.trunc(num(r.bodyPointsAwarded) ?? 0), score: num(r.score) === undefined ? undefined : Math.trunc(num(r.score)!), exercises,
   };
 }
 /** Keeps at most one unfinished workout (the newest), like Android's "the active workout" query. */

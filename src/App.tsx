@@ -17,6 +17,7 @@ import { Games } from './screens/Games';
 import { Sanctuary } from './screens/Sanctuary';
 import { Planner } from './screens/Planner';
 import { Exercise } from './screens/Exercise';
+import { Pushups } from './screens/Pushups';
 import { MindMaps } from './screens/MindMaps';
 import { MindMapEditor } from './screens/MindMapEditor';
 import { Notes } from './screens/Notes';
@@ -72,6 +73,7 @@ function Screen({ route }: { route: string }) {
   if (route === '/apps/pixelite') return <Pixelite />;
   if (route === '/apps/sanctuary') return <Sanctuary />;
   if (route === '/apps/exercise') return <Exercise />;
+  if (route === '/apps/exercise/pushups') return <Pushups />;
   if (route === '/apps/mindmap') return <MindMaps />;
   if (route.startsWith('/apps/mindmap/')) return <MindMapEditor id={route.slice('/apps/mindmap/'.length)} />;
   if (route === '/apps/emoticons') return <EmoticonManager />;
@@ -101,7 +103,7 @@ function NavButton({ d, active, label, size, badge, showLabel }: { d: (typeof NA
 
 export function App() {
   const route = useRoute();
-  const playing = route.startsWith('/games/play/') || route.startsWith('/games/paperplane/play/') || route.startsWith('/apps/mindmap/');   // the game wants the whole screen: no bottom bar
+  const playing = route.startsWith('/games/play/') || route.startsWith('/games/paperplane/play/') || route.startsWith('/apps/mindmap/') || route === '/apps/exercise/pushups';   // the game wants the whole screen: no bottom bar
   const { t, lang } = useI18n();
   const textScale = useAppState(s => s.settings.textScale);
   const navRef = useRef<HTMLElement>(null);

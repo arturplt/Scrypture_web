@@ -1,6 +1,6 @@
 import {
   addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule, cleanTarget, effectiveStreak,
-  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
+  MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, PUSHUPS, repBonusPoints, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import type { LakeMapId } from '../domain';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
@@ -195,6 +195,8 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     // ---- stats / inventory / chat / user
     /** Keep the conversation with Bóbr for the next visit (the newest CHAT_KEEP messages). */
     setChat(messages: ChatMessage[]) { set({ ...state, chat: sanitizeChat(messages) }); },
+    /** Bóbr leaves a line in the conversation (for what happened elsewhere, like a pushup session): it is there the next time the chat opens. */
+    bobrSays(text: string) { set({ ...state, chat: sanitizeChat([...state.chat, { id: `${clock().toString(36)}-${genId()}`, type: 'NORMAL', fromBobr: true, text, at: clock() }]) }); },
     addXP(xp: number) {
       const r = addXP(state.stats, xp);
       if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });
@@ -356,6 +358,18 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       ex.sets = ex.sets.map(s => ({ ...s, completed: true, completedAt: now, duration: input.type !== 'WEIGHT_TRAINING' && ms && ex.sets.length === 1 ? ms : undefined }));
       const w: Workout = { id: genId(), name: 'Quick Log', startTime: now - ms, endTime: now, duration: ms, completed: true, pausedMs: 0, bodyPointsAwarded: 0, exercises: [ex] };
       w.bodyPointsAwarded = workoutBodyPoints(w, ms);
+      set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + w.bodyPointsAwarded }, exercise: { ...state.exercise, workouts: [w, ...state.exercise.workouts] } }));
+      return w.bodyPointsAwarded;
+    },
+    /** A Pushups session (reps counted by the camera and the nose button) saved as a finished workout of its own. Returns the Body points, or null when there were no reps or the history is full. */
+    logPushups(input: { reps: number; deep: number; score: number; ms: number }): number | null {
+      const reps = Math.trunc(input.reps);
+      if (!(reps > 0) || state.exercise.workouts.length >= MAX_WORKOUTS) return null;
+      const now = clock(), ms = Math.max(0, Math.min(Math.trunc(input.ms) || 0, 24 * 60 * 60_000));
+      const ex = newExercise(() => genId(), { name: PUSHUPS, type: 'BODYWEIGHT', sets: 1, reps });
+      ex.sets = ex.sets.map(x => ({ ...x, completed: true, completedAt: now, duration: ms || undefined }));
+      const w: Workout = { id: genId(), name: PUSHUPS, startTime: now - ms, endTime: now, duration: ms, completed: true, pausedMs: 0, bodyPointsAwarded: 0, score: Math.max(0, Math.trunc(input.score) || 0), exercises: [ex] };
+      w.bodyPointsAwarded = workoutBodyPoints(w, ms) + repBonusPoints(reps);
       set(withAchievements({ ...state, stats: { ...state.stats, body: state.stats.body + w.bodyPointsAwarded }, exercise: { ...state.exercise, workouts: [w, ...state.exercise.workouts] } }));
       return w.bodyPointsAwarded;
     },

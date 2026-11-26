@@ -26,10 +26,11 @@ export function Chat() {
   const planner = useAppState(s => s.planner);
   const bobr = useAppState(s => s.bobr);
   const inventory = useAppState(s => s.inventory);
+  const workouts = useAppState(s => s.exercise.workouts);
   const calm = useAppState(s => !!s.settings.reduceMotion) || prefersReducedMotion();
 
   // Bóbr knows the plan: the same activities and shortlist the Planner shows
-  const ctx: ChatContext = { stats, tasks, habits, achievements, userName, now: Date.now(), t, events: planner.events, shortlist: planner.shortlist, bobr, inventory };
+  const ctx: ChatContext = { stats, tasks, habits, achievements, userName, now: Date.now(), t, events: planner.events, shortlist: planner.shortlist, bobr, inventory, workouts };
   const [msgs, setMsgs] = useState<ChatMessage[]>(() => {
     const saved = store.getState().chat;   // read once as the chat opens: the screen owns the conversation from then on
     const last = saved[saved.length - 1];

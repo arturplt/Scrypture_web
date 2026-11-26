@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import {
-  COMMON_EXERCISES, EXERCISE_TYPES, MAX_EXERCISES, MAX_WORKOUTS, REST_CHOICES, WORKOUT_PRESETS, exerciseProgress, progressMeasure, restLength, showWeight, weightKg, weightStep, type WeightUnit, elapsedMs, exerciseLibrary, exercisePR, exerciseSummary, formatClock, rollingAverages, roundHalf,
+  COMMON_EXERCISES, EXERCISE_TYPES, MAX_EXERCISES, MAX_WORKOUTS, REST_CHOICES, WORKOUT_PRESETS, exerciseProgress, progressMeasure, restLength, showWeight, weightKg, weightStep, type WeightUnit, elapsedMs, exerciseLibrary, exercisePR, exerciseSummary, formatClock, pushupSummary, rollingAverages, roundHalf,
   setDefaults, setInputs, setProgress, workoutBodyPoints, type Exercise, type ExerciseSet, type ExerciseType, type PlannedExercise, type Workout,
 } from '../domain';
 import { actions, useAppState } from '../data/hooks';
@@ -25,7 +25,7 @@ const GREEN = '#4f8a3c', GREY = '#5a5644', GOLD = '#b6a432';
 /** Set boxes: done is bright green, still to do is plain grey. */
 const SET_DONE = '#7bd35f', SET_TODO = '#8a8672';
 
-type Sheet = null | 'quick' | 'presets' | 'library' | 'add' | 'finish' | 'discard';
+type Sheet = null | 'settings' | 'quick' | 'presets' | 'library' | 'add' | 'finish' | 'discard';
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 const setCount = (w: Workout) => w.exercises.reduce((n, e) => n + e.sets.length, 0);
@@ -48,10 +48,10 @@ function Stepper({ label, value, step, min = 0, show, onChange }: { label: strin
 }
 
 /** A picture, a line of text and an optional second line, as one big button. */
-function Tile({ icon, label, hint, disabled, onClick }: { icon: string; label: string; hint?: string; disabled?: boolean; onClick: () => void }) {
+function Tile({ icon, label, hint, disabled, onClick }: { icon?: string; label: string; hint?: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <PixelFrame as="button" theme={STONE} scale={1} className="ex-tile" aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick}>
-      <Icon name={icon} size={24} />
+    <PixelFrame as="button" theme={STONE} scale={1} className={`ex-tile ${icon ? '' : 'ex-tile-plain'}`} aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick}>
+      {icon && <Icon name={icon} size={24} />}
       <span className="ex-tile-text"><span>{label}</span>{hint && <span className="muted">{hint}</span>}</span>
     </PixelFrame>
   );
@@ -81,11 +81,11 @@ export function Exercise() {
   };
 
   return (
-    <div className="screen ex">
+    <div className="screen ex" role="region" aria-label={t('exercise')}>
       <div className="row between">
         <PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton>
+        <PixelButton scale={1} onClick={() => setSheet('settings')}>{t('settings')}</PixelButton>
       </div>
-      <div className="row ex-head"><Icon name="body_active" size={32} /><h1 className="title">{t('exercise')}</h1></div>
       {note && <div className="ex-note" role="status"><Chip color={GOLD}>{note}</Chip></div>}
 
       {active ? (
@@ -103,12 +103,19 @@ export function Exercise() {
           </section>
           <div className="ex-tiles">
             <Tile icon="symbol_play" label={t('exStart')} disabled={full} onClick={() => start()} />
+            <Tile label={t('exPushups')} disabled={full} onClick={() => navigate('/apps/exercise/pushups')} />
             <Tile icon="pencil_yellow" label={t('exQuick')} disabled={full} onClick={() => setSheet('quick')} />
             <Tile icon="task" label={t('exWorkoutLibrary')} hint={t('exPresetCount', { n: WORKOUT_PRESETS.length })} disabled={full} onClick={() => setSheet('presets')} />
             <Tile icon="sort" label={t('exLibrary')} onClick={() => setSheet('library')} />
           </div>
           {full && <div className="muted small" role="status">{t('exFull', { n: MAX_WORKOUTS })}</div>}
-          <section className="ex-block ex-prefs" aria-label={t('exSettings')}>
+          <History workouts={workouts} onChart={setChart} />
+        </>
+      )}
+
+      <Modal open={sheet === 'settings'} onClose={() => setSheet(null)} title={t('settings')} theme="app">
+        <div className="ex-dialog">
+        <section className="ex-block ex-prefs" aria-label={t('exSettings')}>
             <div className="ex-types" role="group" aria-label={t('exUnit')}>
               <span className="muted small">{t('exUnit')}</span>
               {(['kg', 'lb'] as const).map(u => <button type="button" key={u} className={`seg ${u === unit ? 'on' : ''}`} aria-pressed={u === unit} onClick={() => actions.setExerciseSettings({ unit: u })}>{u}</button>)}
@@ -117,11 +124,10 @@ export function Exercise() {
               <span className="muted small">{t('exRestLength')}</span>
               {REST_CHOICES.map(n => <button type="button" key={n} className={`seg ${n === restSecs ? 'on' : ''}`} aria-pressed={n === restSecs} onClick={() => actions.setExerciseSettings({ restSeconds: n })}>{mmss(n)}</button>)}
             </div>
-          </section>
-          <History workouts={workouts} onChart={setChart} />
-        </>
-      )}
-
+        </section>
+        <div className="row"><PixelButton scale={1} onClick={() => setSheet(null)}>{t('exClose')}</PixelButton></div>
+        </div>
+      </Modal>
       <QuickLog open={sheet === 'quick'} onClose={() => setSheet(null)} onSaved={n => { setSheet(null); setNote(t('exEarned', { n: n ?? 0 })); }} />
       <Presets open={sheet === 'presets'} onClose={() => setSheet(null)} onStart={p => start(t(PRESET_KEY[p.id]), p.exercises)} />
       <Library open={sheet === 'library'} onClose={() => setSheet(null)} workouts={workouts} onChart={n => { setSheet(null); setChart(n); }} />
@@ -163,7 +169,7 @@ function History({ workouts, onChart }: { workouts: Workout[]; onChart: (name: s
       <h2 className="ex-label">{t('exHistory')} ({done.length})</h2>
       {done.length === 0 && <PixelFrame theme={STONE} scale={1} className="ex-empty"><Icon name="body_inactive" size={32} /><span className="muted small">{t('exNone')}</span></PixelFrame>}
       {done.slice(0, shown).map(w => {
-        const on = open === w.id;
+        const on = open === w.id, push = pushupSummary(w);
         return (
           <PixelFrame key={w.id} theme={STONE} scale={1} className="ex-hist">
             <button type="button" className="ex-hist-head" aria-expanded={on} onClick={() => setOpen(on ? null : w.id)}>
@@ -173,7 +179,11 @@ function History({ workouts, onChart }: { workouts: Workout[]; onChart: (name: s
             </button>
             <div className="row ex-wrap ex-chips">
               <Chip color={GREY}>{t('exMin', { n: Math.round((w.duration ?? 0) / 60_000) })}</Chip>
-              <Chip color={GREY}>{t('exSummary', { n: w.exercises.length, s: setCount(w) })}</Chip>
+              {push ? <>
+                <Chip color={GREY}>{t('exPushRepsN', { n: push.reps })}</Chip>
+                {push.perMin !== null && <Chip color={GREY}>{t('exPushPace', { n: push.perMin })}</Chip>}
+                <Chip color={GREY}>{t('exPushScoreN', { n: push.score })}</Chip>
+              </> : <Chip color={GREY}>{t('exSummary', { n: w.exercises.length, s: setCount(w) })}</Chip>}
               {w.bodyPointsAwarded > 0 && <Chip color={GOLD}>{t('exEarned', { n: w.bodyPointsAwarded })}</Chip>}
             </div>
             {on && (

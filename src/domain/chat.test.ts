@@ -19,7 +19,7 @@ function walk(c: ChatContext, picks: string[]) {
 
 describe('chat options', () => {
   it('main menu depends on context', () => {
-    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'motivation_ask', 'quote_ask', 'tip_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
+    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'pushups_ask', 'motivation_ask', 'quote_ask', 'tip_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
     const full = ctx({ tasks: [mk('a')], habits: [{ id: 'h', title: 'h', category: 'BODY', frequency: 'DAILY', streak: 0, bestStreak: 0, lastCompleted: null, createdAt: 0, updatedAt: 0 }] });
     expect(ids(full)).toContain('tasks_ask'); expect(ids(full)).toContain('habits_ask');
   });
@@ -240,5 +240,23 @@ describe('ideas and the scale', () => {
     expect(ids(ctx(), chatReply('idea_ask', ctx(), initialFlow()).flow)).not.toContain('idea_easier');
     const top = ctx({ stats: { ...initialStats(), level: 10 } });
     expect(ids(top, chatReply('idea_ask', top, initialFlow()).flow)).not.toContain('idea_harder');
+  });
+});
+
+describe('pushups with Bóbr', () => {
+  const session = (reps: number, score: number) => ({ id: `p${reps}`, name: 'Push-ups', startTime: 1, completed: true, pausedMs: 0, bodyPointsAwarded: 1, score, exercises: [{ id: 'e', name: 'Push-ups', type: 'BODYWEIGHT' as const, sets: [{ id: 's', setNumber: 1, reps, completed: true }] }] });
+  it('is on the main menu and offers the screen after a word about the record', () => {
+    const first = chatReply('pushups_ask', ctx(), initialFlow());
+    expect(first.reply).toMatch(/camera/i);
+    expect(ids(ctx(), first.flow)).toEqual(['pushups_go', 'go_back']);
+    const rec = chatReply('pushups_ask', ctx({ workouts: [session(35, 520)] }), initialFlow());
+    expect(rec.reply).toContain('520');
+    expect(rec.reply).toContain('35');
+  });
+  it('opens the pushups screen on go, and go back returns to the menu', () => {
+    const r = chatReply('pushups_go', ctx(), { ...initialFlow(), mode: 'pushups' });
+    expect(r.go).toBe('/apps/exercise/pushups');
+    expect(r.flow.mode).toBe('main');
+    expect(chatReply('go_back', ctx(), { ...initialFlow(), mode: 'pushups' }).flow.mode).toBe('main');
   });
 });

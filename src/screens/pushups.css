@@ -1,0 +1,57 @@
+/* Pushups: a phone on the floor, a face over it. Big numbers, one huge button. Lengths in --u like the rest of the tracker. */
+.screen.pu { --pu-green: #8fd17a; display: flex; flex-direction: column; gap: calc(8 * var(--u)); box-sizing: border-box; height: calc(100dvh - 32 * var(--u) - env(safe-area-inset-bottom)); min-height: 0; }
+.pu > * { flex: none; }
+/* while counting, everything fits the screen and the nose button takes what is left; the intro and the summary may scroll on a very small one */
+.pu[data-phase="intro"], .pu[data-phase="done"] { overflow-y: auto; }
+.pu[data-phase="calibrating"], .pu[data-phase="running"] { overflow: hidden; }
+.pu-top { gap: calc(8 * var(--u)); align-items: center; }
+.pu-intro { display: grid; gap: calc(12 * var(--u)); line-height: 1.6; justify-items: start; }
+.pu-intro p { margin: 0; }
+.pu-intro .title { margin: 0; }
+.pu-gold { color: var(--gold); }
+.pu-newbest { font-size: var(--fs-md); animation: pu-pulse .8s steps(2, jump-none) infinite; }
+
+/* time, score, best, reps */
+.pu-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(6 * var(--u)); }
+.pu-stat { display: grid; gap: calc(2 * var(--u)); justify-items: center; text-align: center; font-size: var(--fs-xs); line-height: 1.3; }
+.pu-stat strong { font-size: var(--fs-md); font-weight: normal; color: var(--text); font-variant-numeric: tabular-nums; text-shadow: calc(2 * var(--u)) calc(2 * var(--u)) 0 #000a; }
+.pu-time strong, .pu-reps strong { font-size: var(--fs-lg); }
+.pu-reps strong { color: var(--pu-green); }
+
+/* what the screen says */
+.pu-cheer { min-height: calc(36 * var(--u)); display: grid; place-items: center; text-align: center; font-size: var(--fs-md); line-height: 1.4; color: var(--gold); text-shadow: calc(2 * var(--u)) calc(2 * var(--u)) 0 #000a; overflow-wrap: anywhere; }
+.pu-line { animation: pu-in .25s ease-out; }
+
+/* the camera signal, and the sensitivity choices */
+.pu-sense { display: grid; gap: calc(6 * var(--u)); }
+.pu-meter { height: calc(10 * var(--u)); background: #0006; border: calc(2 * var(--u)) solid #0008; }
+.pu-meter i { display: block; height: 100%; background: var(--pu-green); transition: width .08s linear; }
+.pu-seg { display: flex; flex-wrap: wrap; align-items: center; gap: calc(4 * var(--u)); }
+.pu-seg > .muted { min-width: calc(72 * var(--u)); }
+.pu-warn { color: #e07a5f; }
+
+/* the nose button: as much of the screen as it can have */
+.pu-nose-wrap { position: relative; display: grid; flex: 1 1 0 !important; min-height: calc(96 * var(--u)); }
+.pu .pu-nose.pb { width: 100%; height: 100%; min-height: 0; padding: calc(8 * var(--u)); font-size: var(--fs-xl); line-height: 1.3; text-align: center; touch-action: manipulation; -webkit-user-select: none; user-select: none; transition: transform .06s; }
+.pu .pu-nose.hit { transform: scale(.97); filter: brightness(1.3); }
+.pu .pu-nose:disabled { filter: grayscale(.8) brightness(.7); }
+.pu-pop { position: absolute; left: 50%; top: 12%; z-index: 2; translate: -50% 0; font-size: calc(var(--fs-xl) * 1.5); color: var(--gold); text-shadow: calc(3 * var(--u)) calc(3 * var(--u)) 0 #000c; pointer-events: none; animation: pu-pop .8s ease-out forwards; }
+
+/* the summary */
+.pu-sum { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(8 * var(--u)); width: 100%; }
+.pu-sum > div { display: grid; gap: calc(4 * var(--u)); justify-items: center; padding: calc(8 * var(--u)); background: #0005; font-size: var(--fs-xs); }
+.pu-sum strong { font-size: var(--fs-lg); font-weight: normal; }
+
+@keyframes pu-in { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes pu-pop { from { transform: translateY(0) scale(.8); opacity: 1; } to { transform: translateY(calc(-70 * var(--u))) scale(1.2); opacity: 0; } }
+@keyframes pu-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .pu-line, .pu-pop, .pu-newbest { animation: none; } .pu-pop { opacity: 0; } .pu .pu-nose.pb { transition: none; } }
+:root[data-motion="reduce"] .pu-line, :root[data-motion="reduce"] .pu-newbest { animation: none; }
+:root[data-motion="reduce"] .pu-pop { animation: none; opacity: 0; }
+.pu-top .pu-i { min-width: calc(40 * var(--u)); padding-inline: calc(8 * var(--u)); }
+.pu-info { display: grid; gap: calc(10 * var(--u)); line-height: 1.6; font-size: var(--fs-xs); max-width: min(calc(320 * var(--u)), 80vw); }
+.pu-info p { margin: 0; font-size: inherit; }
+.pu-info .small, .pu-info .seg { font-size: inherit; }
+/* Finish: the whole width, at the bottom, away from the nose button at the top */
+.pu .pu-finish.pb { width: 100%; min-height: calc(48 * var(--u)); font-size: var(--fs-md); }
+.pu-info .pu-seg > .muted { min-width: 100%; }

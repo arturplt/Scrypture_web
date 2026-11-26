@@ -7,6 +7,7 @@ import { fmtClock, nextSteps, shortlistTasks, todaySummary, dayPlan, type NextSt
 import { emotionNow, hungerAt, happinessNow, type BobrVitals, type Emotion } from './bobr';
 import { STARTER_TASKS, STAT_ORDER, benchmarkFor, benchmarkXP, fmtMinutes, isTaskAdded, type StarterTask } from './starter';
 import type { Category } from './types';
+import { pushupBest, type Workout } from './exercise';
 import { achievementText, type Key, type TFn } from '../i18n';
 
 /** Port of Android ChatViewModel. Pure: (context, flow, option) -> (reply, next flow). All text goes through `ctx.t`. */
@@ -15,10 +16,12 @@ export interface DialogOption { id: string; text: string }
 export interface ChatContext { stats: UserStats; tasks: Task[]; habits: Habit[]; achievements: Achievement[]; userName: string | null; now: number; t: TFn;
   /** the planner's activities and shortlist (left out = none) */
   events?: readonly PlanEvent[]; shortlist?: readonly string[];
+  /** the exercise history, for the pushup record Bóbr knows (left out = none) */
+  workouts?: readonly Workout[];
   /** Bóbr himself and what is in the bag (left out = a content Bóbr and an empty bag) */
   bobr?: BobrVitals & { feedings: number; trades?: number; treatUntil?: number; mischiefUntil?: number }; inventory?: Readonly<Record<string, number>> }
 export interface ChatFlow {
-  mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea' | 'guide';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
+  mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea' | 'guide' | 'pushups';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
   /** guide: the topic being read (an id from GUIDE) */
   guideId?: string;
   /** idea: the suggestion on offer (a Start Here id); `previous` holds the ones already offered */
@@ -195,6 +198,7 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
     const here = GUIDE.find(g => g.id === f.guideId);
     return opts([...(here?.path ? [['guide_go', t('chatGuideGo', { name: t(here.name) })] as [string, string]] : []), ...GUIDE.filter(g => g.id !== f.guideId).map(g => [`guide_${g.id}`, t(g.name)] as [string, string]), ['go_back', t('chatGoBack')]]);
   }
+  if (f.mode === 'pushups') return opts([['pushups_go', t('chatPushupsGo')], ['go_back', t('chatGoBack')]]);
   if (f.mode === 'bobr') {
     const list: [string, string][] = [];
     if (have(c, 'berry')) list.push(['feed_berry', t('chatGiveBerry', { n: have(c, 'berry') })]);
@@ -210,7 +214,7 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
       ['achievements_back', t('chatGoBack')],
     ]);
   }
-  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['motivation_ask', t('chatMotivateMe')], ['quote_ask', t('chatQuoteAsk')], ['tip_ask', t('chatTipAsk')], ['stats_ask', t('chatMyStats')]];
+  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['pushups_ask', t('chatPushupsAsk')], ['motivation_ask', t('chatMotivateMe')], ['quote_ask', t('chatQuoteAsk')], ['tip_ask', t('chatTipAsk')], ['stats_ask', t('chatMyStats')]];
   if (c.tasks.length) list.push(['tasks_ask', t('chatMyTasks')]);
   if (c.tasks.some(x => (x.completionCount ?? 0) > 0)) list.push(['favourite_ask', t('chatFavouriteAsk')]);
   if (c.habits.length) list.push(['habits_ask', t('chatMyHabits')]);
@@ -343,6 +347,12 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
       return same(t(k), { ...f, lastLine: k });
     }
     case 'xp_ask': return same(scaleText(c));
+    // ---- pushups: Bóbr coaches, the camera screen counts
+    case 'pushups_ask': {
+      const best = pushupBest(c.workouts ?? []);
+      return same(best.reps > 0 ? t('chatPushupsBest', { score: best.score, reps: best.reps }) : t('chatPushupsFirst'), { ...initialFlow(), mode: 'pushups' });
+    }
+    case 'pushups_go': return { reply: t('chatPushupsGoing'), flow: initialFlow(), go: '/apps/exercise/pushups' };
     // ---- ideas from the catalogue
     case 'idea_ask': return offerIdea(c, initialFlow(), ideaDifficulty(stats.level));
     case 'idea_other': case 'idea_easier': case 'idea_harder': {

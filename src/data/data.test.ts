@@ -801,3 +801,38 @@ describe('tasks planned for a time of day', () => {
     expect(createStore(kv, () => t.now).getState().tasks[0].scheduledTime).toBeUndefined();
   });
 });
+
+describe('pushups', () => {
+  it('logs a session as a finished Push-ups workout with its score and pays Body points once', () => {
+    const { s, t } = make();
+    expect(s.actions.logPushups({ reps: 0, deep: 0, score: 0, ms: 5000 })).toBeNull();
+    expect(s.getState().exercise.workouts).toHaveLength(0);
+    const body = s.getState().stats.body;
+    const n = s.actions.logPushups({ reps: 35, deep: 10, score: 520, ms: 4 * 60_000 });
+    expect(n).toBe(0 + 1 + 0 + 3);                    // time 0, one exercise, one set, +1 per 10 reps
+    expect(s.getState().stats.body).toBe(body + 4);
+    const w = s.getState().exercise.workouts[0];
+    expect(w).toMatchObject({ name: 'Push-ups', completed: true, duration: 4 * 60_000, score: 520, bodyPointsAwarded: 4, startTime: t.now - 4 * 60_000 });
+    expect(w.exercises[0]).toMatchObject({ name: 'Push-ups', type: 'BODYWEIGHT' });
+    expect(w.exercises[0].sets).toHaveLength(1);
+    expect(w.exercises[0].sets[0]).toMatchObject({ reps: 35, completed: true, duration: 4 * 60_000 });
+  });
+  it('keeps the score through a save, a reload and an export', () => {
+    const { kv, s } = make();
+    s.actions.logPushups({ reps: 12, deep: 2, score: 140, ms: 60_000 });
+    expect(make(kv).s.getState().exercise.workouts[0].score).toBe(140);
+    expect(importJSON(exportJSON(s.getState()), Date.now()).exercise.workouts[0].score).toBe(140);
+    expect(normalize({ version: 1, tasks: [], exercise: { workouts: [{ id: 'a', startTime: 1, completed: true, score: -5 }] } }).exercise.workouts[0].score).toBeUndefined();
+  });
+});
+
+describe('Bóbr says', () => {
+  it('leaves a line from Bóbr in the saved chat', () => {
+    const { kv, s } = make();
+    s.actions.bobrSays('35 pushups!');
+    const chat = s.getState().chat;
+    expect(chat).toHaveLength(1);
+    expect(chat[0]).toMatchObject({ fromBobr: true, type: 'NORMAL', text: '35 pushups!' });
+    expect(make(kv).s.getState().chat[0].text).toBe('35 pushups!');
+  });
+});

@@ -119,6 +119,8 @@ Differences from Android: the clock leaves out paused time and survives a reload
 instead of three steps; an exercise can be removed and a running workout discarded; the history keeps at most 500 workouts. Built 2026-11-24: a kg/lb switch, editing a finished workout's sets and name, a progress chart per
 exercise, the rest length. Still open: adding or removing sets in a finished workout.
 
+Built 2026-11-26: a Pushups mode between Start workout and Quick log (`/apps/exercise/pushups`, `domain/pushups.ts`, `screens/Pushups.tsx`): the front camera's brightness counts each pushup (a face near the lens darkens the picture), a huge nose button makes a rep deep (bonus points), with a timer, score, streak multiplier, high score and cheering lines. A session is saved as a finished "Push-ups" workout with its score. Still open: trying the camera on a phone.
+
 ## Phase 8: sound and haptics
 
 - ~~Sound toggle and UI sounds~~ (built 2026-11-17: click on buttons, XP blip, level-up and achievement chimes; the world map keeps its own sound).

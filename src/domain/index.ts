@@ -18,6 +18,7 @@ export * from './sanctuary';
 export * from './mindmap';
 export * from './notes';
 export * from './exercise';
+export * from './pushups';
 export * from './planner';
 export * from './worldgen';
 export * from './lakedistrict';
