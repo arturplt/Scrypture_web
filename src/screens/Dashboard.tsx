@@ -6,6 +6,7 @@ import { flyIntoWorld } from '../ui/worldPortal';
 import { enterWorldFromHome } from './worldEntry';
 import { useAppState, useEvents, actions } from '../data/hooks';
 import { useNow } from '../hooks';
+import { explainXp } from '../data/xpWhy';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tradeFor, willTrade, type GameMode } from '../domain';
 import { useNavBadges } from '../ui/navBadges';
@@ -57,6 +58,15 @@ export function Dashboard() {
   /** The level card shows the XP the stars have brought so far (see useXpRush): it catches up when they land. */
   const dialog = useEvents().some(e => e.type !== 'taskComplete');   // (a level-up or achievement dialog: the stars wait until it is closed)
   const { shown: xpShown, rush } = useXpRush(stats.totalExperiencePoints, !!game || dialog);
+  // while the stars fly, Bóbr says what the XP is for (and keeps saying it a few seconds, long enough to read)
+  const [why, setWhy] = useState<{ text: string; key: number } | null>(null);
+  useEffect(() => {
+    if (!rush) return;
+    const n = explainXp(rush.gain);
+    const key = n.kind === 'task' ? 'xpWhyTask' : n.kind === 'habit' ? 'xpWhyHabit' : n.kind === 'event' ? 'xpWhyEvent' : n.kind === 'game' ? 'xpWhyGame' : n.kind === 'sync' ? 'xpWhySync' : 'xpWhyOther';
+    setWhy({ text: t(key, { xp: rush.gain, name: n.name ?? '' }), key: rush.key });
+  }, [rush?.key]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!why) return; const id = setTimeout(() => setWhy(null), 7000); return () => clearTimeout(id); }, [why?.key]);   // eslint-disable-line react-hooks/exhaustive-deps
   const lvShown = Math.min(stats.level, calculateLevel(xpShown));
   const left = xpForNextLevel(lvShown, xpShown);
   const levelBar = useRef<HTMLDivElement>(null);
@@ -160,7 +170,7 @@ export function Dashboard() {
           {trading && willTrade(emotion) && <TradeBar deal={deal} />}
           {game && penCard && <PenGame card={penCard} mode={game} onClose={() => setGame(null)} />}
           {pop && <div key={pop.at} className="mood-pop" role="status">{pop.text}</div>}
-          {line && !pop && !trading && !step && !game && <BobrBubble key={say.slot} text={t(line.key as Parameters<typeof t>[0], { name: userName || t('saysFriend'), n: line.n ?? 0 })} label={t('chatButton')} onClick={() => navigate('/chat')} />}
+          {why && !pop && !trading && !step && !game ? <BobrBubble key={`xp${why.key}`} text={why.text} label={t('chatButton')} onClick={() => navigate('/chat')} /> : line && !pop && !trading && !step && !game && <BobrBubble key={say.slot} text={t(line.key as Parameters<typeof t>[0], { name: userName || t('saysFriend'), n: line.n ?? 0 })} label={t('chatButton')} onClick={() => navigate('/chat')} />}
           {rush && <XpStars key={rush.key} gain={rush.gain} from={penCard} to={levelBar.current} />}
         </PixelFrame>
         <PixelFrame as="button" theme={fr(el.dashNudge)} scale={1} className="card nudge" onClick={() => navigate('/plan')} aria-label={t('planner')}>

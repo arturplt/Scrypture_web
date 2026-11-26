@@ -3,6 +3,7 @@ import {
   MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, PUSHUPS, repBonusPoints, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import type { LakeMapId } from '../domain';
+import { noteXp } from './xpWhy';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
 import { STORAGE_KEY, browserKV, exportJSON, importJSON, readSaved, sanitizeChat, saveState, type KV } from './storage';
@@ -127,6 +128,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const now = clock();
       const done: Task = { ...task, completed: true, completionCount: (task.completionCount ?? 0) + 1, lastCompletedAt: now, lastReward: { xp: task.experienceReward, statRewards: task.statRewards }, updatedAt: now };
       const r = applyTaskCompletion(state.stats, task);
+      noteXp('task', r.stats.totalExperiencePoints - state.stats.totalExperiencePoints, task.title);
       pushEvents({ type: 'taskComplete', taskId: id, xp: task.experienceReward });
       if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });
       undoStack = [...undoStack, { taskId: id, until: now + UNDO_WINDOW_MS }].slice(-5);
@@ -175,6 +177,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const quick = !quickStartUsed && now - openedAt <= QUICK_START_MS;
       const reward = habitReward(h, next.streak, quick);
       const r = applyReward(state.stats, reward.xp, reward.statRewards);
+      noteXp('habit', r.stats.totalExperiencePoints - state.stats.totalExperiencePoints, h.title);
       undoStack = [...undoStack, { habitId: id, prev: h, prevStats: state.stats, prevQuick: quickStartUsed, until: now + UNDO_WINDOW_MS }].slice(-5);
       quickStartUsed = true;
       pushEvents({ type: 'taskComplete', taskId: id, xp: reward.xp });
@@ -246,6 +249,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       const rewards = calculateRewards(result.score, result.level, result.targetsHit, result.mode);
       const newHighScore = result.score > 0 && result.score > state.rockGame.stats.highScore;
       const xp = addXP(state.stats, rewards.xp);
+      noteXp('game', xp.stats.totalExperiencePoints - state.stats.totalExperiencePoints);
       if (xp.leveledUp) pushEvents({ type: 'levelUp', level: xp.leveledUp });
       const inventory = { ...state.inventory };
       for (const id of rewards.items) inventory[id] = (inventory[id] ?? 0) + 1;
@@ -442,6 +446,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
         const rw = eventReward(e), sr = statRewards([], rw.category);
         const r = applyReward(stats, rw.xp, rw.category ? sr : { body: 0, mind: 0, soul: 0 });
         stats = r.stats; paid = rw;
+        noteXp('event', r.stats.totalExperiencePoints - state.stats.totalExperiencePoints, e.title);
         pushEvents({ type: 'taskComplete', taskId: id, xp: rw.xp });
         if (r.leveledUp) pushEvents({ type: 'levelUp', level: r.leveledUp });
       } else if (paid) {
@@ -536,7 +541,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
 
     // ---- data
     exportData: () => exportJSON(state),
-    importData(text: string) { set(importJSON(text, clock())); },
+    importData(text: string) { const before = state.stats.totalExperiencePoints; set(importJSON(text, clock())); noteXp('sync', state.stats.totalExperiencePoints - before); },
     resetAll() { events = []; set(defaultState(clock())); },
     /** XP, level, stat points and the finished-tasks counter back to zero (a save whose numbers ran away); tasks, habits, items and trophies stay. */
     resetStats() { set({ ...state, stats: initialStats(), statsReset: (state.statsReset ?? 0) + 1 }); },
@@ -549,7 +554,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     const read = readSaved(kv, clock());
     if (read.problem === 'newer') { if (!saveBlocked) { saveBlocked = true; emit(); } return; }   // a newer app saved: keep what is on screen, stop saving
     if (read.problem) return;
-    if (JSON.stringify(read.state) !== JSON.stringify(state)) { state = read.state; emit(); }
+    if (JSON.stringify(read.state) !== JSON.stringify(state)) { noteXp('sync', read.state.stats.totalExperiencePoints - state.stats.totalExperiencePoints); state = read.state; emit(); }
   });
 
   return {
