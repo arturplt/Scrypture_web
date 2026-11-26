@@ -17,6 +17,8 @@ export interface AppState {
   categories: CustomCategory[];
   habits: Habit[];
   stats: UserStats;
+  /** How many times the stats were reset on purpose. Sync adds up what each device earned, which would bring a reset right back; the side with the higher count wins the stats whole. */
+  statsReset: number;
   achievements: Achievement[];
   inventory: Record<string, number>; // itemId -> amount
   chat: ChatMessage[];
@@ -50,6 +52,7 @@ export const defaultState = (now = Date.now()): AppState => ({
   categories: [],
   habits: [],
   stats: initialStats(),
+  statsReset: 0,
   achievements: seedAchievements(),
   inventory: {},
   chat: [],

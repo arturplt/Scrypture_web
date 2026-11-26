@@ -99,6 +99,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     planner: sanitizePlanner(s.planner),
     worlds,
     orbitsReached,
+    statsReset: Number.isInteger(s.statsReset) && s.statsReset >= 0 ? Math.min(s.statsReset, 1e6) : 0,
     tasks: (s.tasks ?? []).map((t: any) => (t && typeof t === 'object' ? { ...withGroups(t), completionCount: t.completionCount ?? (t.completed ? 1 : 0), lastCompletedAt: t.lastCompletedAt ?? (t.completed ? t.updatedAt : undefined) } : t)),
     habits: (s.habits ?? []).map((h: any) => { if (!h || typeof h !== 'object') return h; const { plan: _p, log: _l, target: _t, ...rest } = withGroups(h); return { ...rest, ...sanitizeHabitExtras(h) }; }), chat: sanitizeChat(s.chat), achievements,
     version: CURRENT_VERSION,

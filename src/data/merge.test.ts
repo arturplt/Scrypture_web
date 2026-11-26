@@ -142,3 +142,20 @@ describe('reset stats', () => {
     expect(s.getState().tasks).toHaveLength(1);
   });
 });
+
+describe('a reset survives sync', () => {
+  it('the reset side wins the stats, with or without a base, and the other side follows', () => {
+    const { pc, phone, a } = pair();
+    pc.actions.completeTask(a.id);                      // the cloud (pc) has XP
+    const cloud = pc.getState();
+    phone.actions.importData(pc.actions.exportData());
+    phone.actions.resetStats();
+    const dev = phone.getState();
+    for (const base of [null, cloud.stats]) {
+      const m = mergeProfile(dev, cloud, base, 2, 1);
+      expect(m.stats.totalExperiencePoints).toBe(0); expect(m.statsReset).toBe(1);
+      // the other device, still on the old count, merging with the reset cloud copy
+      expect(mergeProfile(cloud, m, cloud.stats, 3, 2).stats.totalExperiencePoints).toBe(0);
+    }
+  });
+});

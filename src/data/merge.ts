@@ -71,12 +71,15 @@ export function takeCloudProfile(here: AppState, cloud: AppState, invBase: Recor
 export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserStats | null, deviceAt: number, cloudAt: number, invBase: Record<string, number> | null = null): AppState {
   const prefer = deviceAt > cloudAt ? 'device' : 'cloud';
   const lead = prefer === 'device' ? device : cloud;
-  const stats = { ...lead.stats };
-  for (const k of NUMBERS) {
-    const d = device.stats[k], c = cloud.stats[k], b = statsBase?.[k];
-    stats[k] = cleanCount(b === undefined ? Math.max(d, c) : b + (d - b) + (c - b));
+  const de = device.statsReset ?? 0, ce = cloud.statsReset ?? 0;
+  const stats = { ...(de > ce ? device : de < ce ? cloud : lead).stats };
+  if (de === ce) {   // (when one side was reset on purpose, its stats stand whole: adding up would bring the old ones straight back)
+    for (const k of NUMBERS) {
+      const d = device.stats[k], c = cloud.stats[k], b = statsBase?.[k];
+      stats[k] = cleanCount(b === undefined ? Math.max(d, c) : b + (d - b) + (c - b));
+    }
+    stats.level = calculateLevel(stats.totalExperiencePoints);
   }
-  stats.level = calculateLevel(stats.totalExperiencePoints);
 
   const inventory = mergeInventory(device.inventory, cloud.inventory, invBase);
 
@@ -92,7 +95,7 @@ export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserS
   const have = new Set(achievements.map(x => x.id));
   for (const x of [...device.achievements, ...cloud.achievements]) if (!have.has(x.id)) { have.add(x.id); achievements.push(x); }
 
-  return { ...lead, stats, inventory, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])], orbitsReached: Math.max(device.orbitsReached ?? 0, cloud.orbitsReached ?? 0) };
+  return { ...lead, stats, statsReset: Math.max(de, ce), inventory, achievements, lakesFlown: [...new Set([...device.lakesFlown, ...cloud.lakesFlown])], orbitsReached: Math.max(device.orbitsReached ?? 0, cloud.orbitsReached ?? 0) };
 }
 
 /** The shortlist only names open tasks that still exist. */

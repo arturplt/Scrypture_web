@@ -539,7 +539,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     importData(text: string) { set(importJSON(text, clock())); },
     resetAll() { events = []; set(defaultState(clock())); },
     /** XP, level, stat points and the finished-tasks counter back to zero (a save whose numbers ran away); tasks, habits, items and trophies stay. */
-    resetStats() { set({ ...state, stats: initialStats() }); },
+    resetStats() { set({ ...state, stats: initialStats(), statsReset: (state.statsReset ?? 0) + 1 }); },
   };
 
   // another tab (or the installed app) saved: take its state, or this tab's older copy would overwrite its changes with its next save
