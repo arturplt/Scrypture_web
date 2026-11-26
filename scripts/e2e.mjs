@@ -172,13 +172,24 @@ async function main() {
   }
   await waitHttp(URL_, 30000);
 
-  profile = mkdtempSync(join(tmpdir(), 'scrypture-e2e-'));
-  const chrome = spawn(findChrome(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
-  procs.push(chrome);
-  const portFile = join(profile, 'DevToolsActivePort');
-  const t0 = Date.now();
-  while (!existsSync(portFile) || !readFileSync(portFile, 'utf8').includes('\n')) { if (Date.now() - t0 > 20000) fail('Chromium did not start'); await sleep(100); }
-  const port = readFileSync(portFile, 'utf8').split('\n')[0];
+  // Chromium sometimes takes too long to come up on a busy CI machine: give it a while, and start it again (fresh profile) if it still has not answered
+  let port = null, lastErr = '';
+  for (let tryNo = 1; tryNo <= 3 && !port; tryNo++) {
+    if (profile) try { rmSync(profile, { recursive: true, force: true }); } catch { /* left in tmp */ }
+    profile = mkdtempSync(join(tmpdir(), 'scrypture-e2e-'));
+    const chrome = spawn(findChrome(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, `--window-size=${W},${H}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    procs.push(chrome);
+    let err = ''; chrome.stderr.on('data', d => { err = (err + d).slice(-1500); });
+    let exited = false; chrome.on('exit', () => { exited = true; });
+    const portFile = join(profile, 'DevToolsActivePort');
+    const t0 = Date.now();
+    while (!exited && Date.now() - t0 < 45000) {
+      if (existsSync(portFile) && readFileSync(portFile, 'utf8').includes('\n')) { port = readFileSync(portFile, 'utf8').split('\n')[0]; break; }
+      await sleep(100);
+    }
+    if (!port) { lastErr = err; try { chrome.kill('SIGKILL'); } catch { /* gone */ } console.error(`Chromium did not start (try ${tryNo} of 3)${exited ? ': it exited' : ''}${err ? `\n${err.trim()}` : ''}`); }
+  }
+  if (!port) fail(`Chromium did not start${lastErr ? `:\n${lastErr.trim()}` : ''}`);
   const page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page');
   const s = cdp(page.webSocketDebuggerUrl);
   await s.open;
