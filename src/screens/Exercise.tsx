@@ -113,7 +113,7 @@ export function Exercise() {
         </>
       )}
 
-      <Modal open={sheet === 'settings'} onClose={() => setSheet(null)} title={t('settings')} theme="app">
+      <Modal open={sheet === 'settings'} onClose={() => setSheet(null)} onBack={() => setSheet(null)} title={t('settings')} theme="app">
         <div className="ex-dialog">
         <section className="ex-block ex-prefs" aria-label={t('exSettings')}>
             <div className="ex-types" role="group" aria-label={t('exUnit')}>
@@ -318,7 +318,7 @@ function SetDialog({ e, s, onClose, onSave }: { w: Workout; e: Exercise; s: Exer
   const pr = exercisePR(all, e.name), av = rollingAverages(all, e.name, s.setNumber);
   const none = !inputs.reps && !inputs.weight && !inputs.time;
   return (
-    <Modal open onClose={onClose} title={e.name} theme="app">
+    <Modal open onClose={onClose} onBack={onClose} title={e.name} theme="app">
       <div className="ex-dialog">
         <div className="row"><Chip color={TYPE_COLOR[e.type]}>{t('exSetN', { n: s.setNumber })} / {e.sets.length}</Chip></div>
         {inputs.reps && <Stepper label={t('exReps')} value={reps} step={1} min={0} onChange={setReps} />}
@@ -371,7 +371,7 @@ function AddExercise({ open, onClose, workouts, onAdd }: { open: boolean; onClos
   const [sets, setSets] = useState(3), [reps, setReps] = useState(8);
   const timed = type === 'CARDIO';
   return (
-    <Modal open={open} onClose={onClose} title={t('exAddExercise')} theme="app">
+    <Modal open={open} onClose={onClose} onBack={onClose} title={t('exAddExercise')} theme="app">
       <div className="ex-dialog">
         <TypePick value={type} onChange={x => { setType(x); setName(''); if (x === 'CARDIO') setSets(1); }} />
         <NamePick names={exerciseLibrary(workouts)[type]} value={name} onChange={setName} />
@@ -395,7 +395,7 @@ function QuickLog({ open, onClose, onSaved }: { open: boolean; onClose: () => vo
   const [minutes, setMinutes] = useState(30), [sets, setSets] = useState(3), [reps, setReps] = useState(10), [weight, setWeight] = useState(0);
   const lifting = type === 'WEIGHT_TRAINING', cardio = type === 'CARDIO';
   return (
-    <Modal open={open} onClose={onClose} title={t('exQuick')} theme="app">
+    <Modal open={open} onClose={onClose} onBack={onClose} title={t('exQuick')} theme="app">
       <div className="ex-dialog">
         <TypePick value={type} onChange={x => { setType(x); setName(''); }} />
         <NamePick names={exerciseLibrary(workouts)[type]} value={name} onChange={setName} />
@@ -418,7 +418,7 @@ function Presets({ open, onClose, onStart }: { open: boolean; onClose: () => voi
   const [sel, setSel] = useState<string | null>(null);
   const p = WORKOUT_PRESETS.find(x => x.id === sel);
   return (
-    <Modal open={open} onClose={() => { setSel(null); onClose(); }} title={p ? t(PRESET_KEY[p.id]) : t('exWorkoutLibrary')} theme="app">
+    <Modal open={open} onClose={() => { setSel(null); onClose(); }} onBack={() => { if (p) setSel(null); else onClose(); }} title={p ? t(PRESET_KEY[p.id]) : t('exWorkoutLibrary')} theme="app">
       <div className="ex-dialog">
         {!p && (
           <div className="ex-presets">
@@ -456,7 +456,7 @@ function Library({ open, onClose, workouts, onChart }: { open: boolean; onClose:
   const lib = exerciseLibrary(workouts);
   const own = (type: ExerciseType, n: string) => !(COMMON_EXERCISES as Record<string, string[]>)[type]?.includes(n);
   return (
-    <Modal open={open} onClose={onClose} title={t('exLibrary')} theme="app">
+    <Modal open={open} onClose={onClose} onBack={onClose} title={t('exLibrary')} theme="app">
       <div className="ex-dialog">
         {EXERCISE_TYPES.map(type => (
           <section key={type} className="ex-lib" style={{ '--c': TYPE_COLOR[type] } as React.CSSProperties}>
@@ -481,7 +481,7 @@ function Progress({ name, workouts, onClose }: { name: string; workouts: Workout
   const x = (i: number) => (points.length < 2 ? W / 2 : P + (i * (W - 2 * P)) / (points.length - 1)), y = (v: number) => H - P - ((v - lo) / Math.max(1e-9, hi - lo || hi)) * (H - 2 * P);
   const date = (ms: number) => new Date(ms).toLocaleDateString(DATE_LOCALE[lang], { day: 'numeric', month: 'short' });
   return (
-    <Modal open onClose={onClose} title={name} theme="app">
+    <Modal open onClose={onClose} onBack={onClose} title={name} theme="app">
       <div className="ex-dialog">
         {!measure ? <div className="muted small">{t('exNoProgress')}</div> : (<>
           <div className="muted small">{t(measure === 'best' ? 'exChartBest' : measure === 'reps' ? 'exChartReps' : 'exChartTime')}</div>

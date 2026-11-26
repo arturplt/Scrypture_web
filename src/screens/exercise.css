@@ -60,7 +60,9 @@
 .ex-set strong { font-size: var(--fs-sm); font-weight: normal; }
 
 /* dialogs */
-.ex-dialog { display: grid; gap: calc(12 * var(--u)); min-width: min(calc(260 * var(--u)), 70vw); }
+.ex-dialog { display: grid; gap: calc(12 * var(--u)); min-width: min(calc(260 * var(--u)), 70vw); overflow-y: auto; min-height: 0; padding: calc(2 * var(--u)); -webkit-overflow-scrolling: touch; }
+:root[data-layout='compact'] .ex-dialog { gap: calc(8 * var(--u)); min-width: 0; }
+/* it scrolls inside the pop-up (a phone's screen is shorter than the lists) */
 .ex-step { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: calc(6 * var(--u)) calc(8 * var(--u)); }
 .ex-step-label { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--text-muted); }
 .ex-val { font-size: var(--fs-lg); font-weight: normal; text-align: center; color: var(--text); background: #0005; padding: calc(8 * var(--u)) 0; font-variant-numeric: tabular-nums; }

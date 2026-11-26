@@ -1763,7 +1763,7 @@ export const la: Record<Key, string> = {
   "exSetN": "Series {n}",
   "exOwn": "Tua",
   "exPushups": "Flexiones",
-  "exPushIntro": "Pone telephonum in solo sub facie, tegmine sursum. Camera prior videt cum appropinquas et singulas flexiones numerat. In fine eiusdem flexionis nasum ad magnum globum admove: flexio profunda et puncta addita sunt. Iteratio post iterationem intra tres secundas praemium gressus dat.",
+  "exPushIntro": "Pone telephonum in solo sub facie, tegmine sursum. Camera prior videt cum appropinquas et singulas flexiones numerat. In fine eiusdem flexionis nasum ad magnum globum admove: flexio profunda et puncta addita sunt. Iteratio post iterationem intra tres secundas praemium gressus dat. Pulsus semper pro alto iteratu habetur, etiam si camera motum non videt.",
   "exPushPrivacy": "Camera solum lucem metitur. Nulla imago servatur nec mittitur.",
   "exPushBest": "Summum tuum: {n}",
   "exPushStart": "Incipe",

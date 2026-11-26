@@ -59,6 +59,14 @@ button.pf { background: none; }
 /* the dialog never outgrows the window: its body scrolls and the action buttons stay visible */
 .modal { width: min(100%, calc(720 * var(--u))); background-color: transparent; display: flex; flex-direction: column; max-height: 100%; min-height: 0; overflow: hidden; }
 .modal > * { min-height: 0; }
+/* a drag inside a dialog never scrolls the page behind it, not even at the end of the dialog's own scroll (Modal.tsx also stops drags that have nothing to scroll) */
+.modal-backdrop, .modal, .modal * { overscroll-behavior: contain; }
+:root[data-layout='compact'] .modal-backdrop { padding: calc(8 * var(--u)); }
+:root[data-layout='compact'] .modal { padding: calc(2 * var(--u)) calc(4 * var(--u)); }   /* the text overlays the frame: little padding on top of it */
+:root[data-layout='compact'] .modal-title, :root[data-layout='compact'] .modal-head { margin-bottom: calc(6 * var(--u)); }
+.modal-head { flex: none; display: flex; justify-content: space-between; align-items: flex-start; gap: calc(8 * var(--u)); margin: 0 0 calc(12 * var(--u)); }
+.modal-head .modal-title { margin: 0 !important; flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.modal-head > .pb { flex: none; }
 .modal-title { flex: none; font-size: var(--fs-md); margin: 0 0 calc(12 * var(--u)); font-weight: normal; }
 
 /* ---- progress bars: boxes + coloured segments ---- */

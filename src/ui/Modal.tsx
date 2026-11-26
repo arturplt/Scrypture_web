@@ -1,13 +1,19 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { PixelFrame } from './PixelFrame';
+import { useUi } from './useUi';
+import { PixelButton } from './PixelButton';
+import { useT } from '../i18n/useT';
 import type { FrameTheme } from './themes';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /** Accessible dialog: labelled, Escape closes, Tab stays inside, focus returns to the opener. */
-export function Modal({ open, onClose, title, theme = 'wood_gold_gem', children }:
-  { open: boolean; onClose: () => void; title?: string; theme?: FrameTheme | 'app' | (string & {}); children: ReactNode }) {
+/** `onBack` puts a Back button beside the title, where a long dialog's scrolling cannot carry it away. */
+export function Modal({ open, onClose, onBack, title, theme = 'wood_gold_gem', children }:
+  { open: boolean; onClose: () => void; onBack?: () => void; title?: string; theme?: FrameTheme | 'app' | (string & {}); children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const { layout } = useUi();   // on a phone the frame is drawn at 1x (still never smaller) so the content gets the room
   const titleId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -30,8 +36,17 @@ export function Modal({ open, onClose, title, theme = 'wood_gold_gem', children 
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKey);
+    // a drag on the dim area, or on a part of the dialog with nothing to scroll, must not scroll the page behind it
+    const backdrop = el.parentElement;
+    const canScroll = (n: HTMLElement) => { const cs = getComputedStyle(n); return (n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(cs.overflowY)) || (n.scrollWidth > n.clientWidth + 1 && /(auto|scroll)/.test(cs.overflowX)); };
+    const onTouchMove = (e: TouchEvent) => {
+      for (let n = e.target as HTMLElement | null; n && n !== backdrop; n = n.parentElement) if (canScroll(n)) return;
+      if (e.cancelable) e.preventDefault();
+    };
+    backdrop?.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
       document.removeEventListener('keydown', onKey);
+      backdrop?.removeEventListener('touchmove', onTouchMove);
       const opener = openerRef.current;
       openerRef.current = null;
       if (opener?.isConnected) opener.focus?.();
@@ -41,9 +56,11 @@ export function Modal({ open, onClose, title, theme = 'wood_gold_gem', children 
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <PixelFrame theme={theme} className="modal" role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} tabIndex={-1} ref={ref}
+      <PixelFrame theme={theme} scale={layout === 'compact' ? 1 : 2} className="modal" role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} tabIndex={-1} ref={ref}
         onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-        {title && <h2 id={titleId} className="modal-title">{title}</h2>}
+        {title && (onBack
+          ? <div className="modal-head"><h2 id={titleId} className="modal-title">{title}</h2><PixelButton scale={1} size="compact" variant="red" onClick={onBack}>{t('back')}</PixelButton></div>
+          : <h2 id={titleId} className="modal-title">{title}</h2>)}
         {children}
       </PixelFrame>
     </div>

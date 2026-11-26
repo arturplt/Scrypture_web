@@ -98,20 +98,20 @@ describe('pushup score', () => {
   });
   it('a press just before the camera notices the motion joins it: one deep rep', () => {
     const a = pushupPress(newPushupSession(), 1000, 'up', 0);     // the camera is a beat late
-    expect(a.s).toMatchObject({ reps: 1, deep: 0, score: 10 });
+    expect(a.s).toMatchObject({ reps: 1, deep: 1, score: 20 });   // deep at once: the touch is the proof
     const b = pushupCameraRep(a.s, 1900, 1100);
-    expect(b.s).toMatchObject({ reps: 1, deep: 1, score: 20 });
+    expect(b.s).toMatchObject({ reps: 1, deep: 1, score: 20 });   // the camera confirms it and adds nothing
   });
-  it('a press with no camera is a plain rep, and a bouncing nose is one rep', () => {
+  it('a press with no camera is a deep rep, and a bouncing nose is one rep', () => {
     const a = pushupPress(newPushupSession(), 1000, 'off', 0);
-    expect(a.s).toMatchObject({ reps: 1, deep: 0, score: 10 });
+    expect(a.s).toMatchObject({ reps: 1, deep: 1, score: 20 });
     expect(pushupPress(a.s, 1200, 'off', 0).points).toBe(0);
     expect(pushupPress(a.s, 2000, 'off', 0).s.reps).toBe(2);
   });
   it('a press long after a camera rep is its own rep, not a bonus', () => {
     const a = pushupCameraRep(newPushupSession(), 1000, 100);
     const b = pushupPress(a.s, 4000, 'up', 0);
-    expect(b.s).toMatchObject({ reps: 2, deep: 0 });
+    expect(b.s).toMatchObject({ reps: 2, deep: 1 });   // the camera's rep stays a plain one, the press is a deep one of its own
   });
   it('a streak of quick reps raises the multiplier to x3; a long pause ends it', () => {
     let s: PushupSession = newPushupSession();

@@ -131,7 +131,7 @@ export function pushupCameraRep(s: PushupSession, now: number, downAt: number): 
   const g = addRep(s, now, false);
   return { ...g, s: { ...g.s, cameraRepAt: now } };
 }
-/** The big button was pressed. `phase` and `downAt` are the camera's view at that moment ('off' = no camera). */
+/** The big button was pressed: the nose reached the floor, so it is always a deep rep. `phase` and `downAt` are the camera's view at that moment ('off' = no camera). */
 export function pushupPress(s: PushupSession, now: number, phase: PushupPhase | 'off', downAt: number): PushupGain {
   // just after the camera counted a rep that was not deep yet: the same motion, make it deep
   if (s.lastRepAt === s.cameraRepAt && now - s.cameraRepAt <= PUSHUP_PRESS_AFTER_MS && !s.lastRepDeep) return makeDeep(s);
@@ -141,7 +141,8 @@ export function pushupPress(s: PushupSession, now: number, phase: PushupPhase | 
     const g = addRep(s, now, true);
     return { ...g, s: { ...g.s, consumedDownAt: downAt } };
   }
-  const g = addRep(s, now, false);   // the camera saw nothing (yet): a touch is a rep all the same
+  // the camera saw nothing (yet, or there is none): a touch of the nose is a deep rep all the same (the camera, if it sees the same motion, adds nothing)
+  const g = addRep(s, now, true);
   return { ...g, s: { ...g.s, buttonRepAt: now } };
 }
 

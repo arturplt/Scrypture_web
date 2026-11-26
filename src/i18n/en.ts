@@ -1762,7 +1762,7 @@ export const en = {
   "exSetN": "Set {n}",
   "exOwn": "Your own",
   "exPushups": "Pushups",
-  "exPushIntro": "Put the phone on the floor under your face, screen up. The front camera notices when you come close and counts each pushup. Touch the big button with your nose at the bottom of the same pushup for a deep rep and bonus points. Rep after rep in under 3 seconds earns a pace bonus.",
+  "exPushIntro": "Put the phone on the floor under your face, screen up. The front camera notices when you come close and counts each pushup. Touch the big button with your nose at the bottom of the same pushup for a deep rep and bonus points. Rep after rep in under 3 seconds earns a pace bonus. The button always counts as a deep rep, even when the camera misses the motion.",
   "exPushPrivacy": "The camera only measures brightness. No picture is kept or sent.",
   "exPushBest": "Your high score: {n}",
   "exPushStart": "Start",
