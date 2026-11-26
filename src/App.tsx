@@ -109,6 +109,10 @@ export function App() {
   const navRef = useRef<HTMLElement>(null);
   const [navHidden, setNavHidden] = useState(() => { try { return localStorage.getItem('navHidden') === '1'; } catch { return false; } });
   const toggleNav = (v: boolean) => { setNavHidden(v); try { localStorage.setItem('navHidden', v ? '1' : '0'); } catch { /* private mode */ } };
+  // the chat tucks the bar away on arrival (the arrow brings it back for that visit; the saved choice above is left alone)
+  const [chatPeek, setChatPeek] = useState(false);
+  useEffect(() => { setChatPeek(false); }, [route]);
+  const hidden = route === '/chat' ? !chatPeek : navHidden;
   const wantFullscreen = useAppState(s => s.settings.fullscreen);
   const chips = useAppState(s => s.settings.chips);
   const chipStyle = useChipVars(chips);
@@ -171,12 +175,12 @@ export function App() {
   useLayoutEffect(() => {
     const el = navRef.current;
     if (!el) { if (playing) document.documentElement.style.setProperty('--nav-clear', '0px'); return; }
-    const set = () => { const h = Math.ceil(el.getBoundingClientRect().height); document.documentElement.style.setProperty('--nav-clear', navHidden && !device && !rail ? '32px' : `${h + 8}px`); document.documentElement.style.setProperty('--nav-h', `${h}px`); };
+    const set = () => { const h = Math.ceil(el.getBoundingClientRect().height); document.documentElement.style.setProperty('--nav-clear', hidden && !device && !rail ? '32px' : `${h + 8}px`); document.documentElement.style.setProperty('--nav-h', `${h}px`); };
     set();
     const ro = new ResizeObserver(set);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [onboarded, playing, device, rail, navHidden]);
+  }, [onboarded, playing, device, rail, hidden]);
   // Tab switch: the page slides in from the side of the new tab and overshoots a little before settling (the bar's selector slides too, below)
   const prevRoute = useRef(route);
   const contentRef = useRef<HTMLElement | null>(null);
@@ -188,14 +192,17 @@ export function App() {
     const at = (r: string) => ids.findIndex(d => isActivePath(r, d.path));
     const a = at(from), b = at(route);
     const dir = a >= 0 && b >= 0 && a !== b ? Math.sign(b - a) : route.length >= from.length ? 1 : -1;
-    const els: [Element | null, number][] = [[contentRef.current, 40]];
-    const root = document.documentElement;
-    root.style.overflowX = 'clip';
-    const anims = els.flatMap(([el, pct]) => el ? [el.animate(
-      [{ transform: `translateX(${dir * pct}%)`, opacity: 0.2 }, { transform: 'translateX(0)', opacity: 1 }],
-      { duration: 480, easing: 'cubic-bezier(.3,1.5,.5,1)' })] : []);
-    Promise.allSettled(anims.map(x => x.finished)).then(() => { root.style.overflowX = ''; });
-    return () => { anims.forEach(x => x.cancel()); root.style.overflowX = ''; };
+    const el = contentRef.current;
+    // Clip on the app wrapper, not on <html>: flipping overflow on the root re-lays-out the viewport, which made the fixed bar blink out and back in on every tab change
+    const clipBox = el?.closest<HTMLElement>('.app') ?? null;
+    if (clipBox) clipBox.style.overflowX = 'clip';
+    // the chat drops in straight from the top (no sideways slide, no overshoot: a bounce past the end would grow the page); the tabs slide in from their side
+    const anims = el ? [route === '/chat'
+      ? el.animate([{ transform: 'translateY(-100%)', opacity: 0.2 }, { transform: 'translateY(0)', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1)' })
+      : el.animate([{ transform: `translateX(${dir * 40}%)`, opacity: 0.2 }, { transform: 'translateX(0)', opacity: 1 }], { duration: 480, easing: 'cubic-bezier(.3,1.5,.5,1)' })] : [];
+    const done = () => { if (clipBox) clipBox.style.overflowX = ''; };
+    Promise.allSettled(anims.map(x => x.finished)).then(done);
+    return () => { anims.forEach(x => x.cancel()); done(); };
   }, [route]);   // eslint-disable-line react-hooks/exhaustive-deps
   // the active-tab marker (outline / plate / underline) is one element that glides to the new tab with an overshoot
   const slide = ['outline', 'plate', 'underline'].includes(nav.active);
@@ -225,15 +232,15 @@ export function App() {
   if (!onboarded) return <div className="app ob-app">{banner}<main className="content ob-main"><Onboarding /></main><Keyboard /><Notices /></div>;   // (the notices too: a save from a newer app leaves this one at onboarding, and it must say why)
   const swipeProps = {
     onPointerDown: (e: React.PointerEvent) => { swipe.current = { y: e.clientY, done: false }; },
-    onPointerMove: (e: React.PointerEvent) => { const s = swipe.current; if (s && !s.done && e.clientY - s.y > 28) { s.done = true; toggleNav(true); } },
+    onPointerMove: (e: React.PointerEvent) => { const s = swipe.current; if (s && !s.done && e.clientY - s.y > 28) { s.done = true; if (route === '/chat') setChatPeek(false); else toggleNav(true); } },
     onPointerUp: () => { setTimeout(() => { swipe.current = null; }, 0); },
     onPointerCancel: () => { swipe.current = null; },
     onClickCapture: (e: React.MouseEvent) => { if (swipe.current?.done) { e.preventDefault(); e.stopPropagation(); } },
   };
   const canHide = !device && !rail && !navPreview;
   const navEl = !playing && (
-      <nav className={`nav ${canHide && navHidden ? 'nav-hidden' : ''}`} aria-label={t('mainNav')} ref={navRef}>
-        {canHide && navHidden && <button type="button" className="nav-toggle" aria-label={t('navShow')} onClick={() => toggleNav(false)}>
+      <nav className={`nav ${canHide && hidden ? 'nav-hidden' : ''}`} aria-label={t('mainNav')} ref={navRef}>
+        {canHide && hidden && <button type="button" className="nav-toggle" aria-label={t('navShow')} onClick={() => route === '/chat' ? setChatPeek(true) : toggleNav(false)}>
           <img src="/assets/raw/arrow_stone_up.png" alt="" />
         </button>}
         <PixelFrame theme={navFrame} scale={1} {...(canHide ? swipeProps : {})} className={`nav-frame ${navLight ? 'nav-light' : ''}`} data-active={nav.active} data-labels={labels} data-slide={slide ? '' : undefined} {...plate}>

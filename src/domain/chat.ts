@@ -21,6 +21,8 @@ export interface ChatContext { stats: UserStats; tasks: Task[]; habits: Habit[];
   /** Bóbr himself and what is in the bag (left out = a content Bóbr and an empty bag) */
   bobr?: BobrVitals & { feedings: number; trades?: number; treatUntil?: number; mischiefUntil?: number }; inventory?: Readonly<Record<string, number>> }
 export interface ChatFlow {
+  /** main: which sub-menu of questions is open (none = the short top-level list) */
+  menu?: 'ideas' | 'me';
   mode: 'main' | 'achievements' | 'suggest' | 'next' | 'bobr' | 'idea' | 'guide' | 'pushups';   // next: working through what to do now, one thing at a time; bobr: talking about Bóbr himself; idea: new tasks from the catalogue
   /** guide: the topic being read (an id from GUIDE) */
   guideId?: string;
@@ -214,13 +216,18 @@ export function chatOptions(c: ChatContext, f: ChatFlow): DialogOption[] {
       ['achievements_back', t('chatGoBack')],
     ]);
   }
-  const list: [string, string][] = [['guide_ask', t('chatGuideAsk')], ['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['pushups_ask', t('chatPushupsAsk')], ['motivation_ask', t('chatMotivateMe')], ['quote_ask', t('chatQuoteAsk')], ['tip_ask', t('chatTipAsk')], ['stats_ask', t('chatMyStats')]];
-  if (c.tasks.length) list.push(['tasks_ask', t('chatMyTasks')]);
-  if (c.tasks.some(x => (x.completionCount ?? 0) > 0)) list.push(['favourite_ask', t('chatFavouriteAsk')]);
-  if (c.habits.length) list.push(['habits_ask', t('chatMyHabits')]);
-  if (visibleAch(c).length) list.push(['achievements_ask', t('chatMyAchievements')]);
-  list.push(['improve_ask', t('chatHowDoIImprove')], ['xp_ask', t('chatXpAsk')], ['bobr_ask', t('chatBobrAsk')], ['close_chat', t('chatCloseChat')]);
-  return opts(list);
+  // the main menu is a short list; the many questions live one level down (Ideas & Motivation, My Progress)
+  if (f.menu === 'ideas') return opts([['suggest_task_ask', t('chatSuggestTask')], ['idea_ask', t('chatIdeaAsk')], ['pushups_ask', t('chatPushupsAsk')], ['motivation_ask', t('chatMotivateMe')], ['quote_ask', t('chatQuoteAsk')], ['tip_ask', t('chatTipAsk')], ['go_back', t('chatGoBack')]]);
+  if (f.menu === 'me') {
+    const list: [string, string][] = [['stats_ask', t('chatMyStats')]];
+    if (c.tasks.length) list.push(['tasks_ask', t('chatMyTasks')]);
+    if (c.tasks.some(x => (x.completionCount ?? 0) > 0)) list.push(['favourite_ask', t('chatFavouriteAsk')]);
+    if (c.habits.length) list.push(['habits_ask', t('chatMyHabits')]);
+    if (visibleAch(c).length) list.push(['achievements_ask', t('chatMyAchievements')]);
+    list.push(['improve_ask', t('chatHowDoIImprove')], ['xp_ask', t('chatXpAsk')], ['go_back', t('chatGoBack')]);
+    return opts(list);
+  }
+  return opts([['next_ask', t('chatNext')], ['today_ask', t('chatToday')], ['menu_ideas', t('chatMenuIdeas')], ['menu_me', t('chatMenuMe')], ['bobr_ask', t('chatBobrAsk')], ['guide_ask', t('chatGuideAsk')]]);   // (leaving: the Back button above the chat)
 }
 
 // ---- suggestion ---------------------------------------------------------------------------
@@ -271,6 +278,8 @@ export function chatReply(id: string, c: ChatContext, f: ChatFlow, rand: () => n
   const ach = (a: Achievement) => achievementText(t, a);
 
   switch (id) {
+    case 'menu_ideas': return same(WHAT_TO_DO, { ...initialFlow(), menu: 'ideas' });
+    case 'menu_me': return same(WHAT_TO_DO, { ...initialFlow(), menu: 'me' });
     case 'guide_ask': return same(t('chatGuideIntro'), { ...initialFlow(), mode: 'guide' });
     case 'guide_go': {
       const g = GUIDE.find(x => x.id === f.guideId);

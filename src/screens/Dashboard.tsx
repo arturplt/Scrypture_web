@@ -170,7 +170,7 @@ export function Dashboard() {
         </PixelFrame>
 
         <div className="needs">
-          <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span className="row between"><span>{t('hunger').toUpperCase()}</span><span className="muted">{t('fedCount', { n: bobr.feedings })}</span></span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>
+          <PixelFrame theme={fr(el.dashHunger)} scale={1} className="card"><div className="meter"><span>{t('hunger').toUpperCase()}</span><PixelProgressBar value={hunger} max={1} look={bars.hunger} scale={1} label={t('hunger')} /></div></PixelFrame>
           <PixelFrame theme={fr(el.dashHappiness)} scale={1} className="card"><div className="meter"><span>{t('happiness').toUpperCase()}</span><PixelProgressBar value={happiness} max={1} look={bars.happiness} scale={1} label={t('happiness')} /></div></PixelFrame>
         </div>
         <Inventory emotion={emotion} frame={el.dashInventory} onStoneHold={playStone} stoneCost={PLAY_COST_STONE} paidAt={paidAt} />

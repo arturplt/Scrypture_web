@@ -141,10 +141,12 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) { .spawn, .slot.feed { animation: none; } }
 
 /* chat */
-.msgs { display: grid; gap: calc(8 * var(--u)); }
-.msg { white-space: pre-wrap; font-size: var(--fs-xs); line-height: 1.7; max-width: 88%; overflow-wrap: anywhere; }
+.msgs { display: grid; gap: calc(4 * var(--u)); }
+/* the bubble's frame stays full size; the text overlays it with little padding, so bubbles hug their words */
+.msg, .pf.msg { white-space: pre-wrap; font-size: var(--fs-xs); line-height: 1.45; max-width: 88%; overflow-wrap: anywhere; padding: calc(2 * var(--u)) calc(4 * var(--u)); }
+.chat-top { display: flex; justify-content: space-between; align-items: center; gap: calc(8 * var(--u)); flex-wrap: nowrap; }
 .msg.bobr { justify-self: start; } .msg.me { justify-self: end; text-align: right; }
-.options { display: flex; flex-wrap: wrap; gap: calc(8 * var(--u)); }
+.options { display: flex; flex-wrap: wrap; gap: calc(4 * var(--u)); }
 .msg { scroll-margin-top: calc(16 * var(--u)); }
 /* Bóbr typing: three dots that rise in turn (still dots when motion is reduced) */
 .msg.typing { display: flex; gap: calc(4 * var(--u)); align-items: center; min-height: calc(20 * var(--u)); }

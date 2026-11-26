@@ -1603,6 +1603,8 @@ export const la: Record<Key, string> = {
   "chatXpTip": "Opus tuum cum his confer et difficultatem aptam elige.",
   // the guide: what every part of the app does
   "chatGuideAsk": "Quid facere potes?",
+  "chatMenuIdeas": "Ideae et Impetus",
+  "chatMenuMe": "Progressus Meus",
   "chatGuideIntro": "Te circumducere possum. Partem applicationis elige, et explicabo quid faciat et quomodo utaris.\n\nQuamlibet hinc statim aperire potes.",
   "chatGuideGo": "Aperi: {name}",
   "chatGuideGoing": "Eamus: {name}!",

@@ -1603,6 +1603,8 @@ export const pl: Record<Key, string> = {
   "chatXpTip": "Porównaj własne zadanie z tymi i wybierz pasującą trudność.",
   // the guide: what every part of the app does
   "chatGuideAsk": "Co potrafisz?",
+  "chatMenuIdeas": "Pomysły i Motywacja",
+  "chatMenuMe": "Mój Postęp",
   "chatGuideIntro": "Mogę cię oprowadzić. Wybierz część aplikacji, a wyjaśnię, co robi i jak jej używać.\n\nKażdą z nich możesz otworzyć stąd jednym kliknięciem.",
   "chatGuideGo": "Otwórz: {name}",
   "chatGuideGoing": "Idziemy: {name}!",

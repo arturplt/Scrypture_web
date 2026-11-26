@@ -15,6 +15,14 @@ const typingMs = (text: string) => 450 + Math.min(1000, text.length * 6);
 let seq = 0;
 const msg = (fromBobr: boolean, text: string): ChatMessage => ({ id: `${Date.now().toString(36)}-${(seq++).toString(36)}`, type: 'NORMAL', fromBobr, text, at: Date.now() });
 
+/** Scroll whatever scrolls (the page, or the device case's screen) all the way down. Not scrollIntoView: the page is still dropping in from above (a transform), which it would measure. */
+function scrollToEnd(from: HTMLElement | null) {
+  for (let el = from?.parentElement; el; el = el.parentElement) {
+    if (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) { el.scrollTop = el.scrollHeight; return; }
+  }
+  window.scrollTo(0, document.documentElement.scrollHeight);
+}
+
 /** The conversation with Bóbr. Unlike Android it is kept between visits (the newest messages, on this device only). */
 export function Chat() {
   const t = useT();
@@ -53,8 +61,11 @@ export function Chat() {
   useEffect(() => { if (!fx) return; const id = setTimeout(() => setFx(null), 1600); return () => clearTimeout(id); }, [fx]);
 
   const options = chatOptions(ctx, flow);
-  // Read the newest reply from its first line; the choices follow below it.
+  const choices = useRef<HTMLDivElement>(null);
+  const arrived = useRef(false);
+  // Opening the chat goes straight down to the choices; after that, each new reply is read from its first line with the choices following below it.
   useEffect(() => {
+    if (!arrived.current) { arrived.current = true; scrollToEnd(choices.current); return; }
     const said = list.current?.querySelectorAll('.msg.bobr');
     said?.[said.length - 1]?.scrollIntoView?.({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
   }, [msgs, typing, calm]);
@@ -93,12 +104,9 @@ export function Chat() {
 
   return (
     <div className="screen chat narrow">
-      <div className="row between">
-        <PixelButton scale={1} variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton>
-        <div className="row">
-          <PixelButton scale={1} onClick={() => navigate('/plan')}>{t('planner')}</PixelButton>
-          <PixelButton scale={1} variant="red" onClick={clear}>{t('chatClear')}</PixelButton>
-        </div>
+      <div className="chat-top">
+        <PixelButton scale={1} size="compact" variant="red" onClick={() => navigate('/')}>{t('back')}</PixelButton>
+        <PixelButton scale={1} size="compact" variant="red" onClick={clear}>{t('chatClear')}</PixelButton>
       </div>
       <h1 className="title">Bóbr</h1>
       <div className="msgs" aria-live="polite" ref={list}>
@@ -113,9 +121,9 @@ export function Chat() {
         })}
         {typing && <PixelFrame theme="app" scale={1} className="msg bobr typing" role="status" aria-label={t('chatTyping')}><i /><i /><i /></PixelFrame>}
       </div>
-      <div className="options" role="group" aria-label={t('chooseReply')} aria-busy={!!typing}>
+      <div className="options" ref={choices} role="group" aria-label={t('chooseReply')} aria-busy={!!typing}>
         {options.map(o => (
-          <PixelButton key={o.id} scale={1} disabled={!!typing} variant={o.id === 'close_chat' || o.id.startsWith('cancel') || o.id.endsWith('back') ? 'red' : 'green'} onClick={() => choose(o.id, o.text)}>{o.text}</PixelButton>
+          <PixelButton key={o.id} scale={1} size="compact" disabled={!!typing} variant={o.id === 'close_chat' || o.id.startsWith('cancel') || o.id.endsWith('back') ? 'red' : 'green'} onClick={() => choose(o.id, o.text)}>{o.text}</PixelButton>
         ))}
       </div>
     </div>

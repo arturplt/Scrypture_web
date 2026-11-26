@@ -1602,6 +1602,8 @@ export const en = {
   "chatXpTip": "Hold your own task next to these and pick the difficulty that fits.",
   // the guide: what every part of the app does
   "chatGuideAsk": "What can you do?",
+  "chatMenuIdeas": "Ideas & Motivation",
+  "chatMenuMe": "My Progress",
   "chatGuideIntro": "I can show you around. Pick a part of the app and I will explain what it does and how to use it.\n\nYou can open any of them straight from here.",
   "chatGuideGo": "Open {name}",
   "chatGuideGoing": "Off we go: {name}!",

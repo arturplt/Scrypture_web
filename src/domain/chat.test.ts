@@ -9,6 +9,7 @@ const mk = (id: string, o: Partial<Task> = {}): Task => ({
 const ctx = (o: Partial<ChatContext> = {}): ChatContext => ({
   stats: initialStats(), tasks: [], habits: [], achievements: seedAchievements(), userName: 'Artur', now: 1_000_000_000_000, t: makeT('EN'), ...o,
 });
+const ME: ChatFlow = { ...initialFlow(), menu: 'me' };
 const ids = (c: ChatContext, f: ChatFlow = initialFlow()) => chatOptions(c, f).map(o => o.id);
 /** Walk the suggestion flow with the given option ids. */
 function walk(c: ChatContext, picks: string[]) {
@@ -19,9 +20,15 @@ function walk(c: ChatContext, picks: string[]) {
 
 describe('chat options', () => {
   it('main menu depends on context', () => {
-    expect(ids(ctx())).toEqual(['guide_ask', 'next_ask', 'today_ask', 'suggest_task_ask', 'idea_ask', 'pushups_ask', 'motivation_ask', 'quote_ask', 'tip_ask', 'stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'bobr_ask', 'close_chat']);
+    expect(ids(ctx())).toEqual(['next_ask', 'today_ask', 'menu_ideas', 'menu_me', 'bobr_ask', 'guide_ask']);
+    const ideas = chatReply('menu_ideas', ctx(), initialFlow()).flow;
+    expect(ids(ctx(), ideas)).toEqual(['suggest_task_ask', 'idea_ask', 'pushups_ask', 'motivation_ask', 'quote_ask', 'tip_ask', 'go_back']);
+    expect(ids(ctx(), chatReply('go_back', ctx(), ideas).flow)).toEqual(ids(ctx()));
+    const me = chatReply('menu_me', ctx(), initialFlow()).flow;
+    expect(ids(ctx(), me)).toEqual(['stats_ask', 'achievements_ask', 'improve_ask', 'xp_ask', 'go_back']);
     const full = ctx({ tasks: [mk('a')], habits: [{ id: 'h', title: 'h', category: 'BODY', frequency: 'DAILY', streak: 0, bestStreak: 0, lastCompleted: null, createdAt: 0, updatedAt: 0 }] });
-    expect(ids(full)).toContain('tasks_ask'); expect(ids(full)).toContain('habits_ask');
+    expect(ids(full, me)).toContain('tasks_ask'); expect(ids(full, me)).toContain('habits_ask');
+    expect(chatReply('stats_ask', full, me).flow.menu).toBe('me');   // an answer keeps the sub-menu open
   });
   it('achievement menu has counts and hides minigame ones', () => {
     const c = ctx();
@@ -61,9 +68,9 @@ describe('replies', () => {
     expect(chatReply('tasks_ask', ctx({ tasks: [mk('c', { completed: true })] }), initialFlow()).reply).toBe('No tasks!\n\nDam perfect!');
   });
   it('favourite task is the one done most often, and only offered once something was done', () => {
-    expect(ids(ctx({ tasks: [mk('a')] }))).not.toContain('favourite_ask');
+    expect(ids(ctx({ tasks: [mk('a')] }), ME)).not.toContain('favourite_ask');
     const c = ctx({ tasks: [mk('a', { completionCount: 2 }), mk('b', { completionCount: 5, lastCompletedAt: 1_000_000_000_000 }), mk('c')] });
-    expect(ids(c)).toContain('favourite_ask');
+    expect(ids(c, ME)).toContain('favourite_ask');
     const reply = chatReply('favourite_ask', c, initialFlow()).reply;
     expect(reply).toContain("'b'");
     expect(reply).toContain('Done 5 times');
