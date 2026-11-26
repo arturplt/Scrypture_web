@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 import { store } from './hooks';
 import { applyRows, hashOf, itemHashes, keyOf, localChanges, profileOf, withLists, type Row } from './items';
+import { paceMs } from './syncPace';
 import { mergeProfile, mergeSaves, takeCloudProfile } from './merge';
 import { normalize } from './storage';
 import type { AppState } from './state';
@@ -70,6 +71,9 @@ const message = (e: unknown) => (e instanceof Error ? e.message : typeof e === '
 let uid: string | null = null;
 let running = false, again = false, applying = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** When this device last wrote to the cloud (the brake against two copies overwriting each other, see syncPace.ts) */
+const uploads: number[] = [];
+const noteUpload = () => { const now = Date.now(); uploads.push(now); while (uploads.length > 20 || (uploads.length && now - uploads[0] > 120_000)) uploads.shift(); };
 let lastState = store.getState();
 
 /** Put a save from the cloud into the app (not counted as a change made here). */
@@ -155,6 +159,7 @@ async function syncOnce(): Promise<void> {
   for (const batch of chunks([...upserts, ...deletes])) {
     const { error } = await sb.from('items').upsert(batch.map(r => ({ user_id: uid, kind: r.kind, id: r.id, data: r.data, deleted: r.deleted })), { onConflict: 'user_id,kind,id' });
     if (error) throw error;
+    noteUpload();
     const hashes = { ...readMeta().hashes };
     for (const r of batch) { if (r.deleted) delete hashes[keyOf(r.kind, r.id)]; else hashes[keyOf(r.kind, r.id)] = hashOf(r.data); }
     meta = patchMeta({ hashes });
@@ -175,6 +180,7 @@ async function syncOnce(): Promise<void> {
       if (!data?.length) { again = true; return; }   // someone saved it in between: look again
       stamp = data[0].updated_at as string;
     }
+    noteUpload();
     patchMeta({ profileStamp: stamp, profileHash: ph, statsBase: snap2.stats, invBase: { ...snap2.inventory } });
     if (store.getState() !== snap2) again = true;
   }
@@ -201,7 +207,7 @@ export async function syncNow(): Promise<void> {
 let held = false, heldPending = false;
 /** A game can hold the sync while it needs every frame (the paperplane in flight): what changes meanwhile is synced as soon as it is let go. */
 export function holdSync(on: boolean) { held = on; if (!on && heldPending) { heldPending = false; schedule(600); } }
-const schedule = (ms: number) => { if (held) { heldPending = true; return; } clearTimeout(timer); timer = setTimeout(() => void syncNow(), ms); };
+const schedule = (ms: number) => { if (held) { heldPending = true; return; } clearTimeout(timer); timer = setTimeout(() => void syncNow(), paceMs(uploads, Date.now(), ms)); };
 
 store.subscribe(() => {
   const s = store.getState();
