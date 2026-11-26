@@ -324,10 +324,10 @@ export function speedBonus(gap: number): number {
 }
 export const totalScore = (base: number, multipliers: number[]) => Math.floor(base * multipliers.reduce((a, m) => a * m, 1));
 
-export interface Rewards { xp: number; body: number; mind: number; soul: number; items: string[] }
+/** What a rock game pays: XP and item drops only. It never gives Body, Mind or Soul points (those come from tasks, habits and exercise). */
+export interface Rewards { xp: number; items: string[] }
 export function calculateRewards(score: number, level: number, targetsHit: number, mode: GameMode): Rewards {
   const xp = Math.floor(score / 10) + level * 10 + targetsHit * 2;
-  const points = Math.floor(Math.floor(score / 50) * (mode === 'PRACTICE' ? 0.5 : mode === 'TIMETRIAL' ? 1.5 : 1));
   const items = new Set<string>();
   if (score >= 1000) items.add('bcoin');
   if (level >= 5) items.add('stone');
@@ -335,7 +335,7 @@ export function calculateRewards(score: number, level: number, targetsHit: numbe
   if (level >= 3) items.add('hay');                       // food for Bóbr
   if (targetsHit >= 15) items.add('stick');
   if (mode === 'TIMETRIAL' && level >= 4) items.add('berry');   // the fast game pays in the treat
-  return { xp, body: Math.floor(points * 0.4), mind: Math.floor(points * 0.3), soul: Math.floor(points * 0.3), items: [...items] };
+  return { xp, items: [...items] };
 }
 
 // ---- game flow -------------------------------------------------------------------------------------------------

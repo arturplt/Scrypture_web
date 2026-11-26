@@ -181,8 +181,6 @@ export function RockGame({ mode, embedded }: { mode: GameMode; embedded?: { hold
               <dt>{t('levelReached')}</dt><dd>{outcome.level}</dd>
               <dt>{t('targetsHit')}</dt><dd>{outcome.targetsHit}</dd>
               <dt>{t('xpEarned')}</dt><dd>+{outcome.rewards.xp}</dd>
-              {(outcome.rewards.body + outcome.rewards.mind + outcome.rewards.soul) > 0 && <>
-                <dt>{t('statPoints')}</dt><dd>{t('body')} +{outcome.rewards.body} · {t('mind')} +{outcome.rewards.mind} · {t('soul')} +{outcome.rewards.soul}</dd></>}
             </dl>
             {outcome.rewards.items.length > 0 && <div className="row wrap">{outcome.rewards.items.map(id => <Icon key={id} name={ITEM_SPRITE[id as ItemId] ?? id} size={32} alt={id} />)}</div>}
             <div className="col-actions">

@@ -33,9 +33,11 @@ describe('scoring tables', () => {
 
 describe('rewards', () => {
   it('xp = score/10 + level*10 + targets*2', () => { expect(calculateRewards(1234, 3, 12, 'ARCADE').xp).toBe(123 + 30 + 24); });
-  it('stat points split 40/30/30 and practice earns half', () => {
-    expect(calculateRewards(1000, 1, 0, 'ARCADE')).toMatchObject({ body: 8, mind: 6, soul: 6 });
-    expect(calculateRewards(1000, 1, 0, 'PRACTICE')).toMatchObject({ body: 4, mind: 3, soul: 3 });
+  it('pays no Body, Mind or Soul points, in any mode', () => {
+    for (const mode of ['ARCADE', 'PRACTICE', 'TIMETRIAL'] as const) {
+      const r = calculateRewards(5000, 8, 40, mode) as unknown as Record<string, unknown>;
+      expect(Object.keys(r).sort()).toEqual(['items', 'xp']);
+    }
   });
   it('item drops: bcoin at 1000, stone at level 5, more at 10', () => {
     expect(calculateRewards(999, 1, 0, 'ARCADE').items).toEqual([]);
@@ -299,8 +301,9 @@ describe('time trial', () => {
     expect(speedBonus(6)).toBe(1.2);
     expect(speedBonus(20)).toBe(1);
   });
-  it('time trial pays 1.5x the stat points of arcade', () => {
-    expect(calculateRewards(1000, 1, 5, 'TIMETRIAL').body).toBeGreaterThan(calculateRewards(1000, 1, 5, 'ARCADE').body);
+  it('time trial is the mode that pays a berry', () => {
+    expect(calculateRewards(1000, 4, 5, 'TIMETRIAL').items).toContain('berry');
+    expect(calculateRewards(1000, 4, 5, 'ARCADE').items).not.toContain('berry');
   });
   it('saved sessions keep their mode', () => {
     expect(sanitizeRockSave({ sessions: [{ id: 'a', mode: 'TIMETRIAL', score: 1 }] }).sessions[0].mode).toBe('TIMETRIAL');

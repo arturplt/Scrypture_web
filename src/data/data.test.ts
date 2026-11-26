@@ -331,14 +331,14 @@ describe('full screen preference', () => {
 describe('rock throwing results', () => {
   const result = (over: object = {}) => ({ mode: 'ARCADE' as const, score: 1200, level: 5, targetsHit: 20, throws: 18, longestCombo: 4, bullseyes: 2, fastLevel: false, perfectLevel: false, farHit: false, ...over });
 
-  it('pays xp, stat points and drops, saves the game and flags a new high score', () => {
+  it('pays xp and drops (no stat points), saves the game and flags a new high score', () => {
     const { s } = make();
     const r = s.actions.finishRockGame(result());
     expect(r.newHighScore).toBe(true);
-    expect(r.rewards).toMatchObject({ xp: 120 + 50 + 40, body: 9, mind: 7, soul: 7, items: ['bcoin', 'stone', 'hay', 'stick'] });
+    expect(r.rewards).toEqual({ xp: 120 + 50 + 40, items: ['bcoin', 'stone', 'hay', 'stick'] });
     const st = s.getState();
     expect(st.stats.totalExperiencePoints).toBe(210);
-    expect(st.stats).toMatchObject({ body: 9, mind: 7, soul: 7 });
+    expect(st.stats).toMatchObject({ body: 0, mind: 0, soul: 0 });
     expect(st.inventory).toMatchObject({ bcoin: 1, stone: 1, hay: 1, stick: 1 });
     expect(st.rockGame.stats).toMatchObject({ gamesPlayed: 1, highScore: 1200, bestLevel: 5, bullseyes: 2 });
     expect(st.rockGame.sessions).toHaveLength(1);

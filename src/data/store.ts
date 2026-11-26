@@ -255,7 +255,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       for (const id of rewards.items) inventory[id] = (inventory[id] ?? 0) + 1;
       set(withAchievements({
         ...state,
-        stats: { ...xp.stats, body: xp.stats.body + rewards.body, mind: xp.stats.mind + rewards.mind, soul: xp.stats.soul + rewards.soul },
+        stats: xp.stats,
         inventory, rockGame: recordGame(state.rockGame, result, genId(), now),
       }));
       return { rewards, newHighScore };
