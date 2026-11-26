@@ -15,6 +15,8 @@
 .ex-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(8 * var(--u)); }
 .ex-tile, .ex-preset { font: inherit; font-size: var(--fs-xs); color: var(--text); background-color: transparent; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
 .ex-tile { display: flex; align-items: center; gap: calc(8 * var(--u)); min-height: calc(48 * var(--u)); }
+.ex-tile-plain { justify-content: center; text-align: center; }
+.ex-tile-plain .ex-tile-text { text-align: center; justify-items: center; }
 .ex-tile-text { display: grid; gap: calc(4 * var(--u)); line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
 .ex-tile:hover:not([aria-disabled]), .ex-preset:hover { filter: brightness(1.15); }
 .ex-tile:active:not([aria-disabled]), .ex-preset:active { transform: translateY(calc(2 * var(--u))); }
@@ -86,3 +88,4 @@
 .ex-chart-axis { stroke: #fff3; stroke-width: 1; }
 .ex-chart-line { fill: none; stroke: var(--gold); stroke-width: 1.5; stroke-linejoin: round; }
 .ex-chart-dot { fill: #f4f1dc; }
+.ex-dialog .ex-prefs .ex-types > .muted { min-width: 100%; }

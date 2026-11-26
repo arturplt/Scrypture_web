@@ -12,3 +12,5 @@ dist/
 .idea/
 .claude/settings.local.json
 .claude/worktrees/
+
+.certs/
