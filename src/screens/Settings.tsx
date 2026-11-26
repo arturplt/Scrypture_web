@@ -11,6 +11,18 @@ import { useT } from '../i18n/useT';
 import { LANGS, LANG_NAMES, LATIN_UNLOCK_TASKS, isLatinUnlocked } from '../i18n';
 import { signIn, signOut, signUp, syncNow, useCloud } from '../data/cloud';
 
+/** A settings group behind a header button; opening one closes the others (see `open` in Settings). */
+function Fold({ id, title, open, onToggle, theme = 'app', children }: { id: string; title: string; open: boolean; onToggle: () => void; theme?: string; children: React.ReactNode }) {
+  return (
+    <section className="fold">
+      <PixelFrame as="button" theme={theme} scale={1} className={`fold-head ${open ? 'on' : ''}`} aria-expanded={open} aria-controls={`fold-${id}`} onClick={onToggle}>
+        <span>{title}</span><span aria-hidden="true">{open ? '-' : '+'}</span>
+      </PixelFrame>
+      {open && <div id={`fold-${id}`} className="list fold-body">{children}</div>}
+    </section>
+  );
+}
+
 /** Optional account: one save on every device. */
 function CloudSection() {
   const t = useT();
@@ -26,8 +38,7 @@ function CloudSection() {
     setBusy(false);
   }
   return (
-    <section className="list">
-      <h2 className="subtitle">{t('syncTitle')}</h2>
+    <div className="list">
       {c.email ? (
         <>
           <div className="small" style={{ lineHeight: 1.6 }}>{t('syncSignedIn', { email: c.email })}</div>
@@ -55,7 +66,7 @@ function CloudSection() {
           {msg && <div className="small" role="status" style={{ color: msg.ok ? 'var(--soul)' : 'var(--body)', lineHeight: 1.6 }}>{msg.text}</div>}
         </>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -91,6 +102,8 @@ export function Settings() {
   const [pendingImport, setPendingImport] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmStats, setConfirmStats] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);   // the group that is unfolded (one at a time)
+  const fold = (id: string, title: string, children: React.ReactNode, theme?: string) => <Fold id={id} title={title} open={open === id} onToggle={() => setOpen(o => (o === id ? null : id))} theme={theme}>{children}</Fold>;
   const file = useRef<HTMLInputElement>(null);
 
   const say = (ok: boolean, text: string) => setStatus({ ok, text });
@@ -123,8 +136,7 @@ export function Settings() {
           onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()} />
       </label>
 
-      <section className="list">
-        <h2 className="subtitle">{t('language')}</h2>
+      {fold('language', t('language'), <>
         <div className="langs" role="group" aria-label={t('language')}>
           {LANGS.map(l => {
             const locked = l === 'LA' && !latinOpen;
@@ -136,10 +148,9 @@ export function Settings() {
           })}
         </div>
         {!latinOpen && <div className="muted small" style={{ lineHeight: 1.6 }}>{t('latinLocked', { n: Math.min(tasksDone, LATIN_UNLOCK_TASKS) })}</div>}
-      </section>
+      </>)}
 
-      <section className="list">
-        <h2 className="subtitle">{t('display')}</h2>
+      {fold('display', t('display'), <>
         {fs.supported ? (
           <>
             <div className="row"><PixelButton scale={1} variant={fs.active ? 'red' : 'green'} onClick={toggleFullscreen}>{fs.active ? t('fullscreenExit') : t('fullscreenEnter')}</PixelButton></div>
@@ -156,9 +167,6 @@ export function Settings() {
             {CRT_LEVELS.map(v => <button key={v} className={`seg ${crt === v ? 'on' : ''}`} aria-pressed={crt === v} onClick={() => actions.setSettings({ crt: v })}>{t(v === 'off' ? 'crtOff' : v === 'low' ? 'crtLow' : 'crtHigh')}</button>)}
           </div>
         </div>
-      </section>
-
-      <section className="list">
         <div className="field">{t('soundVolume')}
           <div className="row wrap" role="group" aria-label={t('soundVolume')}>
             {[0, 0.3, 0.7, 1].map(v => <button key={v} className={`seg ${volume === v ? 'on' : ''}`} aria-pressed={volume === v} onClick={() => actions.setSettings({ volume: v })}>{v === 0 ? t('soundVolumeOff') : `${Math.round(v * 100)}%`}</button>)}
@@ -169,10 +177,9 @@ export function Settings() {
             {[true, false].map(v => <button key={String(v)} className={`seg ${haptics === v ? 'on' : ''}`} aria-pressed={haptics === v} onClick={() => { actions.setSettings({ haptics: v }); if (v) navigator.vibrate?.(BUZZ.hit); }}>{v ? t('hapticsOn') : t('crtOff')}</button>)}
           </div>
         </div>}
-      </section>
+      </>)}
 
-      <section className="list">
-        <h2 className="subtitle">{t('accessibility')}</h2>
+      {fold('access', t('accessibility'), <>
         <div className="field">{t('highContrast')}
           <div className="row wrap" role="group" aria-label={t('highContrast')}>
             {[false, true].map(v => <button key={String(v)} className={`seg ${highContrast === v ? 'on' : ''}`} aria-pressed={highContrast === v} onClick={() => actions.setSettings({ highContrast: v })}>{v ? t('motionOn') : t('crtOff')}</button>)}
@@ -198,21 +205,19 @@ export function Settings() {
             ))}
           </div>
         </div>
-      </section>
+      </>)}
 
-      <section className="list">
-        <h2 className="subtitle">{t('appearance')}</h2>
+      {fold('appearance', t('appearance'), <>
         <p className="muted small" style={{ lineHeight: 1.7 }}>{t('appearanceNote')}</p>
         <div className="row wrap">
           <PixelButton scale={1} onClick={() => navigate('/theme')}>{t('themeManager')}</PixelButton>
           <PixelButton scale={1} variant="red" onClick={() => actions.setSettings(DEFAULT_APPEARANCE)}>{t('resetAppearance')}</PixelButton>
         </div>
-      </section>
+      </>)}
 
-      <CloudSection />
+      {fold('sync', t('syncTitle'), <CloudSection />)}
 
-      <section className="list">
-        <h2 className="subtitle">{t('yourData')}</h2>
+      {fold('data', t('yourData'), <>
         <p className="muted small" style={{ lineHeight: 1.6 }}>{t('dataNote')}</p>
         <div className="row wrap">
           <PixelButton scale={1} onClick={doExport}>{t('export')}</PixelButton>
@@ -226,10 +231,9 @@ export function Settings() {
           </PixelFrame>
         )}
         {status && <div className="small" role="status" style={{ color: status.ok ? 'var(--soul)' : 'var(--body)', lineHeight: 1.6 }}>{status.text}</div>}
-      </section>
+      </>)}
 
-      <section className="list">
-        <h2 className="subtitle">{t('dangerZone')}</h2>
+      {fold('danger', t('dangerZone'), <>
         {confirmReset ? (
           <PixelFrame theme="red_thick" scale={1} className="card">
             <div className="small" style={{ lineHeight: 1.6 }}>{t('resetWarn')}</div>
@@ -248,7 +252,7 @@ export function Settings() {
             </div>
           </PixelFrame>
         ) : <div className="row"><PixelButton scale={1} variant="red" onClick={() => setConfirmStats(true)}>{t('resetStats')}</PixelButton></div>}
-      </section>
+      </>, 'red_thick')}
     </div>
   );
 }

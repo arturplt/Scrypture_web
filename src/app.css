@@ -825,3 +825,10 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .slot-cost { position: absolute; left: 50%; top: 0; z-index: 3; color: var(--body); font-size: var(--fs-xs); font-weight: normal; pointer-events: none; text-shadow: calc(1 * var(--u)) calc(1 * var(--u)) 0 #000; animation: slot-cost 1.2s steps(8) forwards; }
 @keyframes slot-cost { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, calc(-20 * var(--u))); } }
 @media (prefers-reduced-motion: reduce) { .bobr-say, .bobr-say > span { animation: none; clip-path: none; } .xp-gain { animation-duration: 1.6s; animation-timing-function: steps(1); } .slot-cost { animation-timing-function: steps(1); } }
+
+/* Settings: each group sits behind a header button; one is unfolded at a time */
+.fold { display: grid; gap: calc(6 * var(--u)); }
+.fold-head { display: flex; justify-content: space-between; align-items: center; gap: calc(8 * var(--u)); width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; padding: calc(2 * var(--u)) calc(4 * var(--u)); -webkit-tap-highlight-color: transparent; }
+.fold-head.on { color: var(--gold); }
+.fold-head:focus-visible { outline: calc(2 * var(--u)) dashed var(--gold); outline-offset: calc(2 * var(--u)); }
+.fold-body { padding: 0 calc(4 * var(--u)); }
