@@ -9,6 +9,7 @@ Live at **scrypture.app**. Open work: `BACKLOG.md` (finished items are in `BACKL
 - `./stop.sh` — stops whatever is listening on that port (safe to run when nothing is running)
 - `npm test` — unit tests (game rules, storage, old-save fixtures, chat, i18n, the world models)
 - `npm run e2e` — a new user's first minutes in headless Chromium on the built app (`npm run build` first); `E2E_SIZE=390x844 npm run e2e` runs it as a touch phone, `E2E_URL=…` tests another server (e.g. the LAN address). CI runs both sizes on every push
+- `./run_all_tests.sh` — everything in order: type check, unit tests, build, then the end-to-end flow at desktop and phone size (stops at the first failure); `./run_all_tests.sh --fast` skips the build and the browser runs
 - `npm run soak` — runs the world ecosystem headless for an hour in five biomes and prints what drifts (see `ROADMAP.md`)
 - `npm run build` — production build in `dist/` (includes the offline service worker); `npx vite preview --port 2137` to try it
 - Dev-only pages: `/kit` (pixel UI kit), `/atlas` (every sprite, drag-and-drop to add new ones into `public/assets/sprites/`)

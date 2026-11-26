@@ -120,14 +120,18 @@ const STEPS = [
     await go('#/chat');
     const said = () => [...document.querySelectorAll('main .msg.bobr:not(.typing)')];
     await waitFor(() => said().length, 'the greeting');
+    click(/^My Progress$/);   // (the questions live one level down: the first menu is short)
+    await waitFor(() => said().length > 1 && [...document.querySelectorAll('main .options button')].some(b => /^My Stats$/.test(b.textContent) && !b.disabled), 'the My Progress menu');
     const before = said().length;
     click(/^My Stats$/);
     const reply = await waitFor(() => said().length > before && said()[said().length - 1].textContent, 'Bóbr to answer');
     assert(/1/.test(reply), 'the stats reply does not show the completed task: ' + reply.slice(0, 120));`],
   ['export', `
     await go('#/settings');
+    click(/^Your data/);   // (Settings groups are folded until their header is tapped)
     window.__exported = null;
     const make = URL.createObjectURL; URL.createObjectURL = blob => { blob.text().then(t => { window.__exported = t; }); return make.call(URL, blob); };
+    await waitFor(() => btn(/^Export$/), 'the Your data group to unfold');
     click(/^Export$/);
     const text = await waitFor(() => window.__exported, 'the export file');
     URL.createObjectURL = make;
@@ -140,7 +144,8 @@ const STEPS = [
     const d = await dialog(); type(d.querySelector('input'), 'Only here'); submit(d);
     await waitFor(() => st().tasks.some(t => t.title === 'Only here'), 'the extra task');
     await go('#/settings');
-    const input = document.querySelector('main input[type=file]');
+    click(/^Your data/);
+    const input = await waitFor(() => document.querySelector('main input[type=file]'), 'the import field');
     const dt = new DataTransfer(); dt.items.add(new File([window.__exported], 'backup.json', { type: 'application/json' }));
     input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
     await waitFor(() => btn(/^Replace$/), 'the import warning');
