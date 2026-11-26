@@ -549,6 +549,8 @@ export const en = {
   "importWarn": "Importing replaces ALL current data. Continue?",
   "replace": "Replace",
   "deleteAll": "Delete all",
+  "resetStats": "Reset XP and stats",
+  "resetStatsWarn": "XP, level, stat points and the count of finished tasks go back to zero. Your tasks, habits, items and trophies stay.",
   "resetWarn": "Delete every task, habit and achievement? This cannot be undone.",
   "exported": "Exported. Keep the file safe!",
   "badJson": "That file is not valid JSON.",

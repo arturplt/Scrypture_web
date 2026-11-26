@@ -1,5 +1,5 @@
 import {
-  addXP, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule, cleanTarget, effectiveStreak,
+  addXP, cleanCount, initialStats, emotionNow, BERRY_TREAT_MS, happinessNow, hungerAt, tradeFor, willTrade, type ItemId, canRefund, revokeTaskCompletion, UNDO_WINDOW_MS, applyTaskCompletion, calculateXP, checkAchievements, completeHabit as completeHabitRule, cleanTarget, effectiveStreak,
   MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, PUSHUPS, repBonusPoints, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import type { LakeMapId } from '../domain';
@@ -203,7 +203,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       set(withAchievements({ ...state, stats: r.stats }));
     },
     addItem(itemId: string, amount = 1) {
-      set({ ...state, inventory: { ...state.inventory, [itemId]: Math.max(0, (state.inventory[itemId] ?? 0) + amount) } });
+      set({ ...state, inventory: { ...state.inventory, [itemId]: cleanCount((state.inventory[itemId] ?? 0) + amount) } });
     },
     /** Tapping a spawned item. */
     collectItem(itemId: ItemId) { actions.addItem(itemId, 1); },
@@ -230,7 +230,7 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       if (!willTrade(emotionNow(b, now))) return false;
       if ((state.inventory[t.request] ?? 0) < 1) return false;
       set({ ...state,
-        inventory: { ...state.inventory, [t.request]: state.inventory[t.request] - 1, [t.offer]: (state.inventory[t.offer] ?? 0) + 1 },
+        inventory: { ...state.inventory, [t.request]: state.inventory[t.request] - 1, [t.offer]: cleanCount((state.inventory[t.offer] ?? 0) + 1) },
         bobr: { ...b, happiness: Math.min(1, happiness + 0.2), happinessAt: now, trades: (b.trades ?? 0) + 1 } });
       return true;
     },
@@ -538,6 +538,8 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
     exportData: () => exportJSON(state),
     importData(text: string) { set(importJSON(text, clock())); },
     resetAll() { events = []; set(defaultState(clock())); },
+    /** XP, level, stat points and the finished-tasks counter back to zero (a save whose numbers ran away); tasks, habits, items and trophies stay. */
+    resetStats() { set({ ...state, stats: initialStats() }); },
   };
 
   // another tab (or the installed app) saved: take its state, or this tab's older copy would overwrite its changes with its next save

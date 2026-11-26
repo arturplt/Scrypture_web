@@ -90,6 +90,7 @@ export function Settings() {
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [pendingImport, setPendingImport] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmStats, setConfirmStats] = useState(false);
   const file = useRef<HTMLInputElement>(null);
 
   const say = (ok: boolean, text: string) => setStatus({ ok, text });
@@ -238,6 +239,15 @@ export function Settings() {
             </div>
           </PixelFrame>
         ) : <div className="row"><PixelButton scale={1} variant="red" onClick={() => setConfirmReset(true)}>{t('removeAllData')}</PixelButton></div>}
+        {confirmStats ? (
+          <PixelFrame theme="red_thick" scale={1} className="card">
+            <div className="small" style={{ lineHeight: 1.6 }}>{t('resetStatsWarn')}</div>
+            <div className="row">
+              <PixelButton scale={1} variant="red" onClick={() => { actions.resetStats(); setConfirmStats(false); }}>{t('resetStats')}</PixelButton>
+              <PixelButton scale={1} onClick={() => setConfirmStats(false)}>{t('cancel')}</PixelButton>
+            </div>
+          </PixelFrame>
+        ) : <div className="row"><PixelButton scale={1} variant="red" onClick={() => setConfirmStats(true)}>{t('resetStats')}</PixelButton></div>}
       </section>
     </div>
   );

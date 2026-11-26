@@ -550,6 +550,8 @@ export const pl: Record<Key, string> = {
   "importWarn": "Import zastąpi WSZYSTKIE obecne dane. Kontynuować?",
   "replace": "Zastąp",
   "deleteAll": "Usuń wszystko",
+  "resetStats": "Zeruj XP i statystyki",
+  "resetStatsWarn": "XP, poziom, punkty statystyk i licznik wykonanych zadan wracaja do zera. Zadania, nawyki, przedmioty i trofea zostaja.",
   "resetWarn": "Usunąć wszystkie zadania, nawyki i osiągnięcia? Tego nie można cofnąć.",
   "exported": "Wyeksportowano. Zachowaj plik w bezpiecznym miejscu!",
   "badJson": "Ten plik nie jest poprawnym JSON.",

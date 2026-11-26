@@ -1,11 +1,15 @@
 import type { StatRewards, Task, UserStats } from './types';
 import { calculateLevel } from './levels';
 
+/** Counters (XP, stat points, tasks done, items) are whole numbers and never grow past this: a runaway value would print as 2.1e+53 and break every sum. */
+export const COUNT_MAX = 1_000_000_000;
+export const cleanCount = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? Math.min(COUNT_MAX, Math.max(0, Math.floor(n))) : n === Infinity ? COUNT_MAX : 0);
+
 export const initialStats = (): UserStats =>
   ({ level: 1, totalExperiencePoints: 0, body: 0, mind: 0, soul: 0, totalTasksCompleted: 0 });
 
 export function addXP(stats: UserStats, xp: number): { stats: UserStats; leveledUp: number | null } {
-  const totalExperiencePoints = Math.max(0, stats.totalExperiencePoints + xp);
+  const totalExperiencePoints = cleanCount(stats.totalExperiencePoints + xp);
   const level = calculateLevel(totalExperiencePoints);
   return { stats: { ...stats, totalExperiencePoints, level }, leveledUp: level !== stats.level ? level : null };
 }
@@ -13,7 +17,7 @@ export function addXP(stats: UserStats, xp: number): { stats: UserStats; leveled
 /** Give XP and stat points that are not a task (a habit, an activity); the task counter stays as it is. */
 export function applyReward(stats: UserStats, xp: number, rewards: StatRewards) {
   const { stats: s, leveledUp } = addXP(stats, xp);
-  return { stats: { ...s, body: s.body + rewards.body, mind: s.mind + rewards.mind, soul: s.soul + rewards.soul }, leveledUp };
+  return { stats: { ...s, body: cleanCount(s.body + rewards.body), mind: cleanCount(s.mind + rewards.mind), soul: cleanCount(s.soul + rewards.soul) }, leveledUp };
 }
 /** Take such a reward back (never below zero). */
 export function revokeReward(stats: UserStats, xp: number, rewards: StatRewards): UserStats {
@@ -28,10 +32,10 @@ export function applyTaskCompletion(stats: UserStats, task: Pick<Task, 'experien
   return {
     stats: {
       ...s,
-      body: s.body + task.statRewards.body,
-      mind: s.mind + task.statRewards.mind,
-      soul: s.soul + task.statRewards.soul,
-      totalTasksCompleted: s.totalTasksCompleted + 1,
+      body: cleanCount(s.body + task.statRewards.body),
+      mind: cleanCount(s.mind + task.statRewards.mind),
+      soul: cleanCount(s.soul + task.statRewards.soul),
+      totalTasksCompleted: cleanCount(s.totalTasksCompleted + 1),
     },
     leveledUp,
   };

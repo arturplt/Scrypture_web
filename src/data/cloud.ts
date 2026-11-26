@@ -142,7 +142,9 @@ async function syncOnce(): Promise<void> {
     const taken = clean ? takeCloudProfile(here, cloud, meta.invBase) : null;
     applyState(withLists(taken ? taken.state : mergeProfile(here, cloud, meta.statsBase, meta.at, Date.parse(prof.updated_at as string) || 0, meta.invBase), here));
     // (`raised`: this device kept more than the cloud has, so its profile is not the cloud's: no fingerprint, and step 4 uploads it)
-    meta = patchMeta({ profileStamp: prof.updated_at as string, ...(taken ? (taken.raised ? { profileHash: null } : { profileHash: hashOf(profileOf(store.getState())), statsBase: store.getState().stats, invBase: { ...store.getState().inventory } }) : {}) });
+    // After a merge the counters of this device include what the cloud had, so what has been merged must not be counted again if the upload below fails and the merge
+    // runs once more: the base is now the cloud's own copy (then "device minus base" is only what this device earned, "cloud minus base" only what is new there)
+    meta = patchMeta({ profileStamp: prof.updated_at as string, ...(taken ? (taken.raised ? { profileHash: null } : { profileHash: hashOf(profileOf(store.getState())), statsBase: store.getState().stats, invBase: { ...store.getState().inventory } }) : { statsBase: cloud.stats, invBase: { ...cloud.inventory } }) });
   } else if (prof && meta.invBase === null && meta.profileHash !== null && meta.profileHash === hashOf(profileOf(store.getState()))) {
     meta = patchMeta({ invBase: { ...store.getState().inventory } });   // same as the cloud: from here on what each device gains or spends can be added up
   }

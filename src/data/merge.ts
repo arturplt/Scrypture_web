@@ -1,4 +1,4 @@
-import { calculateLevel } from '../domain';
+import { calculateLevel, cleanCount } from '../domain';
 import type { UserStats } from '../domain';
 import type { AppState } from './state';
 
@@ -46,7 +46,7 @@ export function mergeInventory(device: Record<string, number>, cloud: Record<str
   const out: Record<string, number> = {};
   for (const id of new Set([...Object.keys(device), ...Object.keys(cloud)])) {
     const d = device[id] ?? 0, c = cloud[id] ?? 0, b = base?.[id] ?? 0;
-    out[id] = base === null ? Math.max(d, c) : Math.max(0, b + (d - b) + (c - b));
+    out[id] = cleanCount(base === null ? Math.max(d, c) : b + (d - b) + (c - b));
   }
   return out;
 }
@@ -74,7 +74,7 @@ export function mergeProfile(device: AppState, cloud: AppState, statsBase: UserS
   const stats = { ...lead.stats };
   for (const k of NUMBERS) {
     const d = device.stats[k], c = cloud.stats[k], b = statsBase?.[k];
-    stats[k] = b === undefined ? Math.max(d, c) : Math.max(0, b + (d - b) + (c - b));
+    stats[k] = cleanCount(b === undefined ? Math.max(d, c) : b + (d - b) + (c - b));
   }
   stats.level = calculateLevel(stats.totalExperiencePoints);
 

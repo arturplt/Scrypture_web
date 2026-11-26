@@ -102,3 +102,43 @@ describe('takeCloudProfile (this device has not changed its profile since the la
     expect(mergeInventory(poor, rich, null)).toEqual(rich);
   });
 });
+
+describe('merging again after a failed upload', () => {
+  it('with the cloud copy as the base, what was merged is not counted twice (this once made the XP double on every retry)', () => {
+    const { pc, phone, a, b, snap } = pair();
+    pc.actions.completeTask(a.id);                       // the cloud (pc) earned XP
+    phone.actions.completeTask(b.id);                    // the phone earned some too
+    const cloud1 = pc.getState();
+    const merged1 = mergeProfile(phone.getState(), cloud1, snap.stats, 2, 1);
+    // the upload failed because the cloud moved on: it gained a little more, and the merge runs again on the already merged state
+    pc.actions.addTask(input('More')); pc.actions.completeTask(pc.getState().tasks.find(t => t.title === 'More')!.id);
+    const cloud2 = pc.getState();
+    const merged2 = mergeProfile(merged1, cloud2, cloud1.stats, 2, 1);   // base = the cloud copy that was merged
+    const earned = (s: { totalExperiencePoints: number }) => s.totalExperiencePoints - snap.stats.totalExperiencePoints;
+    const pcGain = earned(cloud2.stats), phoneGain = earned(phone.getState().stats);
+    expect(earned(merged1.stats)).toBe(earned(cloud1.stats) + phoneGain);
+    expect(earned(merged2.stats)).toBe(pcGain + phoneGain);
+    // the old base (from before both) would have counted the first merge's cloud share twice
+    expect(mergeProfile(merged1, cloud2, snap.stats, 2, 1).stats.totalExperiencePoints).toBeGreaterThan(merged2.stats.totalExperiencePoints);
+  });
+});
+
+describe('a runaway save comes back to whole, bounded numbers', () => {
+  it('normalize clamps XP, stats and items, and recomputes the level', async () => {
+    const { normalize } = await import('./storage');
+    const s = normalize({ version: 1, user: { name: 'A', onboarded: true, tutorialSeen: true }, stats: { level: 10, totalExperiencePoints: 2.144929644337742e53, body: 4.5, mind: 1.787e52, soul: 1, totalTasksCompleted: 1.787e52 }, inventory: { bcoin: 1.2455e60, hay: 3.7 } });
+    expect(s.stats.totalExperiencePoints).toBe(1_000_000_000);
+    expect(s.stats.body).toBe(4); expect(s.stats.mind).toBe(1_000_000_000); expect(s.stats.level).toBe(10);
+    expect(s.inventory).toEqual({ bcoin: 1_000_000_000, hay: 3 });
+  });
+});
+
+describe('reset stats', () => {
+  it('zeroes XP, level and counters but keeps tasks', () => {
+    const s = mk(); const t = s.actions.addTask(input('Keep')); s.actions.completeTask(t.id);
+    expect(s.getState().stats.totalExperiencePoints).toBeGreaterThan(0);
+    s.actions.resetStats();
+    expect(s.getState().stats).toEqual({ level: 1, totalExperiencePoints: 0, body: 0, mind: 0, soul: 0, totalTasksCompleted: 0 });
+    expect(s.getState().tasks).toHaveLength(1);
+  });
+});

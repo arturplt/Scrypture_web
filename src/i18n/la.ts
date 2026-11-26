@@ -550,6 +550,8 @@ export const la: Record<Key, string> = {
   "importWarn": "Importatio OMNIA data praesentia substituit. Pergere?",
   "replace": "Substitue",
   "deleteAll": "Dele omnia",
+  "resetStats": "XP et statisticas ad nihilum redige",
+  "resetStatsWarn": "XP, gradus, puncta virium et numerus munerum perfectorum ad nihilum redeunt. Munera, habitus, res et tropaea manent.",
   "resetWarn": "Omnia opera, consuetudines et consecutiones delere? Hoc revocari non potest.",
   "exported": "Exportatum. Serva tabulam!",
   "badJson": "Haec tabula JSON validum non est.",

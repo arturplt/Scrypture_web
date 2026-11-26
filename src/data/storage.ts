@@ -1,5 +1,5 @@
 import { CURRENT_VERSION, defaultState, type AppState, type ChatMessage } from './state';
-import { sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeNotes, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
+import { calculateLevel, cleanCount, sanitizeCategories, groupsFrom, sanitizeExerciseSave, sanitizeLook, sanitizeMindMaps, sanitizeNotes, sanitizeHabitExtras, sanitizePlanner, sanitizeRockSave, sanitizeSanctuarySave, sanitizeWorlds } from '../domain';
 
 /** Older saves kept one `group` per task or habit; now it is a list `groups` (left out when empty). */
 const withGroups = (x: any) => {
@@ -53,6 +53,12 @@ export function sanitizeChat(raw: unknown): ChatMessage[] {
   return out.slice(-CHAT_KEEP);
 }
 
+/** Whole numbers within bounds, and the level that goes with the XP (a save from a runaway bug comes back down to something that can be shown). */
+function cleanStats(st: any) {
+  const out = { ...st, totalExperiencePoints: cleanCount(st.totalExperiencePoints), body: cleanCount(st.body), mind: cleanCount(st.mind), soul: cleanCount(st.soul), totalTasksCompleted: cleanCount(st.totalTasksCompleted) };
+  return { ...out, level: calculateLevel(out.totalExperiencePoints) };
+}
+
 /** Validate + merge onto defaults so missing/new fields never crash the app. Throws on garbage. */
 export function normalize(raw: unknown, now = Date.now()): AppState {
   if (!isObj(raw)) throw new Error('State must be an object');
@@ -72,7 +78,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
     ...d,
     ...s,
     user: { ...d.user, ...(isObj(s.user) ? s.user : {}) },
-    stats: { ...d.stats, ...(isObj(s.stats) ? s.stats : {}) },
+    stats: cleanStats({ ...d.stats, ...(isObj(s.stats) ? s.stats : {}) }),
     bobr: { ...d.bobr, ...(isObj(s.bobr) ? s.bobr : {}) },
     settings: { ...d.settings, ...(isObj(s.settings) ? s.settings : {}), ...sanitizeLook(isObj(s.settings) ? s.settings : undefined),
       // starts in full screen unless the user turned it off (anything else, including old saves, means on)
@@ -83,7 +89,7 @@ export function normalize(raw: unknown, now = Date.now()): AppState {
       haptics: !(isObj(s.settings) && s.settings.haptics === false),
       volume: isObj(s.settings) && typeof s.settings.volume === 'number' && s.settings.volume >= 0 && s.settings.volume <= 1 ? Math.round(s.settings.volume * 10) / 10 : d.settings.volume },
     categories: sanitizeCategories(s.categories),
-    inventory: isObj(s.inventory) ? s.inventory : {},
+    inventory: isObj(s.inventory) ? Object.fromEntries(Object.entries(s.inventory).map(([k, v]) => [k, cleanCount(v)])) : {},
     rockGame: sanitizeRockSave(s.rockGame),
     lakesFlown: Array.isArray(s.lakesFlown) ? [...new Set<string>(s.lakesFlown.filter((x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length < 60))].slice(0, 100) : [],
     sanctuary: sanitizeSanctuarySave(s.sanctuary),
