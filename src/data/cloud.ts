@@ -90,7 +90,7 @@ async function fetchItems(cursor: string | null): Promise<CloudRow[]> {
   const since = cursor ? new Date((Date.parse(cursor) || 0) - 5000).toISOString() : null;
   const all: CloudRow[] = [];
   for (let from = 0; ; from += PAGE) {
-    let q = sb.from('items').select('kind, id, data, deleted, updated_at').eq('user_id', uid!).order('updated_at', { ascending: true }).range(from, from + PAGE - 1);
+    let q = sb.from('items').select('kind, id, data, deleted, updated_at').eq('user_id', uid!).neq('kind', 'worlds').order('updated_at', { ascending: true }).range(from, from + PAGE - 1);
     if (since) q = q.gt('updated_at', since);
     const { data, error } = await q;
     if (error) throw error;
@@ -138,9 +138,15 @@ async function syncOnce(): Promise<void> {
   }
 
   // 2. the profile, if it changed elsewhere
-  const { data: prof, error: pe } = await sb.from('profile').select('data, updated_at').eq('user_id', uid!).maybeSingle();
+  const { data: stampRow, error: pe } = await sb.from('profile').select('updated_at').eq('user_id', uid!).maybeSingle();   // (just the stamp: the data is only fetched when it changed)
   if (pe) throw pe;
-  if (prof && prof.updated_at !== meta.profileStamp) {
+  let prof: { data?: unknown; updated_at: unknown } | null = stampRow;
+  if (stampRow && stampRow.updated_at !== meta.profileStamp) {
+    const { data: full, error: pe2 } = await sb.from('profile').select('data, updated_at').eq('user_id', uid!).maybeSingle();
+    if (pe2) throw pe2;
+    prof = full;
+  }
+  if (prof && 'data' in prof && prof.updated_at !== meta.profileStamp) {
     const cloud = normalize(prof.data), here = store.getState();
     const clean = meta.profileHash !== null && meta.profileHash === hashOf(profileOf(here));
     const taken = clean ? takeCloudProfile(here, cloud, meta.invBase) : null;

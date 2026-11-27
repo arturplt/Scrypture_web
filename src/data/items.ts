@@ -20,24 +20,26 @@ export function hashOf(x: unknown): string {
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = ((h << 5) + h + c) | 0; g = ((g << 5) ^ (g >>> 27) ^ c) | 0; }
   return `${(h >>> 0).toString(36)}${(g >>> 0).toString(36)}.${s.length}`;
 }
+/** The lists that go to the cloud. Worlds stay on this device: one world is up to a few MB, and every save of it would cost egress on every device. */
+export const SYNCED = AREAS.filter(a => a.key !== 'worlds');
 export const keyOf = (kind: string, id: string) => `${kind}/${id}`;
 
 /** key -> fingerprint of every item in the save. */
 export function itemHashes(s: AppState): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const a of AREAS) for (const x of a.get(s)) out[keyOf(a.key, x.id)] = hashOf(x);
+  for (const a of SYNCED) for (const x of a.get(s)) out[keyOf(a.key, x.id)] = hashOf(x);
   return out;
 }
 
 /** What to send: items new or changed since `synced`, and items that were synced and are gone now. */
 export function localChanges(s: AppState, synced: Record<string, string>): { upserts: Row[]; deletes: Row[] } {
   const upserts: Row[] = [], seen = new Set<string>();
-  for (const a of AREAS) for (const x of a.get(s)) {
+  for (const a of SYNCED) for (const x of a.get(s)) {
     const k = keyOf(a.key, x.id);
     seen.add(k);
     if (synced[k] !== hashOf(x)) upserts.push({ kind: a.key, id: x.id, data: x, deleted: false });
   }
-  const deletes = Object.keys(synced).filter(k => !seen.has(k)).map(k => { const i = k.indexOf('/'); return { kind: k.slice(0, i), id: k.slice(i + 1), data: null, deleted: true }; });
+  const deletes = Object.keys(synced).filter(k => !seen.has(k) && SYNCED.some(a => k.startsWith(`${a.key}/`))).map(k => { const i = k.indexOf('/'); return { kind: k.slice(0, i), id: k.slice(i + 1), data: null, deleted: true }; });
   return { upserts, deletes };
 }
 
@@ -57,7 +59,7 @@ export const withLists = (profile: AppState, lists: AppState): AppState => prune
 export function applyRows(s: AppState, rows: Row[], synced: Record<string, string>): { state: AppState; taken: string[] } {
   const taken: string[] = [];
   let out = s;
-  for (const a of AREAS) {
+  for (const a of SYNCED) {
     const mine = rows.filter(r => r.kind === a.key);
     if (!mine.length) continue;
     let list = [...a.get(out)];
