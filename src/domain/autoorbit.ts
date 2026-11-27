@@ -23,18 +23,18 @@ const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export function stepAuto(a: AutoOrbit, g: Glider): AutoCtl {
   const h = g.z + (g.gnd ?? 0), roll = clamp(2.2 * wrapPi(0 - g.phi) - 0.25 * g.rollRate);
-  if (a.phase !== 'fail' && a.phase !== 'done' && g.peri >= ORBIT.TOP + AUTO.MARGIN) a.phase = 'done';
+  if (a.phase !== 'fail' && a.phase !== 'done' && g.peri >= ORBIT.TOP + AUTO.MARGIN * ORBIT.S) a.phase = 'done';
   if (a.phase === 'climb') {
     if (g.fuel <= 0) a.phase = 'fail';
     else {
-      const want = Math.max(0.5, 1.35 - (0.03 * h) / 1000), rocket = g.apo < AUTO.APO;   // (an escape path, apo = Infinity, is "high enough" too)
-      if (h > AUTO.CUT_H && g.apo >= AUTO.APO) a.phase = 'coast';
+      const want = Math.max(0.5, 1.35 - (0.03 * h) / (1000 * ORBIT.S)), rocket = g.apo < AUTO.APO * ORBIT.S;   // (an escape path, apo = Infinity, is "high enough" too)
+      if (h > AUTO.CUT_H * ORBIT.S && g.apo >= AUTO.APO * ORBIT.S) a.phase = 'coast';
       return { pitch: clamp(want - g.gamma), roll, yaw: 0, rocket };
     }
   }
   if (a.phase === 'coast') {
-    if (h < AUTO.CUT_H - 3000 && g.vz < 0) a.phase = 'fail';   // fell back into the air before the top
-    else if (g.vz <= 3 && h > AUTO.CUT_H) a.phase = 'insert';
+    if (h < (AUTO.CUT_H - 3000) * ORBIT.S && g.vz < 0) a.phase = 'fail';   // fell back into the air before the top
+    else if (g.vz <= 3 && h > AUTO.CUT_H * ORBIT.S) a.phase = 'insert';
     else return { pitch: 0, roll, yaw: 0, rocket: false };
   }
   if (a.phase === 'insert') {

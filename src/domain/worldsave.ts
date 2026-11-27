@@ -3,7 +3,7 @@ import { tileKey, keyX, keyY, type TileState, type Terrain, type DecoKind, type 
 import { lakeSpawnFor, type LakeMapId } from './lakedistrict';
 import { terraceSpawn, setRealTerrain, MAX_RELIEF, RELIEF_MAX } from './terrace';
 import { defaultWind, type Wind } from './ecosystem';
-import { CUBE_N, CUBE_SIZES, setCubeSize, cubeSize } from './cube';
+import { CUBE_N, CUBE_N_FIRST, CUBE_SIZES, setCubeSize, cubeSize } from './cube';
 import { sanitizeBerries, type SavedBerry } from './berries';
 
 export const MAX_WORLDS = 12;
@@ -169,9 +169,9 @@ function sanitizeScores(raw: unknown): RunScore[] {
   return out.sort((a, b) => b.points - a.points || a.at - b.at).slice(0, MAX_SCORES);
 }
 
-/** A world made on the first, latitude / longitude globe (size 40320, never released) is a cube-sphere world now: a different planet, so it starts again from its seed at the spawn, with its scores and shop kept. */
+/** A world made on the first, latitude / longitude globe (size 40320, never released) or on the first cube planet (10080, four times the size) is a world on the present planet now: a different planet, so it starts again from its seed at the spawn, with its scores and shop kept. */
 function legacyGlobe(w: any): any {
-  if (typeof w !== 'object' || w === null || w.kind !== 'terraced' || w.size !== 40320 || w.map) return w;
+  if (typeof w !== 'object' || w === null || w.kind !== 'terraced' || (w.size !== 40320 && w.size !== CUBE_N_FIRST) || w.map) return w;
   const seed = fin(w.seed, 0) >>> 0;
   return { ...w, size: CUBE_N, changes: [], relief: undefined, explored: [], beavers: undefined, berries: undefined, sticks: [], stones: [], plane: terracePlaneSpawn(seed, CUBE_N) };
 }

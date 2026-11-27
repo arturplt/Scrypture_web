@@ -51,7 +51,7 @@ import { refuel, type GlideControls } from '../domain/glider';
 import { readPad, pickPad, padEdges, PAD, NO_PAD } from '../domain/gamepad';
 import { rocketFuel, spaceFactor, airDensity, warpAllowed, nextWarp, ORBIT, setPlanetRadius } from '../domain/orbit';
 import { newLadder, startLadder, stepLadder } from '../domain/skyway';
-import { cubeRadius, canonInto, newCanon, canonChunk, turnVector, applyCanon, FACES, eyeFrame } from '../domain/cube';
+import { EXT_MARGIN, cubeRadius, canonInto, newCanon, canonChunk, turnVector, applyCanon, FACES, eyeFrame } from '../domain/cube';
 import { skyAt, localHour, shiftToHour, SKY_WARP_MAX, DAYS_PER_SECOND } from '../domain/celestial';
 import { GlobeMap, renderGlobe } from '../domain/globemap';
 import { HEATSHIELD_K } from '../domain/shop';
@@ -624,10 +624,10 @@ function WorldView({ id }: { id: string }) {
     const runTricks = new Map<string, { n: number; pts: number }>();
     const noteTrick = (name: string, pts: number, fresh: boolean) => { const e = runTricks.get(name) ?? { n: 0, pts: 0 }; if (fresh) e.n++; e.pts += pts; runTricks.set(name, e); };
     let tagPts = 0;   // this run's dogfight tag points
-    const cubeWorld = s.world.size > 0, CUBE_RINGS = 4;   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
+    const cubeWorld = s.world.size > 0, CUBE_RINGS = TERRACE_FAR_LODS_HILLS.filter(l => l.half <= EXT_MARGIN - 100).length;   // (only the rings that fit inside the margin the planet's chart wraps ground over (EXT_MARGIN past a face's edge, as the vertex shader's chartDir reads it): a wider ring has ground in no chart, which lands on the wrong part of the ball and shifts as the ring is rebuilt. The faces' own meshes cover the rest.   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
     const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : cubeWorld ? TERRACE_FAR_LODS_HILLS.slice(0, CUBE_RINGS) : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : cubeWorld ? FAR_LEVEL_FROM_HILLS.slice(0, CUBE_RINGS) : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
     const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    const faceDone = FACES.map(() => false), FACE_STEP = 96, FACE_UP = 2, FACE_INSET = 0.02;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
+    const faceDone = FACES.map(() => false), FACE_STEP = Math.max(1, Math.round(s.world.size / 105)), FACE_UP = 2, FACE_INSET = 0.02;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
     let farJob: { i: number; face?: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit

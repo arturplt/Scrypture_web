@@ -18,7 +18,7 @@ import type { TerraceMesh } from '../domain/terrace';
 import { shaderTables, eyeFrame } from '../domain/cube';
 import type { SkyState } from '../domain/celestial';
 import { TILE_PX, sunElevation } from '../domain';
-import { bandGlsl } from '../domain/terrace';
+import { bandGlsl, ttgGlsl } from '../domain/terrace';
 import { dbgBits, dbgOn } from '../domain/dbg';
 import { CLOUD_W, CLOUD_H, loadSkyBands, silhouette } from './cloudsprites';
 import { FLAME_W, FLAME_H, BOLT_W, BOLT_H } from './firesprites';
@@ -84,7 +84,7 @@ void main() { vec3 p = aPos; vec2 d = p.xy - uEye.xy; vSD = 0.0;
     if (dd.w > 0.5) {
       vSD = uPlanet * atan(length(cross(dd.xyz, uGS)), dot(dd.xyz, uGS));
       vec3 w = dd.xyz * (uPlanet - p.z) - uGS * uPlanet; vec3 q = vec3(uEye.xy + vec2(dot(w, uGE), dot(w, uGSo)), -dot(w, uGS));
-      p = mix(p, q, inChart ? uCurveK : 1.0);
+      p = mix(p, q, inChart ? max(uCurveK, smoothstep(0.05 * uPlanet, 0.35 * uPlanet, vSD)) : 1.0);   // (the ground is bent by its distance from the eye as well as by the height: the ball is the same ball at every height, so climbing does not fold the world from a flat chart into a globe, and the chart's far edge meets the other faces, which are always on the ball, without a rim)
     } else { vSD = 1e9; p = vec3(uEye.xy, uPlanet); }   // (off the planet: sunk into it)
   }
   else p.z += uCurveC * dot(d, d);
@@ -100,13 +100,14 @@ precision highp float; precision highp sampler2D; precision highp int;
 in vec2 vUv; in vec4 vCol; in vec3 vPos, vW; in float vSD; in vec3 vSl;
 uniform float uCubeN, uFarSm, uPlanet, uSpaceK;   // uSpaceK: 0 in the air .. 1 in space
 ${SCATTER_GLSL}uniform vec3 uEye; uniform sampler2D uTex; uniform float uCut; uniform vec3 uFog; uniform vec2 uFogRange; uniform vec4 uBase; uniform vec4 uNight;   // uBase: the water colour (rgb) to put under see-through ground, when a > 0.5
-uniform int uDbg; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight, uMoonD; uniform float uMoonK;   // uMoonD: the moon's direction, uMoonK its lit part (-1: no phases, a full moon). uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
+uniform int uDbg; uniform float uFarM; uniform float uFx, uTime, uDay, uTileUv, uTerr, uFar, uHole, uHoleMax, uBand, uBandOut, uTerrace, uSurf; uniform vec3 uSun, uZen, uLight, uMoonD; uniform float uMoonK;   // uMoonD: the moon's direction, uMoonK its lit part (-1: no phases, a full moon). uFx: the pretty extras on or off; uTileUv: one tile in the ground texture; uLight: the sunlight's tint
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
 // how much a ground colour is water: the sheet's water is the only thing that is blue over green over hardly any red
 float isWater(vec3 c) { return smoothstep(0.05, 0.10, c.b - c.g) * smoothstep(0.18, 0.28, c.g - c.r); }
-${bandGlsl()}   // (the terraced world's grass tint ramp, written from terrace.ts so the shader, the maps and the far mesh share one table)
+${bandGlsl()}
+${ttgGlsl()}   // (the terraced world's grass tint ramp, written from terrace.ts so the shader, the maps and the far mesh share one table)
 float waterAt(vec2 uv, vec2 dx, vec2 dy) { vec4 s = textureGrad(uTex, uv, dx, dy); return isWater(mix(uBase.rgb, s.rgb, s.a)); }
 void main() {
   // The rings of detail hand over to each other in a band, not along a line: in the band both layers are drawn, each in the pixels the screen's noise gives it (the two patterns are exact opposites, so there is no gap and no double
@@ -131,6 +132,7 @@ void main() {
     float fd = uCubeN > 0.0 ? vSD : distance(vPos.xy, uEye.xy);
     if (fd > uHole + uBand || dn < smoothstep(uHole, uHole + uBand, fd)) discard;
   }
+  if ((uDbg & 4096) != 0) { o = vec4(0.0); return; }   // (the far ground's depth-only pass: it has had its discards, and needs no colour)
   vec4 tint = vCol; float lit = 0.0, fxq = 0.0;
   vec3 tn = vec3(0.0, 0.0, -1.0);
   float flatK = 1.0;                                                         // how level the ground is here: the water's ripples and glitter only lie on level water, a steep bank is plain colour
@@ -142,23 +144,10 @@ void main() {
   if (tint.a > 3.5) { fxq = 1.0; tint.a -= 4.0; }                           // alpha + 4 marks a drawn effect (see FX_*): the quad has no picture, its colour is worked out here; r = which, g and b = its numbers
   if (tint.a > 1.5) { lit = 1.0; tint.a -= 2.0; }                           // alpha + 2 marks a sprite that gives its own light (fire, lightning): no sun tint, no night
   vec4 c = tex0 * tint;
-  if (uFarSm > 0.5) { float fwH = max(fwidth(hp) * 0.7, 1e-4); c.rgb = mix(c.rgb, tex0.rgb * vec3(0.06, 0.42, 0.55), 1.0 - smoothstep(-fwH, fwH, hp)); }   // (the sea: wherever the smooth ground is below 0, so a coast is a curve)
-  if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0 && uSurf < 0.5 && uFar < 0.5) {   // a terraced chunk's picture: each tile's layer rides in its alpha. A pixel belongs to its tile's shelf; where the ground it lands on is another shelf (the contours cut across the tiles' squares), take the same pixel of the nearest tile on this shelf instead (up to two tiles out), so the texture fills every terrace and never spills over a wall
-    vec2 gx = dUx, gy = dUy;
-    float fl = floor(-vPos.z / uTerrace + 0.04), want = mod(fl + (abs(tn.z) < 0.5 ? 1.0 : 0.0), 16.0);   // (a wall belongs to the shelf it climbs to: it takes that shelf's picture)
-    // (the tile's layer is read at the finest level, always: from a distance, or on a screen drawn at a lower resolution, the mip levels blur the alpha into nonsense)
-    if ((uDbg & 1) == 0 && floor((1.0 - textureLod(uTex, vUv, 0.0).a) * 255.0 + 0.5) != want) {
-      vec2 f = fract(vUv / uTileUv), sg = vec2(f.x < 0.5 ? -1.0 : 1.0, f.y < 0.5 ? -1.0 : 1.0);
-      const ivec2 NB[24] = ivec2[24](ivec2(1, 0), ivec2(0, 1), ivec2(1, 1), ivec2(-1, 0), ivec2(0, -1), ivec2(-1, 1), ivec2(1, -1), ivec2(-1, -1),
-        ivec2(2, 0), ivec2(0, 2), ivec2(2, 1), ivec2(1, 2), ivec2(2, 2), ivec2(-2, 0), ivec2(0, -2), ivec2(2, -1), ivec2(-1, 2), ivec2(1, -2), ivec2(-2, 1), ivec2(2, -2), ivec2(-2, 2), ivec2(-1, -2), ivec2(-2, -1), ivec2(-2, -2));
-      for (int k = 0; k < 24; k++) {
-        vec2 uv2 = vUv + vec2(float(NB[k].x) * sg.x, float(NB[k].y) * sg.y) * uTileUv;
-        if (floor((1.0 - textureLod(uTex, uv2, 0.0).a) * 255.0 + 0.5) == want) { c = textureGrad(uTex, uv2, gx, gy); break; }
-      }
-    }
-    c.a = 1.0;
-  }
-  if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), bedK * 0.8), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
+  if (uFarSm > 0.5) { float wv = smoothstep(0.03, 0.08, c.b - c.r), lyr = floor(hp / max(uTerrace, 1e-3) + 0.5); c.rgb = mix(ttgZone(lyr) * (1.0 + (mod(lyr, 2.0) - 0.5) * 0.07 * (1.0 - smoothstep(0.12, 0.5, fwLv))) * c.rgb, c.rgb, wv); }   // (smooth far ground: the colour of the layer under this pixel, flat; the vertices only carry the light, and a lake's blue)
+  if (uFarSm > 0.5) { float fwH = max(fwidth(hp) * 0.7, 1e-4); c.rgb = mix(c.rgb, ttgWater(floor(-hp / max(uTerrace, 1e-3) + 1.5)), 1.0 - smoothstep(-fwH, fwH, hp)); }   // (the sea: wherever the smooth ground is below 0, so a coast is a curve)
+  if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0 && uSurf < 0.5 && uFar < 0.5) c.a = 1.0;   // a terraced chunk: the land is a flat colour of its layer, so the picture is read once (water or not) and not matched shelf by shelf any more
+  if (uSurf > 0.5) c = vec4(mix(uBase.rgb, vec3(0.20, 0.40, 0.30), (uTerrace > 0.0 ? 0.0 : bedK * 0.8)), 1.0);   // a sheet of inland water: the water's own colour (a beaver's pond, marked in the alpha, a murkier green), shaded as water below
   vec3 vE = uFar > 0.5 && uCubeN > 0.0 ? vW : vPos;   // (a planet's far ground: its distance, fog and view angle are those of the ball, not of the net)
   float nA = uNight.a; vec3 nCol = uNight.rgb;
   float eF = -uSun.z;   // (the sun's height over this ground)
@@ -213,7 +202,7 @@ void main() {
   }
   if (uBase.a > 0.5) {   // ground: the water shows through the see-through tiles
     c.rgb = mix(uBase.rgb, c.rgb, c.a); c.a = 1.0;
-    float wm = uFx > 0.5 ? isWater(c.rgb) * flatK * (1.0 - smoothstep(90.0, 130.0, vDist)) : 0.0;   // (the ripples and glitter, with all their texture reads, fade out by 130 tiles: far water is a plain colour)
+    float wm = 0.0;   // (flat water: no ripples, glitter or foam)   // (the ripples and glitter, with all their texture reads, fade out by 130 tiles: far water is a plain colour)
     if (wm > 0.01) {     // living water: ripples, the sky mirrored at shallow angles, the sun's glitter, foam along the shore
       vec2 wq = mod(vPos.xy, 256.0);
       float texel = max(fw.x, fw.y) * 16.0, t = uTime;                    // screen pixels per art pixel, upside down: under 1 the art pixels are big, so everything snaps to them
@@ -251,44 +240,42 @@ void main() {
       moon = vec3(0.75, 0.85, 1.0) * pow(md, 80.0) * (0.2 + 0.8 * sp) * nk * wm * 0.8 * (uMoonK < 0.0 ? 1.0 : uMoonK);
       c.rgb = mix(c.rgb, w, wm);
     }
+    if (uTerr > 0.5 && uTerrace > 0.0 && isWater(c.rgb) > 0.5) c.rgb = TTG_W[1];   // sea and lake tiles: one flat blue (their bed's depth shows as bands below)
   }
   if (uTerr > 0.5 && uBase.a > 0.5 && uTerrace > 0.0) {   // a terraced world (terrace.ts): every layer a band of its own colour, the ledges between them earth walls with a light lip and a dark foot, after Godus
     float hgt = -vPos.z, lvs = hgt / uTerrace + 0.04, lay = floor(lvs), fr = clamp((lvs - lay - 0.04) / 0.96, 0.0, 1.0), up = -tn.z;   // (the ground is flat shelves with walls straight down between them: fr is how far up a wall this pixel is, 0 on a shelf; +0.04 keeps a shelf from flickering between two layers)
     float grassK = smoothstep(-0.02, 0.06, c.g - c.r);   // grass or sand, from the crisp picture: the pixel art stays
     vec3 base = c.rgb;
-    float wq = isWater(c.rgb);
+    float wq = isWater(c.rgb) * step(lay, 0.5);   // (water lies at the sea's level only)
     float cycW = (uDbg & 2) != 0 ? 0.0 : 1.0 - smoothstep(0.12, 0.5, fwLv);   // (the layers' own colours only while a layer is wider than a few pixels: further off, or on a steep slope, they would be noise that shimmers as the view moves, so the plain ramp takes over)
     float wallK = 1.0 - smoothstep(0.80, 0.96, up);   // 1 on a wall, 0 on a shelf
     vec3 btUp = bandRamp(lay + 1.0) * mix(vec3(1.0), bandCyc(lay + 1.0), cycW);
     vec3 bt = mix(mix(bandRamp(lay), bandRamp(lay + 1.0), fr) * mix(vec3(1.0), mix(bandCyc(lay), bandCyc(lay + 1.0), fr), cycW), btUp, wallK);   // every layer its own colour; a wall is the colour of the shelf it climbs to
-    vec3 land = base * mix(vec3(1.0), bt, grassK);
+    vec3 land = ttgRamp(lay);   // flat colour by height, the picture's grass is not shown
     float cliff = 1.0 - smoothstep(0.84, 0.97, up), slope = 1.0 - smoothstep(0.90, 0.995, up);
     // a wall is one flat colour: its picture is the shelf's, stretched up the wall, which smears every flower and blade of grass into a vertical streak. Sand where the shelf it climbs to is the beach, the shelf's grass colour elsewhere.
-    vec3 wallC = mix(vec3(0.30, 0.50, 0.16) * btUp, vec3(0.90, 0.78, 0.54), step(lay + 1.0, 0.5));
+    vec3 wallC = ttgRamp(lay + 1.0);
     land = mix(land, wallC, wallK);
-    land *= mix(1.0, 0.86, wallK);   // (the wall is a shade darker than the shelf above it; the light and the foot's crease below do the rest)
-    land = mix(land, land * 1.14 + 0.03, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every wall
-    land = mix(land, land * 0.78, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a wall meets the shelf below
+    land *= mix(1.0, 0.82, wallK);   // (the wall is a shade darker than the shelf above it; the light and the foot's crease below do the rest)
+    land = mix(land, land * 1.06 + 0.01, smoothstep(0.75, 1.0, fr) * slope);   // the lip: a light edge along the top of every wall
+    land = mix(land, land * 0.90, (1.0 - smoothstep(0.0, 0.25, fr)) * slope);   // the foot: a darker crease where a wall meets the shelf below
     // water lies on level ground only: a ramp face that happens to stand over a water tile (the rim of a lake, a pond or the sea) is ground like any other, except where the water is on its high side and
     // spills over (a few stretches of every rim, picked by a hash of the place): there it is a waterfall, falling streaks of foam and a white foot
     vec2 nd = normalize(tn.xy + vec2(1e-5)) * uTileUv * 0.45;
-    float fallOn = cliff * step(0.5, waterAt(vUv - nd, dUx, dUy)) * (1.0 - step(0.5, waterAt(vUv + nd, dUx, dUy))) * step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 0.2), floor((vPos.x - vPos.y) * 0.2))));
+    float fallOn = 0.0;
+    if (cliff > 0.01) fallOn = cliff * step(0.5, waterAt(vUv - nd, dUx, dUy)) * (1.0 - step(0.5, waterAt(vUv + nd, dUx, dUy))) * step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 0.2), floor((vPos.x - vPos.y) * 0.2))));   // (the texture is read only on a wall)
     vec3 fallC = mix(vec3(0.12, 0.46, 0.64), vec3(0.88, 0.96, 1.0), step(0.7, hash(vec2(floor((vPos.x + vPos.y) * 8.0), floor(hgt * 12.0 + uTime * 6.0)))) * 0.8 + (1.0 - smoothstep(0.0, 0.12, fr)) * 0.5);
     // the bed under water: flat colour a layer, light sand-green in the shallows down to deep blue, so the steps of the bed show through the water as bands
-    vec3 bedC = bedD < 1.5 ? vec3(0.70, 0.86, 0.72) : bedD < 2.5 ? vec3(0.34, 0.68, 0.70) : bedD < 3.5 ? vec3(0.12, 0.48, 0.64) : bedD < 4.5 ? vec3(0.05, 0.32, 0.54) : vec3(0.03, 0.22, 0.44);
+    vec3 bedC = ttgWater(bedD);
     c.rgb = mix(mix(land, c.rgb, wq * (1.0 - cliff)), fallC, fallOn);
     c.rgb = mix(c.rgb, bedC * mix(1.0, 0.74, cliff), bedK * (1.0 - step(0.5, uSurf)));
   }
   if (uFar > 0.5 && uTerrace > 0.0) {   // the far hills of a terraced world are too coarse to be cut into steps, so the terraces are drawn instead: a thin dark line (and every other band a shade darker) wherever the height crosses a layer. At every distance, in steps of 1, 2, 4 ... layers, whichever keeps a band at least about seven pixels wide, so a far mountain is terraced like the ground near it (fewer, wider steps), not smooth where the bands would be thinner than a pixel; the next size cross-fades in as the view opens or closes
-    float lvf = hp / uTerrace, wf = max(fwLv, 1e-4), lod = clamp(log2(wf * 7.0), 0.0, 6.0), j = floor(lod), tj = lod - j;
-    float lineF = 0.0, shadeF = 1.0;
-    for (int k = 0; k < 2; k++) {
-      float m = exp2(j + float(k)), wk = k == 0 ? 1.0 - tj : tj, u = lvf / m + 0.04 / m, wm = wf / m;
-      lineF += wk * (1.0 - smoothstep(0.0, 1.5 * wm, fract(u))) * step(0.5, lvf);
-      shadeF *= mix(1.0, mod(floor(u), 2.0) > 0.5 ? 0.93 : 1.0, wk);
-    }
-    c.rgb *= shadeF;
-    c.rgb = mix(c.rgb, c.rgb * vec3(0.58, 0.50, 0.42), clamp(lineF, 0.0, 1.0) * 0.85);
+    // (each far level draws its contours at one fixed step of layers, uFarM, chosen for its own distance: the lines of a place stay where they are as the camera moves and turns, and only fade where a band is thinner than a pixel or two; the step used to follow the view, so the contours appeared and shifted as it moved)
+    float lvf = hp / uTerrace, wf = max(fwLv, 1e-4), m = max(uFarM, 1.0), u = lvf / m + 0.04 / m, wm = wf / m, fadeM = 1.0 - smoothstep(0.25, 0.6, wm);
+    float lineF = (1.0 - smoothstep(0.0, 1.5 * wm, fract(u))) * step(0.5, lvf) * fadeM;
+    c.rgb *= mix(1.0, mod(floor(u), 2.0) > 0.5 ? 0.93 : 1.0, fadeM);
+    c.rgb = mix(c.rgb, c.rgb * 0.82, clamp(lineF, 0.0, 1.0) * 0.5);
   }
   if (uTerr > 0.5 && uBase.a > 0.5) {   // hill shading: slopes facing the sun are bright, those away from it dark; water (flat) keeps its own look
     float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);
@@ -742,7 +729,7 @@ export class WorldGL {
   night: [number, number, number, number] = [0, 0, 0, 0];
 
   static create(canvas: HTMLCanvasElement, sheet: HTMLImageElement, shadow: HTMLCanvasElement, clouds: HTMLCanvasElement[], extras: (HTMLImageElement | null)[] = [], fire: { flames: HTMLCanvasElement[]; bolt: HTMLCanvasElement | null } = { flames: [], bolt: null }, beavers: HTMLCanvasElement[] = []): WorldGL | null {
-    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, stencil: true, powerPreference: 'high-performance' });
     if (!gl) return null;
     try { return new WorldGL(gl, sheet, shadow, clouds, extras, fire, beavers); } catch (e) { console.warn('3D view unavailable:', e); return null; }
   }
@@ -765,7 +752,7 @@ export class WorldGL {
       for (const [k, p, names] of [['bright', pp.bright, ['uTex', 'uPx', 'uThr']], ['blur', pp.blur, ['uTex', 'uDir']], ['comp', pp.comp, ['uScene', 'uBloom', 'uSunPos', 'uRays', 'uBloomK', 'uVig', 'uCrt', 'uSceneSz']]] as [string, WebGLProgram, string[]][]) for (const n of names) this.postLoc[k + '.' + n] = gl.getUniformLocation(p, n);
     } catch (e) { console.warn('3D glow pass unavailable:', e); this.postProg = null; }
     for (const n of ['uF', 'uR', 'uU', 'uHor', 'uZen', 'uSun', 'uMoonD', 'uMoonR', 'uMoonU', 'uMoonK', 'uAtm', 'uTan', 'uNight', 'uDay', 'uNoon', 'uHasStars', 'uHasMoon', 'uMoon', 'uPos', 'uSpin', 'uSpace', 'uHigh', 'uDip', 'uStars', 'uTime', 'uCirrus', 'uStrato', 'uCumulus', 'uMount', 'uTrees', 'uHas', 'uDrop', 'uHasT', 'uSea', 'uFx']) this.skyLoc[n] = gl.getUniformLocation(sp, n);
-    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uMoonD', 'uMoonK', 'uSpaceK', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink']) this.loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uEye', 'uCurveC', 'uPlanet', 'uCurveK', 'uCubeN', 'uGS', 'uGE', 'uGSo', 'uFC', 'uFA', 'uFB', 'uFCell', 'uXA', 'uXT', 'uTex', 'uCut', 'uFog', 'uFogRange', 'uBase', 'uNight', 'uFx', 'uTime', 'uDay', 'uTileUv', 'uTerr', 'uFar', 'uHole', 'uHoleMax', 'uBand', 'uBandOut', 'uTerrace', 'uSurf', 'uSun', 'uMoonD', 'uMoonK', 'uSpaceK', 'uZen', 'uLight', 'uDbg', 'uFarSm', 'uFarUv', 'uSink', 'uFarM']) this.loc[n] = gl.getUniformLocation(prog, n);
     this.vbo = gl.createBuffer()!; this.ibo = gl.createBuffer()!;
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) { const v = q * 4; idx.set([v, v + 1, v + 2, v, v + 2, v + 3], q * 6); }
@@ -1077,9 +1064,9 @@ export class WorldGL {
       };
       const qw = Math.max(1, sw >> 2), qh = Math.max(1, sh >> 2);
       const a = mk(qw, qh), b = mk(qw, qh), scene = mk(sw, sh), depth = gl.createRenderbuffer()!;
-      gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, sw, sh);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, sw, sh);
       const depthBits = gl.getRenderbufferParameter(gl.RENDERBUFFER, gl.RENDERBUFFER_DEPTH_SIZE) as number;
-      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, depth);
       this.post = { w, h, sw, sh, hdr, depth, depthBits, wantMs: dbgOn('msaa'), scene, a, b };
       return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     };
@@ -1092,7 +1079,7 @@ export class WorldGL {
         const fb = gl.createFramebuffer()!, color = gl.createRenderbuffer()!, depth = gl.createRenderbuffer()!;
         gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
         gl.bindRenderbuffer(gl.RENDERBUFFER, color); gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, fmt, P.sw, P.sh); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, color);
-        gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH_COMPONENT24, P.sw, P.sh); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH24_STENCIL8, P.sw, P.sh); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, depth);
         if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) P.ms = { fb, color, depth, samples };
         else { gl.deleteFramebuffer(fb); gl.deleteRenderbuffer(color); gl.deleteRenderbuffer(depth); console.warn('msaa: multisampled framebuffer incomplete'); }
       } else console.warn('msaa: no multisampled format for', P.hdr ? 'RGBA16F' : 'RGBA8');
@@ -1147,7 +1134,7 @@ export class WorldGL {
     if (this.postOn) gl.viewport(0, 0, this.post!.sw, this.post!.sh); else gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     const nt = this.night, nk = nt[3];
     gl.clearColor(this.sky[0] * (1 - nk) + nt[0] * nk, this.sky[1] * (1 - nk) + nt[1] * nk, this.sky[2] * (1 - nk) + nt[2] * nk, 1); gl.clearDepth(1);
-    gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.depthMask(true); gl.stencilMask(0xFF); gl.clearStencil(0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     {   // the skybox, behind everything
       for (let i = 0; i < 3; i++) gl.disableVertexAttribArray(i);
       gl.useProgram(this.skyProg); gl.disable(gl.DEPTH_TEST);
@@ -1225,9 +1212,13 @@ export class WorldGL {
       this.undrawn = Math.max(0, this.undrawn);
     }
     gl.bindVertexArray(null);   // (a chunk made just now has its vertex array bound: the far mesh must not rewrite it)
-    if (this.farOn && this.farMesh) { this.drawFar(); gl.uniform1f(this.loc.uHole, this.holeNom); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
+    const farUnder = this.farOn && !!this.farMesh && !!this.terrain;
+    if (this.farOn && this.farMesh) { this.drawFar();
+      // The far ground is the underlay. Its depth is dropped before the real chunks so that wherever a chunk is drawn it is on top (the coarse ground can rise over a terrace, in a valley or on a steep slope, and used to win the depth test there); the chunks mark their pixels in the stencil, and after them the far ground's depth is put back where no chunk was drawn, so mountains still hide the clouds behind them.
+      if (farUnder) { gl.depthMask(true); gl.clear(gl.DEPTH_BUFFER_BIT); gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.ALWAYS, 1, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE); }
+      gl.uniform1f(this.loc.uHole, this.holeNom); gl.uniform1f(this.loc.uBand, this.nearBand); gl.uniform1f(this.loc.uHoleMax, 1); } else gl.uniform1f(this.loc.uHoleMax, 0);
     gl.uniform1f(this.loc.uCut, 0.5); gl.depthMask(true); gl.uniform1f(this.loc.uTileUv, 1 / chunkTiles);
-    gl.uniform4f(this.loc.uBase, 15 / 255, 107 / 255, 140 / 255, 1);   // the flat map's water colour, under every ground tile
+    gl.uniform4f(this.loc.uBase, 0.26, 0.58, 0.95, 1);   // the flat map's water colour, under every ground tile
     gl.uniform1i(this.loc.uDbg, dbgBits());   // (the bisect switches of the Debug section, read every frame so a click shows at once)
     gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0); gl.uniform1f(this.loc.uTerrace, this.terrain ? this.terraceStep : 0);
     if (this.terrain) {
@@ -1261,6 +1252,11 @@ export class WorldGL {
       for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || !ent.wvao) continue; gl.bindTexture(gl.TEXTURE_2D, ent.tex); gl.bindVertexArray(ent.wvao); gl.drawElements(gl.TRIANGLES, ent.wcount!, gl.UNSIGNED_INT, 0); }
       gl.uniform1f(this.loc.uSurf, 0); gl.depthMask(true);
       gl.bindVertexArray(null); this.endTerrain();
+    }
+    if (farUnder) {   // the far ground's depth, back where no chunk was drawn (no colour: it is already there)
+      gl.stencilFunc(gl.NOTEQUAL, 1, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP); gl.colorMask(false, false, false, false); gl.depthMask(true);
+      gl.uniform1i(this.loc.uDbg, dbgBits() | 4096); this.drawFar(true); gl.uniform1i(this.loc.uDbg, dbgBits());
+      gl.colorMask(true, true, true, true); gl.disable(gl.STENCIL_TEST);
     }
     gl.uniform1f(this.loc.uTerr, 0);
   }
@@ -1397,10 +1393,10 @@ export class WorldGL {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
     return { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: false, smooth: !!m.aux };
   }
-  private drawFar() {
+  private drawFar(depthOnly = false) {   // (depthOnly: the second pass, with the colour off, only puts the far ground's depth back: the hole and bands are those the first pass worked out)
     const gl = this.gl, stride = FLOATS * 4;
     const want = Math.min(this.nearReach, this.cover, this.undrawn);
-    this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
+    if (!depthOnly) this.coverSm = this.coverSm > want || !isFinite(this.coverSm) ? want : Math.min(want, this.coverSm + 4);   // (a chunk missing close by closes the hole at once; it opens again a few tiles a frame as the chunks arrive)
     // The far ground is no longer held back inside the chunks that happen to be built: it is drawn all the way in, sunk deep under the real ground (see the vertex shader), so a chunk that is missing shows it, and a chunk that is built is never hidden by it. The chunks' own edge is where they are meant to reach (nearReach), not where the nearest gap is.
     const nom = this.nearReach > 0 ? this.nearReach : this.coverSm, hole = nom * 0.9;
     this.nearBand = Math.max(1, Math.min(40, nom * 0.1)); this.holeNom = hole;
@@ -1430,6 +1426,7 @@ export class WorldGL {
         first = r0 * (cols - 1) * 6 * 4; count = (r1 - r0) * (cols - 1) * 6;
       }
       gl.uniform1f(this.loc.uFarSm, f.smooth ? 1 : 0);
+      gl.uniform1f(this.loc.uFarM, Math.min(64, Math.max(1, 2 ** Math.round(Math.log2((f.grid?.step ?? 128) / 2.5)))));   // (the contour step of this level, in layers: about two or three tiles of band at its own spacing)
       gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
     });
     gl.disable(gl.POLYGON_OFFSET_FILL);

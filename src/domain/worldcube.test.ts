@@ -13,7 +13,7 @@ import { ORBIT, rocketFuel, setPlanetRadius, circularSpeed, orbitElements, space
 import { ChunkHost, type FromWorker } from '../workers/chunkHost';
 import { BLOCK_TABLE_BYTES, blocksFromTable, buildChunk } from './chunkbuild';
 
-const N = CUBE_N, R = cubeRadius(N);
+const N = CUBE_N, R = cubeRadius(N), Q = N / 10080;   // (Q: the test points were chosen on the first, bigger planet)
 afterEach(() => { setCubeSize(null); setPlanetRadius(null); });
 
 /** Net points `t` along the side of a face, `d` tiles past it (negative: inside). */
@@ -39,8 +39,8 @@ describe('the cube planet: the ground', () => {
     setCubeSize(N);
     for (const seed of seeds) {
       let edge = 0, inland = 0;
-      for (let fi = 0; fi < 6; fi++) for (let side = 0; side < 4; side++) for (const t of [-3300, -1700, -500, 400, 1900, 3100]) {
-        const [ax, ay] = sidePoint(fi, side, t, -0.25), [bx, by] = sidePoint(fi, side, t, 0.25), [cx, cy] = sidePoint(fi, side, t, -1000.25), [dx, dy] = sidePoint(fi, side, t, -999.75);
+      for (let fi = 0; fi < 6; fi++) for (let side = 0; side < 4; side++) for (const t of [-3300, -1700, -500, 400, 1900, 3100].map(v => v * Q)) {
+        const [ax, ay] = sidePoint(fi, side, t, -0.25), [bx, by] = sidePoint(fi, side, t, 0.25), [cx, cy] = sidePoint(fi, side, t, -1000.25 * Q), [dx, dy] = sidePoint(fi, side, t, -999.75 * Q);
         edge += Math.abs(elevation(ax, ay, seed) - elevation(bx, by, seed)); inland += Math.abs(elevation(cx, cy, seed) - elevation(dx, dy, seed));
       }
       expect(edge).toBeLessThan(inland * 3 + 2);   // (the ground's own slope, as anywhere: no step at an edge)
@@ -56,7 +56,7 @@ describe('the cube planet: the ground', () => {
   });
   it('is one flat sheet of open ocean on the corner caps, with no lakes', () => {
     setCubeSize(N);
-    for (const seed of seeds) for (const F of FACES) for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const k of [3, 200, 600]) {
+    for (const seed of seeds) for (const F of FACES) for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const k of [3, 200, 600].map(v => v * Q)) {
       const x = F.ix * N + sx * (N / 2 - 1 - k), y = F.iy * N + sy * (N / 2 - 1 - k * 0.7);
       expect(elevation(x, y, seed)).toBeCloseTo(CAP_LEVEL, 9); expect(CAP_LEVEL).toBeLessThan(0); expect(terraceLakeAt(x, y, seed)).toBe(false); expect(terraceMoist(x, y, seed)).toBeLessThan(0.2);
     }
@@ -200,9 +200,9 @@ describe('orbit round the cube planet', () => {
       let phase: 'climb' | 'coast' | 'insert' | 'done' = 'climb', t = 0;
       while (t < 900 && !g.landed) {
         let want = 0, rocket = false;
-        if (phase === 'climb') { want = Math.max(0.5, 1.35 - 0.03 * g.z / 1000); rocket = g.apo < 45000; if (g.z > 15000 && g.apo >= 45000) phase = 'coast'; }
-        else if (phase === 'coast') { if (g.vz <= 3 && g.z > 15000) phase = 'insert'; }
-        else if (phase === 'insert') { rocket = g.peri < ORBIT.TOP + 2000; if (!rocket) phase = 'done'; }
+        if (phase === 'climb') { want = Math.max(0.5, 1.35 - 0.03 * g.z / 1000); rocket = g.apo < 45000 * ORBIT.S; if (g.z > 15000 * ORBIT.S && g.apo >= 45000 * ORBIT.S) phase = 'coast'; }
+        else if (phase === 'coast') { if (g.vz <= 3 && g.z > 15000 * ORBIT.S) phase = 'insert'; }
+        else if (phase === 'insert') { rocket = g.peri < ORBIT.TOP + 2000 * ORBIT.S; if (!rocket) phase = 'done'; }
         stepGlider(g, { pitch: phase === 'coast' || phase === 'done' ? 0 : Math.max(-1, Math.min(1, want - g.gamma)), roll: 0, yaw: 0, rocket }, still, DT); t += DT;
       }
       return g;
@@ -211,7 +211,7 @@ describe('orbit round the cube planet', () => {
   });
   it('one orbit is one lap of the planet (four faces along the belt): a circular orbit comes back to where it began', () => {
     setPlanetRadius(cubeRadius(N));
-    const h = 30000, v = circularSpeed(h), g = newGlider(0, 0, 0, h), el = orbitElements(h, v, 0);
+    const h = 30000 * ORBIT.S, v = circularSpeed(h), g = newGlider(0, 0, 0, h), el = orbitElements(h, v, 0);
     g.vx = v; g.vy = 0; g.vz = 0; g.airspeed = v; g.gamma = 0; g.alpha = 0;
     const t = el.period / DT; for (let i = 0; i < t; i++) stepGlider(g, { pitch: 0, roll: 0, yaw: 0 }, still, DT);
     expect(g.x).toBeGreaterThan(4 * N * 0.97); expect(g.x).toBeLessThan(4 * N * 1.03);

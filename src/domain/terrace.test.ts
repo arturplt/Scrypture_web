@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceBiome, terraceMoist, terraceLakeAt, terraceLakesIn, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor, RELIEF_MAX } from './terrace';
+import { hopOffset, ledgeStep, HOP, TerraceField, elevation, terraceH, terraceSpawn, onLedge, TERRACE_STEP, TERRACE_SUB, TERRACE_G, terraceFarMesh, terraceChunkMesh, terraceLakeAt, terraceLakesIn, TERRACE_FAR_LODS, FAR_LEVEL_FROM, farLevelFor, RELIEF_MAX, ttgTint } from './terrace';
 import { World, GRASS, SAND, WATER, DECO_NONE, CHUNK, MARGIN, SIDE, generateTerraceChunk } from './worldgen';
 import { newSavedWorld, sanitizeWorlds, sanitizeRelief } from './worldsave';
 
@@ -189,16 +189,19 @@ describe('terraced height field', () => {
     expect(runs).toBeGreaterThan(20);
   });
 
-  it('colours the far mesh by biome: dry country is sand, woods are darker than meadows', () => {
-    const g = terraceFarMesh(42, 0, 0, 12, 1200); let r = g.next(); while (!r.done) r = g.next();
-    const m = r.value, sum = [0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0];
+  it('colours the far mesh flat by height (TTG look): the same layer is always the same colour, whatever the biome', () => {
+    const g = terraceFarMesh(42, 0, 0, 12, 1200, true); let r = g.next(); while (!r.done) r = g.next();
+    const m = r.value, seen = new Map<number, string>(); let land = 0;
     for (let k = 0; k < m.cols * m.rows; k++) {
       const x = m.pos[k * 3], y = m.pos[k * 3 + 1], e = elevation(x, y, 42); if (e < 1) continue;
-      const b = terraceBiome(Math.floor(e), terraceMoist(x, y, 42)); sum[b] += m.col[k * 3 + 1]; cnt[b]++;   // (the green channel)
+      const c = ttgTint(Math.floor(e)).map((v) => Math.min(1, v));
+      // (hill shading lights each vertex; the ratio between the channels is the layer's own)
+      if (Math.max(m.col[k * 3], m.col[k * 3 + 1], m.col[k * 3 + 2]) > 0.99 || m.col[k * 3 + 2] > m.col[k * 3]) continue;   // (clamped by the light, or a lake)
+      const want = c[0] / c[1], got = m.col[k * 3] / m.col[k * 3 + 1]; land++;
+      if (Math.abs(want - got) > 0.02) throw new Error(`layer ${Math.floor(e)} is not its flat colour`);
+      seen.set(Math.floor(e), 'x');
     }
-    expect(cnt[3]).toBeGreaterThan(50); expect(cnt[1]).toBeGreaterThan(50); expect(cnt[0]).toBeGreaterThan(50);
-    expect(sum[3] / cnt[3]).toBeGreaterThan(0.55);               // sand is pale
-    expect(sum[1] / cnt[1]).toBeLessThan(sum[0] / cnt[0] - 0.03);   // woods are darker than meadows
+    expect(land).toBeGreaterThan(200); expect(seen.size).toBeGreaterThan(3);
   });
 
   it('has inland lakes: level water on a shelf above the sea, the same for the same seed, and never under the spawn', () => {

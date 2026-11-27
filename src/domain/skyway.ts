@@ -21,7 +21,7 @@ export const SKY = {
 /** The seconds of burn one rung gives. */
 export const rungFuel = () => SKY.FUEL;
 /** The climb angle (rad) the ladder wants at a height above sea level: a gravity turn (the auto orbit's, a little quicker), level by 28 km. */
-export const climbProgram = (hAbs: number) => Math.max(0, 1.35 - (0.048 * hAbs) / 1000);
+export const climbProgram = (hAbs: number) => Math.max(0, 1.35 - (0.048 * hAbs) / (1000 * ORBIT.S));   // (heights scale with the planet)
 
 export interface Rung extends Hoop { n: number; gate?: boolean }   // gate: the last rung, above the air: through it the plane is set on a circular orbit
 export interface Ladder { on: boolean; n: number; rung: Rung | null }
@@ -37,7 +37,7 @@ export function nextRung(n: number, g: LadderGlider): Rung {
   const dx = ux, dy = -uy;                                                                                                     // (the map's: y south)
   const speed = Math.hypot(vh, g.vz), ds = Math.max(SKY.MIN, Math.min(SKY.MAX, speed * SKY.AHEAD)), prog = climbProgram(g.z + (g.gnd ?? 0));
   const hAbs = g.z + (g.gnd ?? 0), tk = trackK(hAbs), vTop = speed + ORBIT.THRUST * g.fuel, rise = (SKY.REACH * vTop * vTop) / (2 * gravityAt(hAbs));   // (the height its speed and fuel could carry it to: a rung is never set beyond a share of it)
-  if (hAbs >= ORBIT.TOP + SKY.GATE_PAD) {   // above the air: the gate, straight ahead on the plane's own path (never down), at whatever height it has by then
+  if (hAbs >= ORBIT.TOP + SKY.GATE_PAD * ORBIT.S) {   // above the air: the gate, straight ahead on the plane's own path (never down), at whatever height it has by then
     const eg = Math.max(0, Math.min(1.2, g.gamma));
     return { key: `sky${n}`, n, gate: true, x: g.x + dx * ds * Math.cos(eg) * tk, y: -g.y + dy * ds * Math.cos(eg) * tk, h: (g.z + ds * Math.sin(eg)) * 0.18, angle: Math.atan2(dy, dx), r: SKY.R0 + SKY.RK * ds * tk };
   }

@@ -15,8 +15,10 @@
  * A world of no size (`0`, the default) is the endless plane as it always was, and every function here is then the identity.
  */
 
-/** Tiles along a face. The planet's radius is 2N / pi = 6417 m: the planet the orbit already uses. */
-export const CUBE_N = 10080;
+/** Tiles along a face. The planet's radius is 2N / pi = 2139 m: a third of the first cube planet (CUBE_N_FIRST), so far less to build and draw. The orbit scales with it (see setPlanetRadius). */
+export const CUBE_N = 3360;
+/** The size the planet's fixed distances (the giant's ring, ...) were tuned for: a planet of another size scales them. */
+export const CUBE_N_FIRST = 10080;
 /** The sizes a saved world may have (anything else is read as an endless world). */
 export const CUBE_SIZES: readonly number[] = [CUBE_N];
 /** The planet's radius (m) for faces N tiles wide. */
@@ -24,7 +26,7 @@ export const cubeRadius = (n: number): number => (2 * n) / Math.PI;
 /** How far past a cut edge the ground is still the neighbour's (tiles): wider than anything the view builds round the plane. */
 export const EXT_MARGIN = 1500;
 /** The corner cap: dead flat inside CAP_FLAT tiles of a cube corner, easing in from CAP_FLAT + CAP_FADE out. */
-export const CAP_FLAT = 800, CAP_FADE = 1200;
+export const CAP_FLAT = 270, CAP_FADE = 400;
 /** The layer (elevation) of the cap's sheet: well below the sea, so every cube corner is open ocean (the land eases down to it over CAP_FADE tiles). */
 export const CAP_LEVEL = -6;
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { CUBE_N, FACES, setCubeSize, cubeRadius, faceOf, netToDir, dirToNet, canonInto, canonPoint, canonTile, canonChunk, newCanon, uncanon, turnVector, capAt, insideFace, eyeFrame, EXT_MARGIN, CAP_FLAT, CAP_FADE } from './cube';
 
-const N = CUBE_N, R = cubeRadius(N);
+const N = CUBE_N, R = cubeRadius(N), Q = N / 10080;   // (Q: the test points were chosen on the first, bigger planet)
 afterEach(() => setCubeSize(null));
 const ang = (p: number[], q: number[]) => Math.acos(Math.max(-1, Math.min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2])));
 const dir = (x: number, y: number) => { const d = [0, 0, 0]; if (!netToDir(x, y, d)) throw new Error(`not on a face: ${x},${y}`); return d; };
@@ -20,7 +20,7 @@ describe('the cube: faces', () => {
     expect(centres.size).toBe(6);
   });
   it('is a planet of radius 2N / pi, and the endless plane when no size is set', () => {
-    expect(R).toBeCloseTo(6417.127, 2);
+    expect(R).toBeCloseTo((2 * N) / Math.PI, 2);
     expect(faceOf(0, 0)).toBe(-1); expect(canonPoint(123, -456)).toEqual([123, -456]); expect(capAt(0, 0)).toBe(0);
     setCubeSize(N); expect(faceOf(0, 0)).toBe(0); expect(faceOf(N, 0)).toBe(1); expect(faceOf(0, -N)).toBe(4); expect(faceOf(0, N)).toBe(5); expect(faceOf(-N, 0)).toBe(3); expect(faceOf(2 * N, 0)).toBe(2);
     expect(faceOf(N, N)).toBe(-1);   // (a void of the net)
@@ -28,7 +28,7 @@ describe('the cube: faces', () => {
   it('puts net points on the sphere and finds them again', () => {
     setCubeSize(N);
     for (let i = 0; i < 200; i++) {
-      const f = FACES[i % 6], x = f.ix * N + ((i * 7919) % 9000) - 4500 + 0.3, y = f.iy * N + ((i * 104729) % 9000) - 4500 + 0.7, d = dir(x, y), [qx, qy] = dirToNet(d[0], d[1], d[2]);
+      const f = FACES[i % 6], x = f.ix * N + ((i * 7919) % Math.round(9000 * Q)) - 4500 * Q + 0.3, y = f.iy * N + ((i * 104729) % Math.round(9000 * Q)) - 4500 * Q + 0.7, d = dir(x, y), [qx, qy] = dirToNet(d[0], d[1], d[2]);
       expect(Math.hypot(d[0], d[1], d[2])).toBeCloseTo(1, 12); expect(qx).toBeCloseTo(x, 6); expect(qy).toBeCloseTo(y, 6);
     }
   });
@@ -56,7 +56,7 @@ describe('the cube: past the edges', () => {
   it('is the same place on the planet just past an edge as just short of it, on all 24 sides', () => {
     setCubeSize(N);
     const c = newCanon();
-    for (let fi = 0; fi < 6; fi++) for (let side = 0; side < 4; side++) for (const t of [-4500, -1200, 3, 777, 4400]) {
+    for (let fi = 0; fi < 6; fi++) for (let side = 0; side < 4; side++) for (const t of [-4500, -1200, 3, 777, 4400].map(v => v * Q)) {
       const F = FACES[fi], east = side < 2, sgn = side % 2 === 0 ? 1 : -1;
       const edge = (d: number) => east ? [F.ix * N + sgn * (N / 2 + d), F.iy * N + t] : [F.ix * N + t, F.iy * N + sgn * (N / 2 + d)];
       const [ex, ey] = edge(-1e-7), [px, py] = edge(0.5);
@@ -104,7 +104,7 @@ describe('the cube: past the edges', () => {
   });
   it('has a frame at a net point: up on the ball, east and south square to it and to each other, pointing along the chart', () => {
     setCubeSize(N);
-    for (const [x, y] of [[0, 0], [1234, -2345], [N + 700, 900], [-300, N - 40], [2 * N - 1500, 3000], [0, -N + 100]]) {
+    for (const [x, y] of [[0, 0], [1234 * Q, -2345 * Q], [N + 700 * Q, 900 * Q], [-300 * Q, N - 40], [2 * N - 1500 * Q, 3000 * Q], [0, -N + 100]]) {
       const e = eyeFrame(x, y)!, d = dir(x, y);
       expect(ang([...e.up], d)).toBeLessThan(1e-6); expect(dot3(e.east, e.up)).toBeCloseTo(0, 9); expect(dot3(e.south, e.up)).toBeCloseTo(0, 9); expect(dot3(e.east, e.south)).toBeCloseTo(0, 2);
       const q = dir(x + 1, y), r = dir(x, y + 1);

@@ -10,7 +10,7 @@
 
 import { makeRealTerrain, realElevation, realLand, realLake, realLakeSheet, realLakeTile, realLakeShore, type RealTerrain } from './terrainreal';
 import type { LakeData } from './lakedistrict';
-import { GN, canonInto, newCanon, capAt, canonTile, canonTileKey, canonChunk, netToDir, insideFace, CAP_LEVEL, type Canon } from './cube';
+import { GN, canonInto, newCanon, capAt, canonTile, canonTileKey, canonChunk, netToDir, insideFace, CAP_LEVEL, CUBE_N_FIRST, type Canon } from './cube';
 
 /** Tiles per chunk side (worldgen's CHUNK; repeated here so this file needs nothing from worldgen). */
 const CHUNK = 16;
@@ -122,7 +122,7 @@ export function elevationBroad(x: number, y: number, seed: number): number {
     peakOf(s);   // (worked out first: it uses the point scratch)
     lowAt(x, y, s, lo, 0); pt(x, y);
     const cx = CX, cy = CY, wx = PX + lo[0], wy = PY + lo[1], wz = PZ + lo[8], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
-    const e = ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAtCube(cx, cy, s, lo, 0, wx, wy, wz) + peakAt(cx, cy, s), cap = capAt(cx, cy);
+    const e = (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAtCube(cx, cy, s, lo, 0, wx, wy, wz)) * LK + peakAt(cx, cy, s), cap = capAt(cx, cy);
     return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;
   }
   lowAt(x, y, s, lo, 0);
@@ -133,20 +133,22 @@ export function elevationBroad(x: number, y: number, seed: number): number {
  * A cube-sphere's continents: land and sea on the scale of the planet (a few great masses a few thousand to ten thousand tiles across, a third or so of the planet land), with the usual coast and
  * islands of `cont` laid over them. The world begins on a landmass: it is lifted round the middle of the front face (where the plane starts) so there is always home ground, and the sea is open water elsewhere.
  */
-function cubeCont(cx: number, cy: number, wx: number, wy: number, wz: number, s: number, cont: number): number {
+function cubeCont(wx: number, wy: number, wz: number, s: number, cont: number): number {
   const C = 4 * GN;   // (tiles round the planet: lattice cells 3, 6 and 13 round it)
   const big = 0.6 * nz3(wx, wy, wz, 3.2 / C, s + 23) + 0.75 * nz3(wx, wy, wz, 6.3 / C, s + 24) + 0.3 * nz3(wx, wy, wz, 13.1 / C, s + 25);
-  const home = 0.55 * (1 - smooth(1500, 6000, Math.hypot(cx, cy)));
+  // (the distance from the spawn is measured over the ball, from the point's place on it (the scratch PX, set by `pt`): the net's own distance jumps across a cut edge. The radii scale with the planet.)
+  const R = (2 * GN) / Math.PI, arc = R * Math.acos(Math.max(-1, Math.min(1, PX / R))), k = GN / CUBE_N_FIRST;
+  const home = 0.55 * (1 - smooth(1500 * k, 6000 * k, arc));
   return 0.4 * cont + 1.4 * big + home - 0.04;
 }
 /** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2, and on a cube-sphere a third in slot 8), the continent, the big hills, the big rolls. */
 const LOW_N = 9, LOW_TMP = new Float64Array(LOW_N);
 function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array, o: number) {
   if (GN) {   // (the cube-sphere: the field is a function of the point's place on the ball, so it has no seams and no stretching)
-    pt(x, y); const px = PX, py = PY, pz = PZ, cx = CX, cy = CY;
+    pt(x, y); const px = PX, py = PY, pz = PZ;
     const dx = 26 * nz3(px, py, pz, 0.006, s + 11), dy = 26 * nz3(px, py, pz, 0.006, s + 12), dz = 26 * nz3(px, py, pz, 0.006, s + 13), wx = px + dx, wy = py + dy, wz = pz + dz;
     out[o] = dx; out[o + 1] = dy; out[o + 8] = dz;
-    out[o + 2] = cubeCont(cx, cy, wx, wy, wz, s, (nz3(wx, wy, wz, 0.0032, s + 21) + 0.5 * nz3(wx, wy, wz, 0.0081, s + 22)) / 1.5);
+    out[o + 2] = cubeCont(wx, wy, wz, s, (nz3(wx, wy, wz, 0.0032, s + 21) + 0.5 * nz3(wx, wy, wz, 0.0081, s + 22)) / 1.5);
     out[o + 3] = nz3(wx, wy, wz, 0.011, s + 31); out[o + 4] = nz3(wx, wy, wz, 0.022, s + 51);
     out[o + 5] = nz3(wx, wy, wz, 0.0011, s + 61); out[o + 6] = nz3(wx, wy, wz, 0.00045, s + 62); out[o + 7] = (nz3(wx, wy, wz, 0.0006, s + 63) + 1) / 2;
     return;
@@ -347,12 +349,14 @@ function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array
 }
 /** Layers the hills add at their tallest, before the 1.5 on the whole (26 gave tops near 56 layers; 55 gives about 100). */
 const HILL_LAYERS = 55;
+/** A cube planet has a quarter of the layers (hills to ~25, ranges to ~60): fewer, wider terraces, and less to draw. Applied to the whole height; the sea level stays where it was. */
+const LK = 0.25;
 function baseRaw(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
   if (GN) {   // (the cube-sphere: the same hills, rolls and wiggle, as noise at the point's place on the ball, warped by the three slow warp fields)
     pt(x, y); const px = PX, py = PY, pz = PZ, cx = CX, cy = CY, wx = px + lo[o], wy = py + lo[o + 1], wz = pz + lo[o + 8], cont = lo[o + 2], h1 = lo[o + 3], land = smooth(-0.1, 0.3, cont);
     const h2 = nz3(wx, wy, wz, 0.027, s + 32), rg = 1 - Math.abs(nz3(wx, wy, wz, 0.045, s + 33)), hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));
     const roll = lo[o + 4] * 2.2 + nz3(wx, wy, wz, 0.06, s + 52) * 0.8, wig = 0.22 * nz3(px, py, pz, 0.12, s + 41);
-    return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAtCube(cx, cy, s, lo, o, wx, wy, wz);
+    return (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAtCube(cx, cy, s, lo, o, wx, wy, wz)) * LK;
   }
   const wx = x + lo[o], wy = y + lo[o + 1], cont = lo[o + 2], h1 = lo[o + 3];
   const land = smooth(-0.1, 0.3, cont);
@@ -411,6 +415,8 @@ function rangeAt(x: number, y: number, s: number, lo: Float64Array | Float32Arra
 export const PEAK_M = 8000, PEAK_R = 600, PEAK_P = 1.8;
 /** How far from the middle of the world the giant's summit stands (tiles): the skirt starts well clear of where a world begins. */
 const PEAK_AT = [1100, 1500];
+/** On a cube planet the giant's distances scale with the planet (they were set for faces of CUBE_N_FIRST tiles), and its height with the layers (LK). */
+const peakK = (): number => (GN > 0 ? GN / CUBE_N_FIRST : 1);
 interface Peak { x: number; y: number; add: number }
 let peakSeed = NaN, peakGN = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
 /** Where the giant of a seed stands: of 32 places on two rings round the middle, the highest ground (the most inland), and how many layers are added there for the summit to reach PEAK_M. */
@@ -418,18 +424,18 @@ export function peakOf(s: number): Peak {
   if (s === peakSeed && peakGN === GN) return peakNow;
   const tmp = new Float64Array(LOW_N); let best = -Infinity, bx = 0, by = 0;
   for (const d of PEAK_AT) for (let k = 0; k < 16; k++) {
-    const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d), y = Math.round(Math.sin(a) * d);
+    const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d * peakK()), y = Math.round(Math.sin(a) * d * peakK());
     lowAt(x, y, s, tmp, 0); const e = baseRaw(x, y, s, tmp, 0);
     if (e > best) { best = e; bx = x; by = y; }
   }
-  peakSeed = s; peakGN = GN; peakNow = { x: bx, y: by, add: PEAK_M / TERRACE_LAYER_M - best };
+  peakSeed = s; peakGN = GN; peakNow = { x: bx, y: by, add: (PEAK_M / TERRACE_LAYER_M) * (GN > 0 ? LK : 1) - best };
   return peakNow;
 }
 /** The layers the giant adds at a point (0 beyond its skirt). */
 function peakAt(x: number, y: number, s: number): number {
-  const p = peakOf(s), dx = x - p.x, dy = y - p.y;
-  if (dx > PEAK_R || dx < -PEAK_R || dy > PEAK_R || dy < -PEAK_R) return 0;
-  const t = Math.sqrt(dx * dx + dy * dy) / PEAK_R;
+  const p = peakOf(s), dx = x - p.x, dy = y - p.y, R = PEAK_R * peakK();
+  if (dx > R || dx < -R || dy > R || dy < -R) return 0;
+  const t = Math.sqrt(dx * dx + dy * dy) / R;
   return t >= 1 ? 0 : p.add * Math.pow(1 - t, PEAK_P);
 }
 
@@ -490,6 +496,31 @@ export function bandTint(layer: number, cycle = true): [number, number, number] 
   if (!cycle) return [r, g, b];
   const c = BAND_CYCLE[((layer % 6) + 6) % 6];
   return [r * c[0], g * c[1], b * c[2]];
+}
+/**
+ * The look of the terraced world: flat colour by height, after Terraced Terrain Generator's planets (sand, light green, green, brown, grey, white), no texture, no per-layer hue cycle.
+ * [first layer, r, g, b]: every layer from that one up to the next stop is that colour (a hard edge, so the zones read as bands of terraces); each layer is a hair lighter or darker than its
+ * neighbour (`TTG_ALT`), just enough to tell the shelves apart. The far mesh (`terraceFarMesh`) and the shader (`ttgGlsl`) read the same table.
+ */
+export const TTG_STOPS: readonly (readonly [number, number, number, number])[] = [
+  [0, 0.98, 0.93, 0.62], [2, 0.55, 0.80, 0.28], [6, 0.30, 0.65, 0.17], [12, 0.16, 0.46, 0.14], [19, 0.60, 0.34, 0.14], [30, 0.52, 0.52, 0.54], [45, 0.36, 0.36, 0.40], [60, 0.96, 0.96, 0.98],
+];
+export const TTG_ALT = 0.035;
+/** TTG water: depth below the surface in layers (1 = shore), light cyan to deep blue. */
+export const TTG_WATER: readonly (readonly [number, number, number])[] = [[0.38, 0.82, 1.0], [0.26, 0.58, 0.95], [0.20, 0.40, 0.82], [0.15, 0.25, 0.64], [0.11, 0.14, 0.44]];
+export function ttgTint(layer: number): [number, number, number] {
+  const S = TTG_STOPS; let k = 0;
+  for (let i = 0; i < S.length; i++) if (layer >= S[i][0]) k = i;
+  const a = 1 + (((layer % 2) + 2) % 2 - 0.5) * 2 * TTG_ALT;
+  return [S[k][1] * a, S[k][2] * a, S[k][3] * a];
+}
+/** The same as GLSL: `vec3 ttgRamp(float lay)` (the layer's colour) and `vec3 ttgWater(float depth)`. */
+export function ttgGlsl(): string {
+  const f = (v: number) => v.toFixed(4), S = TTG_STOPS;
+  let c = `vec3(${f(S[0][1])}, ${f(S[0][2])}, ${f(S[0][3])})`;
+  for (let i = 1; i < S.length; i++) c = `(lay >= ${f(S[i][0])} ? vec3(${f(S[i][1])}, ${f(S[i][2])}, ${f(S[i][3])}) : ${c})`;
+  const W = TTG_WATER.map((v) => `vec3(${f(v[0])}, ${f(v[1])}, ${f(v[2])})`).join(', ');
+  return `vec3 ttgZone(float lay) { return ${c}; }\nvec3 ttgRamp(float lay) { lay = floor(lay + 0.5); return ttgZone(lay) * (1.0 + (mod(lay, 2.0) - 0.5) * ${f(2 * TTG_ALT)}); }\nconst vec3 TTG_W[5] = vec3[5](${W});\nvec3 ttgWater(float d) { return TTG_W[int(clamp(floor(d + 0.5) - 1.0, 0.0, 4.0))]; }`;
 }
 /** The same as a GLSL function `vec3 bandTint(float lay)` (the shader blends two of them along a slope). */
 export function bandGlsl(): string {
@@ -1002,8 +1033,6 @@ export function terraceChunkMesh(e: Float32Array, cx: number, cy: number, waterT
 
 // ---- far view -------------------------------------------------------------------------------------------------------------------------
 
-/** The far view's base colour of grass by biome (index into BIOME_LIST): grassland, forest, wetland; the tint of the layer is multiplied in. */
-const BIOME_FAR: [number, number, number][] = [[0.30, 0.46, 0.13], [0.13, 0.31, 0.11], [0.22, 0.40, 0.25]];
 
 export interface TerraceFarMesh { cols: number; rows: number; step: number; cx: number; cy: number; pos: Float32Array; col: Float32Array; idx: Uint32Array; /** (an unstepped level only) per vertex: the height's slope east and south, and its signed height (below 0 at sea), so the shader can work out the ground between the vertices, see `aux` of TerraceFarMesh */ aux?: Float32Array }
 
@@ -1037,16 +1066,10 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: nu
       if (aux) { const i0 = Math.max(0, i - 1), i1 = Math.min(cols - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(rows - 1, j + 1); aux[k * 3] = (Hs(i1, j) - Hs(i0, j)) / ((i1 - i0) * step); aux[k * 3 + 1] = (Hs(i, j1) - Hs(i, j0)) / ((j1 - j0) * step); aux[k * 3 + 2] = Hs(i, j); }
       pos[k * 3] = CX(i * step); pos[k * 3 + 1] = CY(j * step); pos[k * 3 + 2] = -h;
       let r: number, g: number, b: number;
-      if (aux && e < 0) { r = 0.91; g = 0.78; b = 0.54; }   // (the sea of an unstepped level: the shader draws it where the ground is below 0, so its vertices carry the shore's colour, and the coast is a clean curve, not a blend of blue and sand)
-      else if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(CX(i * step), CY(j * step), seed, lakes)) { r = 0.06; g = 0.42; b = 0.55; }
+      if (aux && e < 0) { r = 1; g = 1; b = 1; }   // (the sea of an unstepped level: the shader draws it where the ground is below 0, so its vertices carry the shore's colour, and the coast is a clean curve, not a blend of blue and sand)
+      else if (e < 0 || (lakes > 0 || REAL) && terraceLakeAt(CX(i * step), CY(j * step), seed, lakes)) { r = TTG_WATER[1][0]; g = TTG_WATER[1][1]; b = TTG_WATER[1][2]; }
       else {
-        const lay = Math.floor(e), bio = terraceBiome(lay, terraceMoist(CX(i * step), CY(j * step), seed));   // (the biome of the land here, so the far hills carry the colour of the woods, the wetland and the dry country, as the near ground does)
-        if (lay === 0 || (bio === 3 && lay >= bareFrom())) { const a = (lay & 1) ? 0.93 : 1; r = 0.91 * a; g = 0.78 * a; b = 0.54 * a; }   // (sand: the beach and the bare tops only; dry country above the beach is grass to the eye up close, so it is grass from afar too, not sand that turns green as you come)
-        else {
-          // each layer its own tint, as up close, where the terraces are wide enough to tell apart: the steeper the ground (layers a vertex), the less of it, so a hillside of thin layers is a plain ramp and not noise
-          const sl = Math.max(Math.abs(H(i + 1, j) - H(i, j)), Math.abs(H(i - 1, j) - H(i, j)), Math.abs(H(i, j + 1) - H(i, j)), Math.abs(H(i, j - 1) - H(i, j))) / TERRACE_STEP, w = 1 - smooth(0.6, 2.2, sl), cy = BAND_CYCLE[((lay % 6) + 6) % 6];
-          const t = bandTint(lay, false), c = BIOME_FAR[bio] ?? BIOME_FAR[0]; r = c[0] * t[0] * (1 + (cy[0] - 1) * w); g = c[1] * t[1] * (1 + (cy[1] - 1) * w); b = c[2] * t[2] * (1 + (cy[2] - 1) * w);
-        }
+        const t = aux ? [1, 1, 1] : ttgTint(Math.floor(e)); r = t[0]; g = t[1]; b = t[2];   // (a smooth level carries only the light: the shader picks the layer's colour per pixel from the height, so the zones' edges are crisp)   // (flat colour by height: no biome, no texture, no per-layer hue)
         const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * step), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * step), nl = Math.hypot(gx, gy, 1);
         const sh = Math.max(0.55, Math.min(1.25, 0.5 + 0.9 * Math.max(0, (-gx * L[0] - gy * L[1] + L[2]) / nl)));
         r *= sh; g *= sh; b *= sh;

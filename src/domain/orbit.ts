@@ -10,6 +10,7 @@
 export const G0 = 9.81;
 export const ORBIT = {
   R: 15000,                 // m: the planet's radius
+  S: 1,                     // the planet's size against the reference cube planet (1 on it and on an endless world): heights scale with it, see setPlanetRadius
   FLAT_H: 1000,             // m: full air density up to here
   H: 2000,                  // m: the air thins by e every H metres above it
   TOP: 25000,               // m: a periapsis above this clears the air: an orbit (the drag left is about 0.04 m/s^2 at orbital speed)
@@ -31,6 +32,9 @@ export const ORBIT = {
 };
 /** The planet's radius an endless world pretends to have. */
 export const PLANET_R0 = 15000;
+/** The radius the numbers of ORBIT were tuned for on a cube planet (10080 tiles a face: 2N / pi); a planet of another size scales them (see setPlanetRadius). */
+export const REF_R = 6417.127;
+const BASE = { TOP: 25000, CEILING: 70000, H: 2000, HOLD: 3, CONE_DROP_V: 80, CEILING_K: 0.02, CEILING_DAMP: 0.03, HEAT_ONSET: 2.5e5, HEAT_SCALE: 2e6 };
 const FUEL_BIG = [0, 6, 12, 22], FUEL_SMALL = [0, 4, 8, 15];
 export let MU = G0 * ORBIT.R * ORBIT.R;
 /** Is the planet a real one (a cube-sphere world: its radius is 2N / pi for faces N tiles wide)? Then the ground track of the plane at height follows the curve (see `trackK`). */
@@ -41,7 +45,15 @@ export let PLANET_ROUND = false;
  */
 export function setPlanetRadius(r: number | null) {
   ORBIT.R = r && r > 0 ? r : PLANET_R0; PLANET_ROUND = !!(r && r > 0); MU = G0 * ORBIT.R * ORBIT.R;
-  ORBIT.FUEL = PLANET_ROUND ? FUEL_SMALL : FUEL_BIG;   // (a small planet takes less to leave: the tiers keep their meaning, only the top one orbits)
+  // A round planet is the reference cube planet (radius REF_R, the numbers above) made smaller or larger by s = R / REF_R, by similarity: every height (the top of the air, its thinning, the ceiling) scales with s, speeds and times
+  // with sqrt(s) (a circular orbit is sqrt(G R) fast), accelerations (gravity, thrust) stay, and so does a burn's delta-v per second of fuel, so the tiers' burns get shorter by sqrt(s). At s = 1 nothing changes.
+  const s = PLANET_ROUND ? ORBIT.R / REF_R : 1, q = Math.sqrt(s);
+  ORBIT.S = s;
+  ORBIT.TOP = BASE.TOP * s; ORBIT.CEILING = BASE.CEILING * s; ORBIT.H = BASE.H * s;
+  ORBIT.HOLD = BASE.HOLD * q; ORBIT.CONE_DROP_V = BASE.CONE_DROP_V * q;
+  ORBIT.CEILING_K = BASE.CEILING_K / s; ORBIT.CEILING_DAMP = BASE.CEILING_DAMP / q;
+  ORBIT.HEAT_ONSET = BASE.HEAT_ONSET * s ** 1.5; ORBIT.HEAT_SCALE = BASE.HEAT_SCALE * s ** 1.5;
+  ORBIT.FUEL = (PLANET_ROUND ? FUEL_SMALL : FUEL_BIG).map(f => f * q ** 1.25);   // (a little steeper than sqrt(s): the air and the gravity near the ground do not scale, and the burn that just orbits fell from 8.5 s to 4.5 s, a third of the planet, flown by a scripted ascent in worldcube.test)   // (a small planet takes less to leave: the tiers keep their meaning, only the top one orbits)
   const k = ORBIT.R / PLANET_R0; SPACE_FROM = 8000 * k; SPACE_TO = 24000 * k;
 }
 /** How much of its speed the plane's ground track covers at this height above sea level: on a round planet a circle of radius R + h is covered at v, the ground under it at v R / (R + h), so an orbit goes round the world exactly once. Low flying (to FLAT_H) is untouched, eased in over the next kilometre, and the endless plane has no curve to follow. */
@@ -55,7 +67,7 @@ export const rocketFuel = (tier: number) => ORBIT.FUEL[Math.max(0, Math.min(ORBI
 /** Air density against sea level at a height above sea level: 1 up to FLAT_H, then thinning exponentially. */
 export const airDensity = (h: number) => (h <= ORBIT.FLAT_H ? 1 : Math.exp(-(h - ORBIT.FLAT_H) / ORBIT.H));
 /** Gravity at a height above sea level. */
-export const gravityAt = (h: number) => G0 * (ORBIT.R / (ORBIT.R + Math.max(0, h))) ** 2;
+export const gravityAt = (h: number) => G0 * (ORBIT.R / (ORBIT.R + Math.max(0, h - 300 * Math.max(0, 1 - ORBIT.S) * Math.max(0, 1 - h / 2000)))) ** 2;   // (a small planet weakens gravity faster: the first few hundred metres, where the hoops are, keep more of the pull so low flying feels as on a big one; above 2 km it is exactly Kepler's)
 /** 0 in air that steers the wing, 1 where the stick turns the nose freely. */
 export const thinness = (rho: number) => { const [a, b] = ORBIT.GIMBAL_THIN; const t = Math.max(0, Math.min(1, (rho - a) / (b - a))); return 1 - t * t * (3 - 2 * t); };
 
