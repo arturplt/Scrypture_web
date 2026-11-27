@@ -276,6 +276,14 @@ void main() {
     float lineF = (1.0 - smoothstep(0.0, 1.5 * wm, fract(u))) * step(0.5, lvf) * fadeM;
     c.rgb *= mix(1.0, mod(floor(u), 2.0) > 0.5 ? 0.93 : 1.0, fadeM);
     c.rgb = mix(c.rgb, c.rgb * 0.82, clamp(lineF, 0.0, 1.0) * 0.5);
+    if (uFarSm > 0.5) {   // terraces, not slopes: every shelf is flat and lit alike, and each step (uFarM layers) ends in a riser that faces downhill, lit or in shade by the sun: the top fifth of the step's height. Where a step is thinner than a few pixels it fades to its average, so it does not shimmer
+      float gl2 = length(vSl.xy), frL = fract(u), has = smoothstep(0.0, 0.03, gl2);
+      vec3 wn = vec3(-vSl.xy / max(gl2, 1e-6), 0.0);
+      float dif = max(dot(wn, uSun), 0.0), flatL = max(-uSun.z, 0.0), shW = clamp((0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL), 0.40, 1.15);
+      float wallA = smoothstep(0.78, 0.93, frL) * has;
+      c.rgb *= mix(1.0, shW, mix(0.2 * has, wallA, fadeM));
+      c.rgb *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.14, frL)) * fadeM * has;   // (a darker foot where the riser meets the shelf below)
+    }
   }
   if (uTerr > 0.5 && uBase.a > 0.5) {   // hill shading: slopes facing the sun are bright, those away from it dark; water (flat) keeps its own look
     float flatL = max(uSun.z * -1.0, 0.0), dif = max(dot(tn, uSun), 0.0), sh = (0.50 + 0.60 * dif) / (0.50 + 0.60 * flatL);

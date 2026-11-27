@@ -1072,7 +1072,7 @@ export function* terraceFarMesh(seed: number, cx: number, cy: number, stepIn: nu
         const t = aux ? [1, 1, 1] : ttgTint(Math.floor(e)); r = t[0]; g = t[1]; b = t[2];   // (a smooth level carries only the light: the shader picks the layer's colour per pixel from the height, so the zones' edges are crisp)   // (flat colour by height: no biome, no texture, no per-layer hue)
         const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * step), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * step), nl = Math.hypot(gx, gy, 1);
         const sh = Math.max(0.55, Math.min(1.25, 0.5 + 0.9 * Math.max(0, (-gx * L[0] - gy * L[1] + L[2]) / nl)));
-        r *= sh; g *= sh; b *= sh;
+        if (!aux) { r *= sh; g *= sh; b *= sh; }   // (a smooth level is lit in the shader: flat tops and a riser at every layer, see the far block there)
       }
       col[k * 3] = Math.min(1, r); col[k * 3 + 1] = Math.min(1, g); col[k * 3 + 2] = Math.min(1, b);
     }
