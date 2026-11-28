@@ -1,0 +1,305 @@
+{
+ "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL ES 3.2)",
+ "size": "1280x720",
+ "frames": {
+  "N32": {
+   "build": {
+    "N": 32,
+    "k": 4,
+    "tris": 19388,
+    "bytes": 755256,
+    "id": 1,
+    "quick": false,
+    "latencyMs": 348.69999999925494,
+    "sampleMs": 108.90000000037253,
+    "buildMs": 98.39999999850988,
+    "cached": false
+   },
+   "globe": {
+    "n": 239,
+    "p50": 16.699999999999818,
+    "p95": 16.799999999999727,
+    "p99": 16.800000000000182,
+    "max": 33.399999999999864,
+    "avgFps": 59.5045437570024,
+    "low1Fps": 35.92814371257475,
+    "gpuMs": 0.777916
+   },
+   "globeStats": {
+    "drawnTris": 12885,
+    "drawnPatches": 37,
+    "culledPatches": 59,
+    "residentTris": 19388,
+    "residentBytes": 755256,
+    "stagedBytes": 0,
+    "uploadMs": 3.099999999627471,
+    "frames": 247,
+    "altitude": 7000,
+    "frameMs": 16.699999999999818
+   },
+   "mid": {
+    "n": 241,
+    "p50": 16.699999999999818,
+    "p95": 16.799999999999272,
+    "p99": 16.800000000000182,
+    "max": 16.80000000000109,
+    "avgFps": 60.002489729864315,
+    "low1Fps": 59.523809523807806,
+    "gpuMs": 1.233916
+   },
+   "midStats": {
+    "drawnTris": 2291,
+    "drawnPatches": 9,
+    "culledPatches": 87,
+    "residentTris": 19388,
+    "residentBytes": 755256,
+    "stagedBytes": 0,
+    "uploadMs": 3.099999999627471,
+    "frames": 490,
+    "altitude": 414.70449731937924,
+    "frameMs": 16.600000000000364
+   },
+   "close": {
+    "n": 241,
+    "p50": 16.69999999999891,
+    "p95": 16.799999999999272,
+    "p99": 16.80000000000109,
+    "max": 16.80000000000109,
+    "avgFps": 60.00398366696545,
+    "low1Fps": 59.52380952380566,
+    "gpuMs": 0.692416
+   },
+   "closeStats": {
+    "drawnTris": 922,
+    "drawnPatches": 4,
+    "culledPatches": 92,
+    "residentTris": 19388,
+    "residentBytes": 755256,
+    "stagedBytes": 0,
+    "uploadMs": 3.099999999627471,
+    "frames": 733,
+    "altitude": 27.237330816571557,
+    "frameMs": 16.600000000000364
+   },
+   "gpu": {
+    "timer": true,
+    "gpuMs": 0.594333,
+    "draws": 6,
+    "tris": 37786
+   }
+  },
+  "N64": {
+   "build": {
+    "N": 64,
+    "k": 3,
+    "tris": 64268,
+    "bytes": 2433600,
+    "id": 1,
+    "quick": false,
+    "latencyMs": 417.19999999925494,
+    "sampleMs": 212.30000000074506,
+    "buildMs": 48.59999999962747,
+    "cached": false
+   },
+   "globe": {
+    "n": 240,
+    "p50": 16.699999999999818,
+    "p95": 16.700000000000728,
+    "p99": 16.800000000000182,
+    "max": 16.800000000000182,
+    "avgFps": 60.00150003750103,
+    "low1Fps": 59.52380952380888,
+    "gpuMs": 0.792
+   },
+   "globeStats": {
+    "drawnTris": 41091,
+    "drawnPatches": 36,
+    "culledPatches": 60,
+    "residentTris": 64268,
+    "residentBytes": 2433600,
+    "stagedBytes": 0,
+    "uploadMs": 4.199999999254942,
+    "frames": 248,
+    "altitude": 7000,
+    "frameMs": 16.699999999999818
+   },
+   "mid": {
+    "n": 241,
+    "p50": 16.699999999999818,
+    "p95": 16.700000000000728,
+    "p99": 16.800000000000182,
+    "max": 16.80000000000109,
+    "avgFps": 60.002489729864315,
+    "low1Fps": 59.523809523807806,
+    "gpuMs": 1.551166
+   },
+   "midStats": {
+    "drawnTris": 7601,
+    "drawnPatches": 9,
+    "culledPatches": 87,
+    "residentTris": 64268,
+    "residentBytes": 2433600,
+    "stagedBytes": 0,
+    "uploadMs": 4.199999999254942,
+    "frames": 491,
+    "altitude": 414.7044973193797,
+    "frameMs": 16.700000000000728
+   },
+   "close": {
+    "n": 241,
+    "p50": 16.69999999999891,
+    "p95": 16.700000000000728,
+    "p99": 16.80000000000109,
+    "max": 16.80000000000109,
+    "avgFps": 60.002489729864315,
+    "low1Fps": 59.52380952380566,
+    "gpuMs": 0.594166
+   },
+   "closeStats": {
+    "drawnTris": 3066,
+    "drawnPatches": 4,
+    "culledPatches": 92,
+    "residentTris": 64268,
+    "residentBytes": 2433600,
+    "stagedBytes": 0,
+    "uploadMs": 4.199999999254942,
+    "frames": 734,
+    "altitude": 29.073853884629898,
+    "frameMs": 16.600000000000364
+   },
+   "gpu": {
+    "timer": true,
+    "gpuMs": 0.514,
+    "draws": 6,
+    "tris": 39930
+   }
+  },
+  "N128": {
+   "build": {
+    "N": 128,
+    "k": 3,
+    "tris": 199492,
+    "bytes": 7275120,
+    "id": 1,
+    "quick": false,
+    "latencyMs": 3773.800000000745,
+    "sampleMs": 3415.2000000011176,
+    "buildMs": 100.39999999850988,
+    "cached": false
+   },
+   "globe": {
+    "n": 241,
+    "p50": 16.699999999999818,
+    "p95": 16.700000000000728,
+    "p99": 16.800000000000182,
+    "max": 16.800000000000182,
+    "avgFps": 60.00099586715133,
+    "low1Fps": 59.52380952380888,
+    "gpuMs": 1.229166
+   },
+   "globeStats": {
+    "drawnTris": 116691,
+    "drawnPatches": 35,
+    "culledPatches": 61,
+    "residentTris": 199492,
+    "residentBytes": 7275120,
+    "stagedBytes": 0,
+    "uploadMs": 6.599999999627471,
+    "frames": 249,
+    "altitude": 7000.000000000002,
+    "frameMs": 16.69999999999891
+   },
+   "mid": {
+    "n": 241,
+    "p50": 16.69999999999891,
+    "p95": 16.700000000000728,
+    "p99": 16.80000000000109,
+    "max": 16.80000000000109,
+    "avgFps": 60.002489729864315,
+    "low1Fps": 59.52380952380566,
+    "gpuMs": 1.643666
+   },
+   "midStats": {
+    "drawnTris": 21279,
+    "drawnPatches": 9,
+    "culledPatches": 87,
+    "residentTris": 199492,
+    "residentBytes": 7275120,
+    "stagedBytes": 0,
+    "uploadMs": 6.599999999627471,
+    "frames": 492,
+    "altitude": 414.7044973193788,
+    "frameMs": 16.700000000000728
+   },
+   "close": {
+    "n": 241,
+    "p50": 16.69999999999891,
+    "p95": 16.799999999999272,
+    "p99": 16.80000000000109,
+    "max": 16.80000000000291,
+    "avgFps": 60.002489729864315,
+    "low1Fps": 59.52380952380136,
+    "gpuMs": 0.695666
+   },
+   "closeStats": {
+    "drawnTris": 9312,
+    "drawnPatches": 4,
+    "culledPatches": 92,
+    "residentTris": 199492,
+    "residentBytes": 7275120,
+    "stagedBytes": 0,
+    "uploadMs": 6.599999999627471,
+    "frames": 735,
+    "altitude": 37.36670766545376,
+    "frameMs": 16.599999999998545
+   },
+   "gpu": {
+    "timer": true,
+    "gpuMs": 0.900833,
+    "draws": 6,
+    "tris": 46176
+   }
+  }
+ },
+ "checks": {
+  "N32.noRebuildOnCamera": true,
+  "N64.noRebuildOnCamera": true,
+  "N128.noRebuildOnCamera": true,
+  "idleFramesStop": true,
+  "cameraMoveThenIdle": true,
+  "stormEndsOnFullDetail": true,
+  "stormMeshesFarFewerThanRequests": true,
+  "disposed": {
+   "contextLost": true,
+   "noFramesAfter": true,
+   "rafOff": true
+  }
+ },
+ "storm": {
+  "before": {
+   "m": 1,
+   "s": 0,
+   "r": 1,
+   "sw": 1
+  },
+  "after": {
+   "m": 3,
+   "s": 0,
+   "r": 82,
+   "sw": 3,
+   "last": {
+    "N": 64,
+    "k": 3,
+    "tris": 94108,
+    "bytes": 3591552,
+    "id": 82,
+    "quick": false,
+    "latencyMs": 367.80000000074506,
+    "sampleMs": 224.90000000037253,
+    "buildMs": 141.30000000074506,
+    "cached": false
+   },
+   "staged": 0
+  }
+ }
+}

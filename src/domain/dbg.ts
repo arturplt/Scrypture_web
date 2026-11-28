@@ -5,10 +5,14 @@
  *   nofarsink far levels not sunk under the finer ground          nostipple hard near/far hand-over, no noise stipple
  *   nosea     sea as a flat opaque sheet at sea level             nopond    weather water on the beach not sunk (applies to water made after the change)
  *   nowalls   terrace walls not drawn                             msaa      4x multisampled scene (needs the glow pass)
+ *   nolod     all the far-ground culling off at once (nofacecull + notilecull): the old way, everything drawn, for comparing frame rates
+ *   nofacecull every planet face is drawn, even those over the horizon (they are skipped otherwise)
+ *   notilecull planet faces are drawn whole, not tile by tile (a tile over the horizon or outside the view is skipped otherwise)
+ *   nonearcull the real chunks round the plane are all drawn, even those outside the view or over the horizon (they are skipped otherwise); also off with nolod
  *   nosoftcam the camera clears the stepped ground (it jumps a step at every ledge) instead of the smooth one
  * Read on the page's thread only (the chunk worker never sees them).
  */
-export const DBG_FLAGS = ['nolayer', 'nocycle', 'nofarsink', 'nostipple', 'nosea', 'nopond', 'nowalls', 'msaa', 'nosoftcam'] as const;
+export const DBG_FLAGS = ['nolayer', 'nocycle', 'nofarsink', 'nostipple', 'nosea', 'nopond', 'nowalls', 'msaa', 'nosoftcam', 'nolod', 'nofacecull', 'notilecull', 'nonearcull'] as const;
 export type DbgFlag = typeof DBG_FLAGS[number];
 const KEY = 'scrypture:dbg';
 

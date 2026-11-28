@@ -383,31 +383,44 @@ export class Ecosystem {
 
   // ---- stepping ---------------------------------------------------------------------------------------------------------
 
+  /** For the ?perf readout: when set, `step` times each of its parts; `stepMs` holds the worst and the sum of each since the reader last cleared it. */
+  profOn = false; readonly stepMs: Record<string, { max: number; sum: number }> = {};
   step(dt: number): void {
+    const prof = this.profOn; let t0 = prof ? performance.now() : 0;
+    const lap = (k: string) => { if (!prof) return; const t = performance.now(), d = t - t0, e = (this.stepMs[k] ??= { max: 0, sum: 0 }); if (d > e.max) e.max = d; e.sum += d; t0 = t; };
     dt = Math.min(dt, 0.5);
     this.clock += dt;
-    this.stepWeather(dt);
+    this.stepWeather(dt); lap('weather');
     this.scanAcc += dt;
     if (this.world.version !== this.knownVersion) this.regions.clear();                                    // someone else changed the world: count again
     if (this.areaDirty || this.scanAcc >= 20 || this.world.version !== this.knownVersion) this.startScan();   // normally nothing: changes are tracked as they happen
     if (this.job) this.stepScan(this.scannedVersion < 0 ? 1e9 : 8);                                        // the first scan is done at once, later ones 8 rows a step
+    lap('scan');
     this.evapAcc += dt;
     if (this.evapAcc >= 0.25) { this.evaporate(this.evapAcc * 4); this.evapAcc = 0; }                      // a quarter of the shore each time, at 4x the points
+    lap('evaporate');
     this.cloudAcc += dt;
     while (this.cloudAcc >= CLOUD_TICK) { this.cloudAcc -= CLOUD_TICK; this.tickNo++; this.stepClouds(CLOUD_TICK); }
+    lap('clouds');
     this.importAcc += dt;
     if (this.importAcc >= (this.slopes && !this.hilly ? IMPORT_EVERY_HILLS : IMPORT_EVERY)) { this.importAcc = 0; this.importCloud(); }
+    lap('import');
     this.riverAcc += dt;
     if (this.riverAcc >= RIVER_TICK) { this.riverAcc = 0; if (this.slopes) { this.dryStreams(); this.stepTarns(); } else { this.connectPuddles(); this.flowRivers(); } }
+    lap('rivers');
     this.migrateAcc += dt;
     if (this.migrateAcc >= MIGRATE_TICK) { this.migrateAcc = 0; if (this.slopes) this.runoff(); else this.migrateSingles(); }
+    lap('runoff');
     if (this.strikes.length) { for (const b of this.strikes) b.age += dt; this.strikes = this.strikes.filter(b => b.age < STRIKE_LIFE); }
     this.fireAcc += dt;
     if (this.fireAcc >= FIRE_TICK) { if (this.fires.size) this.stepFires(this.fireAcc); this.fireAcc = 0; }
+    lap('fires');
     this.irrigAcc += dt;
     if (this.irrigAcc >= IRRIGATE_TICK) { this.irrigAcc = 0; this.irrigate(); }
+    lap('irrigate');
     this.sweepAcc += dt;
     if (this.sweepAcc >= 3) { this.sweepAcc = 0; this.sweepFlooding(); this.pruneGrowth(); }
+    lap('sweep');
   }
 
   /** A growth time older than the cooldown says the same as none at all: forget it, so the map does not grow with every tree ever rained on. */

@@ -33,6 +33,8 @@ import { ChunkClient, FarClient, type WorkerLike } from './chunkClient';
 import { BLOCK_BYTES, BLOCK_TABLE_BYTES, SHEET_COLS, SHEET_ROWS, blockIndex, chunkPixels, meshSig, sameBytes, sameDecos } from '../domain/chunkbuild';
 import { DBG_FLAGS, dbgOn, setDbg, type DbgFlag } from '../domain/dbg';
 import { WorldGL, type ChunkPx, type GroundChunk, GLOW, FX_UV, FX_MARK, FX_SCORCH, FX_FLAME, FX_TUNNEL, FX_WET } from './worldgl';
+import { GlProfile, summarize } from './glprofile';
+import { PerfPanel, toText, tone, v, type Section, type Row, type Part } from './perfpanel';
 import { EcoStats } from './EcoStats';
 import { FLAME_ASPECT, BOLT_ASPECT, BOLT_TIP, flameSprites, boltSprite, loadFireSprites } from './firesprites';
 import { flammability, SCORCH_COOLDOWN, WET_TIME, RAIN_SCALE, rainRadius } from '../domain/ecosystem';
@@ -218,7 +220,7 @@ function WorldView({ id }: { id: string }) {
   const [runResult, setRunResult] = useState<{ hoops: number; metres: number; height: number; bonus: number; soft: boolean; water: boolean; saved: 'insurance' | 'float' | null; dbl: number; coins: number; key: number; trick: number; tag?: { pts: number; you: number; ai: number }; tricks: { name: string; n: number; pts: number }[] } | null>(null);   // the popup after a run: how it ended and what it scored
   const sim = useRef<{ world: World; eco: Ecosystem; beavers: BeaversManager; berries: BerryPatch; flight: Flight; glider: Glider; hour: number; days: number; explored: Set<number> } | null>(null);
   if (!sim.current) {
-    const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural', initial.kind === 'terraced' ? initial.map : null, initial.size ?? 0);
+    const world = new World(initial.seed, decodeChanges(initial.changes), initial.kind ?? 'procedural', initial.kind === 'terraced' ? initial.map : null, initial.size ?? 0, initial.gen);
     setPlanetRadius(world.size ? cubeRadius(world.size) : null);   // (a cube-sphere is a small round planet of its own: R = 2N / pi)
     setHudUnits(world);
     if (initial.relief) world.loadRelief(initial.relief);   // (before anything builds a chunk from the ground)
@@ -627,7 +629,7 @@ function WorldView({ id }: { id: string }) {
     const cubeWorld = s.world.size > 0, CUBE_RINGS = TERRACE_FAR_LODS_HILLS.filter(l => l.half <= EXT_MARGIN - 100).length;   // (only the rings that fit inside the margin the planet's chart wraps ground over (EXT_MARGIN past a face's edge, as the vertex shader's chartDir reads it): a wider ring has ground in no chart, which lands on the wrong part of the ball and shifts as the ring is rebuilt. The faces' own meshes cover the rest.   // (a cube planet keeps the four finest rings of far ground round the eye; beyond them the whole of each of its faces is a mesh of its own, see below)
     const farLods = s.world.realTerrain ? TERRACE_FAR_LODS : cubeWorld ? TERRACE_FAR_LODS_HILLS.slice(0, CUBE_RINGS) : TERRACE_FAR_LODS_HILLS, farFrom = s.world.realTerrain ? undefined : cubeWorld ? FAR_LEVEL_FROM_HILLS.slice(0, CUBE_RINGS) : FAR_LEVEL_FROM_HILLS, farCoarse = s.world.realTerrain ? 2 : 3;   // (the seeded hills have one more, finer, level in front; a real map keeps the old ones)
     const farAt: ({ x: number; y: number } | null)[] = farLods.map(() => null);   // the terraced world's far levels: where each was last built round (see terraceFarMesh)
-    const faceDone = FACES.map(() => false), FACE_STEP = Math.max(1, Math.round(s.world.size / 105)), FACE_UP = 2, FACE_INSET = 0.02;   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
+    const faceDone = FACES.map(() => false), FACE_STEP = Math.max(1, Math.round(s.world.size / 105)), FACE_UP = Math.max(1, Math.min(4, Math.round(+(new URLSearchParams(location.search).get('faceup') ?? 2)) || 2)), FACE_INSET = 0.02;   // (?faceup=1: each face cut in 1 not 2 cells per far step, a quarter of its triangles: an A/B for the planet faces' cost)   // (the six faces of a cube planet as far meshes: built once, 105 cells a side, each cut in two by a cubic curve: 210 round cells)
     let farJob: { i: number; face?: number; gen?: Generator<null, TerraceFarMesh, void>; wait?: boolean; up?: Generator<void, void, void> } | null = null;   // (up: the finished mesh being interleaved and uploaded, a slice a frame)
     let lodOnly = false;   // high above the ground (over 200 m): no detailed terrain, trees or sprites, only the far mesh (LOD)
     let runHeat = 0, orbitPts = 0;   // the hottest the paper got this run (a heat shield is used up by it), and the orbit bonus once this run has reached orbit
@@ -675,7 +677,7 @@ function WorldView({ id }: { id: string }) {
       const table = new Uint8ClampedArray(BLOCK_TABLE_BYTES);   // (every cell of the sheet, drawn here with the canvas as always, so the worker's pictures are the same pixels; the road variants are for the Lake District and stay empty)
       for (let row = 0; row < SHEET_ROWS; row++) for (let col = 0; col < SHEET_COLS; col++) table.set(tileBlock(col, row, false), blockIndex(col, row, false) * BLOCK_BYTES);
       const snap = s.world.snapshot();
-      cw = new ChunkClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike, { seed: s.world.seed, kind: s.world.kind, size: s.world.size, changes: snap.changes, table, ops: snap.ops }, { epoch: () => s.world.field?.epoch ?? 0 });
+      cw = new ChunkClient(() => new Worker(new URL('../workers/chunk.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike, { seed: s.world.seed, kind: s.world.kind, size: s.world.size, gen: s.world.settings, changes: snap.changes, table, ops: snap.ops }, { epoch: () => s.world.field?.epoch ?? 0 });
       const client = cw;
       s.world.record(op => client.push(op));
     }
@@ -743,7 +745,8 @@ function WorldView({ id }: { id: string }) {
     let flyHeld = false, lastRunAt = 0, workMs = 0, workN = 0, lastStrike = 0, flashK = 0;
     if (/perf/.test(location.href)) { try { new PerformanceObserver(l => { for (const e of l.getEntries()) { perfStat.lt++; perfStat.ltMax = Math.max(perfStat.ltMax, e.duration); } }).observe({ entryTypes: ['longtask'] }); } catch { /* no long-task support */ } }
     const mark = (k: string) => { if (!perf.on) return; const t = performance.now(); perf.ph[k] = (perf.ph[k] ?? 0) + (t - perf.pt); perf.pt = t; };   // (?perf: where the frame's time goes, averaged over 2 s)
-    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, mini: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }, gpuWait: !/nogpu/.test(location.href), holeMin: Infinity, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '' };   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
+    const perf = { on: /perf/.test(location.href), lastNow: 0, gap: 0, work: 0, build: 0, persist: 0, ground: 0, gpu: 0, mini: 0, builtN: 0, since: 0, txt: '', f: { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }, gpuWait: !/nogpu/.test(location.href), holeMin: Infinity, hitches: [] as string[], ph: {} as Record<string, number>, pt: 0, n: 0, avg: '', gaps: [] as number[], sections: [] as Section[], panelAt: null as Section[] | null, hitchTop: undefined as string | undefined, panel: null as PerfPanel | null, grDraws: 0, grTris: 0, log: [] as object[] };
+    let prof: GlProfile | null = null;   // (?perf: draw/triangle/upload counters and the async GPU timer, made at the first frame drawn; glprofile.ts)   // (add `perf` to the address, e.g. ?perf: the worst frame in each 2 seconds, and what took the time)
     let mapWasOpen = false, bigFill: BigMapFill | null = null, uploadBoost = 0;
     /** One frame of the full-screen map: fill more of it (a few ms), then build and upload the ground round the plane and read chunks for the small minimap, so closing the map finds them ready. */
     const mapFrame = (scale: number) => {
@@ -830,7 +833,7 @@ function WorldView({ id }: { id: string }) {
       const w0 = performance.now();
       if (perf.on) {
         const gp = perf.lastNow ? now - perf.lastNow : 0;
-        if (gp > 0) perf.gap = Math.max(perf.gap, gp);
+        if (gp > 0) { perf.gap = Math.max(perf.gap, gp); perf.gaps.push(gp); }
         if (gp > 100) { const o = perf.f; perf.hitches.unshift(`${gp.toFixed(0)}ms w${o.work.toFixed(0)} ch${o.build.toFixed(0)}/${o.built} gr${o.ground.toFixed(0)} sv${o.persist.toFixed(0)} mk${(glr?.oneMs ?? 0).toFixed(0)} up${glr?.oneN ?? 0} mi${o.mini.toFixed(1)} gpu${o.gpu.toFixed(0)}${o.ev} @${(now / 1000).toFixed(1)}s`); perf.hitches.length = Math.min(perf.hitches.length, 5); }   // (the gap before this frame: what the frame before it was doing)
         perf.f = { work: 0, build: 0, built: 0, ground: 0, persist: 0, gpu: 0, mini: 0, ev: '' }; if (glr) { glr.oneMs = 0; glr.oneN = 0; }
         perf.lastNow = now; perf.pt = performance.now(); perf.n++;
@@ -883,7 +886,9 @@ function WorldView({ id }: { id: string }) {
         if (L.resAuto) { if (frameEma > 0.036 && autoK > 0.4) autoK = Math.max(0.4, autoK * 0.85); else if (frameEma < 0.024 && autoK < 1) autoK = Math.min(1, autoK / 0.85); }   // (a slow phone: fewer trees, bushes and rocks to draw, too; the same ones are dropped each time)
         // When the resolution is already as low as it goes and frames are still slow, the cost is geometry (a steep range is a million triangles of ledges and walls in the real chunks): the ring of real chunks shrinks, and the coarser far level fills in. It grows back when frames are fast again.
         if (L.resAuto && s.world.field) { if (frameEma > 0.045 && glScale <= 0.55 && autoDraw > AUTO_DRAW_MIN) autoDraw = Math.max(AUTO_DRAW_MIN, autoDraw * 0.85); else if (frameEma < 0.026 && autoDraw < 1) autoDraw = Math.min(1, autoDraw / 0.9); }
-        if (frameEma > 0.03 && glScale > 0.5) { glScale = Math.max(0.5, glScale * 0.85); lastScaleChange = anim; }
+        const minScale = frameEma > 0.07 ? 0.35 : 0.5;   // (a very slow GPU, under ~14 fps at half size: the floor goes lower, and comes back to the usual half as soon as it is under ~22 fps)
+        if (frameEma > 0.03 && glScale > minScale) { glScale = Math.max(minScale, glScale * 0.85); lastScaleChange = anim; }
+        else if (glScale < 0.5 && frameEma < 0.045) { glScale = Math.min(0.5, glScale / 0.85); lastScaleChange = anim; }
         else if (frameEma < 0.0185 && glScale < 1 && anim - lastScaleChange > 4) { glScale = Math.min(1, glScale / 0.85); lastScaleChange = anim; }
       }
       if (fpsAcc >= 1) { fps = frames; frames = 0; fpsAcc = 0; }
@@ -1190,7 +1195,7 @@ function WorldView({ id }: { id: string }) {
         const key = `${n.stick ? 1 : 0}${n.stone ? 1 : 0}${n.brk ? 1 : 0}|${bush ? `${bush.x},${bush.y}` : ''}|${bv ? `${bv.id}:${bv.full > 0 ? 1 : 0}:${trust}` : ''}`;
         if (key !== actKey.current) { actKey.current = key; const a: Act = { dam: n, bush, beaver: bv ? { id: bv.id, sex: bv.sex, full: bv.full > 0, trust } : null }; actRef.current = a; setAct(a); }
       }
-      mark('before'); if (!L.ecoPaused) { s.eco.step(simDt); s.eco.easeClouds(simDt); } mark('eco');                                                              // the world keeps living while you fly
+      mark('before'); s.eco.profOn = perf.on; if (!L.ecoPaused) { s.eco.step(simDt); s.eco.easeClouds(simDt); } mark('eco');                                                              // the world keeps living while you fly
       for (const key of reliefDirty.current) miniCache.lay.delete(key);   // (sculpted chunks: their layers changed too, which nothing else ever changes)
       reliefDirty.current.clear();
       // What the weather changes (rain wets and floods tiles, ponds and becks fill and dry, fire scorches) is redrawn only on the ground: a flight keeps the pictures it has, and every chunk changed meanwhile is redrawn
@@ -1297,7 +1302,7 @@ function WorldView({ id }: { id: string }) {
           const L = farLods[i], at = farAt[i];
           if (at && Math.hypot(at.x - f.x, at.y - f.y) < L.moveBy) continue;
           const cx = Math.round(f.x / L.step) * L.step, cy = Math.round(f.y / L.step) * L.step;
-          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, s.world.size, L.up); farJob = { i, wait: true }; }
+          if (far?.active) { far.request(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, s.world.size, L.up, 0, s.world.settings); farJob = { i, wait: true }; }
           else farJob = { i, gen: terraceFarMesh(s.world.seed, cx, cy, L.step, L.half, L.stepped, L.open, L.up) };
           break;
         }
@@ -1305,7 +1310,7 @@ function WorldView({ id }: { id: string }) {
           glr.ringCount = farLods.length;
           if (!farJob) { const fi = faceDone.indexOf(false); if (fi >= 0) {
             const F = FACES[fi], N = s.world.size, cx = F.ix * N, cy = F.iy * N;
-            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, N, FACE_UP, FACE_INSET); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
+            if (far?.active) { far.request(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, N, FACE_UP, FACE_INSET, s.world.settings); farJob = { i: farLods.length + fi, face: fi, wait: true }; }
             else farJob = { i: farLods.length + fi, face: fi, gen: terraceFarMesh(s.world.seed, cx, cy, FACE_STEP, N / 2, false, 0, FACE_UP, FACE_INSET) };
           } }
         }
@@ -1486,10 +1491,12 @@ function WorldView({ id }: { id: string }) {
         if (L.crt) { G.crt = true; G.renderScale = glScale; G.resize(W, H, dpr, glCv); } else { G.crt = false; G.renderScale = 1; G.resize(W, H, dpr * glScale, glCv); }   // (the CRT look draws the scene small into a texture and stretches it over a canvas of the screen's own size)
         { let sunE = sunElevation(s.hour); { const fz = s.world.size ? eyeFrame(G.eye[0], G.eye[1]) : null; if (fz) { const sk = skyAt(s.days, fz); G.setCelestial(sk, s.hour); sunE = -sk.sun[2]; } else G.setHour(s.hour); } /* (a planet's sun and moon stand where its spin, year and month put them over the eye; any other world has the old sun on its one great circle) */ G.space = f.mode === 'glide' ? spaceFactor(s.glider.z + (s.glider.gnd ?? 0)) : 0; { const hA = f.mode === 'glide' ? s.glider.z + (s.glider.gnd ?? 0) : 0, kR = ORBIT.R / 15000, k = Math.max(0, Math.min(1, (hA - 2000 * kR) / (6000 * kR))); G.curveC = k * k * (3 - 2 * k) * 0.18 / (2 * ORBIT.R); G.planet = s.world.size ? ORBIT.R : 0; G.cubeN = s.world.size; G.curveK = k * k * (3 - 2 * k); } /* the small planet's curve, eased in from 2 to 8 km up (a sim metre is a tile across and 0.18 of one up) */ const dk = darkness(sunE); G.night = dk > 0 ? [6 / 255, 10 / 255, 36 / 255, dk] : [0, 0, 0, 0]; }   // (the night tint is done on the GPU in this view)
         G.fx = L.shaders; G.milkyway = L.milkyway;
+        if (perf.on && !prof) prof = new GlProfile(G.gl);
+        prof?.frameBegin();
         G.begin();
         if (uploadBoost > 0) uploadBoost--;
         G.uploadMax = loading || warming || aim.current.on || uploadBoost > 0 ? 6 : Math.max(frameEma < 0.02 ? 2 : 1, Math.min(4, Math.round(frameEma * 40)));   // (slow frames: more a frame, or the ground arrives a few chunks a second)   // (chunk textures a frame: plenty while the screen fills, a throw drops the eye to the ground or the big map has just closed, then one or two)
-        { const g0 = performance.now(); G.ground(glChunks, CHUNK); if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
+        { const g0 = performance.now(), c0 = prof?.snap(); G.ground(glChunks, CHUNK); if (prof && c0) { const c1 = prof.snap(); perf.grDraws += c1.draws - c0.draws; perf.grTris += c1.tris - c0.tris; } if (perf.on) { perf.ground = Math.max(perf.ground, performance.now() - g0); perf.f.ground = performance.now() - g0; mark('ground'); } }
         if (++glFrames % 40 === 0) G.prune(k => chunks.current.has(k));
         if (perf.on) perf.holeMin = Math.min(perf.holeMin, G.holeInfo.hole);   // (?perf: the nearest the far mesh came to the eye: under the chunks' reach, its coarse triangles show up close)
 
@@ -1735,6 +1742,7 @@ function WorldView({ id }: { id: string }) {
           }
         }
         G.end();
+        prof?.frameEnd();
         mark('hoops-model-end'); if (perf.on && perf.gpuWait) { perf.f.gpu = G.gpuWaitMs(); perf.gpu = Math.max(perf.gpu, perf.f.gpu); mark('gpuwait'); }   // (it makes the frame wait for the GPU, so the readout itself slows things down a little; ?perf=nogpu leaves it out)
         pp = G.projectAgl(f.x, f.y, hP) ?? pp; pg = G.projectAgl(shx, shy, 0) ?? pg; planeY.current = pp[1];
       } else {
@@ -2134,35 +2142,74 @@ function WorldView({ id }: { id: string }) {
         perf.work = Math.max(perf.work, performance.now() - w0); perf.f.work = performance.now() - w0;
         if (now - perf.since > 2000) {   // the readout, a few short lines (worst values of the last 2 s)
           const hp = ((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576; if (perfStat.heap - hp > 2) perfStat.gcN++; perfStat.heap = hp;
-          const avg = Object.entries(perf.ph).map(([k, v]) => `${k} ${(v / Math.max(1, perf.n)).toFixed(1)}`);
-          perf.txt = [
-            `gap ${perf.gap.toFixed(0)}  work ${perf.work.toFixed(0)}  gpu ${perf.gpu.toFixed(0)}`,
-            glr ? glr.gpuInfo : '',
-            `chunks ${perf.build.toFixed(0)}ms/${perf.builtN}  ground ${perf.ground.toFixed(0)}  mk ${(glr?.madeMs ?? 0).toFixed(0)}/${glr?.madeN ?? 0}  save ${perf.persist.toFixed(0)}  mini ${perf.mini.toFixed(1)}`,
-            (() => {   // the ring of chunks round the plane (5 chunks): how many exist, how many are on the GPU, and the nearest that is missing (tiles), so a patch of missing ground can be told apart: never built, built but not uploaded, or not drawn
+          {   // the readout: sections that fold, values coloured by how bad they are (perfpanel.ts); the same text goes to window.__perfTxt
+            const fs = summarize(perf.gaps), pr = prof, nf = Math.max(1, pr?.frames ?? 1), gw = pr ? pr.gpuWin : [], gpuAvg = gw.length ? gw.reduce((a, b) => a + b, 0) / gw.length : NaN, gpuMax = gw.length ? Math.max(...gw) : NaN;
+            const tris = pr ? pr.win.tris / nf : NaN, draws = pr ? pr.win.draws / nf : NaN, upKB = pr ? pr.win.upBytes / 1024 / nf : NaN, phs = Object.entries(perf.ph).map(([k, x]) => [k, x / Math.max(1, perf.n)] as const).sort((a, b) => b[1] - a[1]);
+            const eco = Object.entries(s.eco.stepMs).sort((a, b) => b[1].max - a[1].max).slice(0, 4).filter(([, x]) => x.max >= 0.5);
+            const ring = (() => {   // the ring of chunks round the plane (5 chunks): how many exist, how many are on the GPU, and the nearest that is missing (tiles), so a patch of missing ground can be told apart: never built, built but not uploaded, or not drawn
               const pcx = chunkOf(f.x), pcy = chunkOf(f.y); let tot = 0, built = 0, gpu = 0, near = Infinity, nearGpu = Infinity;
               for (let cy = pcy - 5; cy <= pcy + 5; cy++) for (let cx = pcx - 5; cx <= pcx + 5; cx++) {
                 const d = Math.hypot((cx + 0.5) * CHUNK - f.x, (cy + 0.5) * CHUNK - f.y); tot++;
                 if (chunks.current.has(tileKey(cx, cy))) built++; else near = Math.min(near, d);
                 if (glr?.has(tileKey(cx, cy))) gpu++; else nearGpu = Math.min(nearGpu, d);
               }
-              const gi = glr?.groundInfo;
-              return `ring ${built}/${tot} built (first missing ${isFinite(near) ? near.toFixed(0) : '-'}), ${gpu}/${tot} on GPU (first missing ${isFinite(nearGpu) ? nearGpu.toFixed(0) : '-'})` + (gi ? `  undrawn ${isFinite(gi.undrawn) ? gi.undrawn.toFixed(0) : '-'} cover ${isFinite(gi.cover) ? gi.cover.toFixed(0) : '-'} smooth ${isFinite(gi.coverSm) ? gi.coverSm.toFixed(0) : '-'}` : '');
-            })(),
-            `far ${far ? (far.active ? `${far.builtN} built, last ${far.lastMs.toFixed(0)}ms` : 'failed (' + far.failure + ')') : 'off'}  worker ${cw ? `${cw.state}${cw.state === 'failed' ? ' (' + cw.failure + ')' : ` ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms, ${cw.busy} queued`}` : 'off'}`,
-            `chunks held ${chunks.current.size} (~${(chunks.current.size / 4).toFixed(0)}MB)  gl tex ${glr?.texCount ?? 0} (~${((glr?.texCount ?? 0) * 0.35).toFixed(0)}MB)` + (glr ? `  far from ${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}` : ''),
-            `instrument ${((window as unknown as { __instMs?: number }).__instMs ?? 0).toFixed(1)}ms (own 30 Hz loop)` + (s.world.field ? `  heightAt ${Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n))}/frame` : ''),
-            `react ${perfStat.r}/${perfStat.rMax.toFixed(0)}  long ${perfStat.lt}/${perfStat.ltMax.toFixed(0)}  heap ${hp.toFixed(0)} gc ${perfStat.gcN}`,
-            `why ${perfStat.why}`,
-            `avg ms/frame:`,
-            avg.slice(0, 3).join('  '), avg.slice(3, 6).join('  '), avg.slice(6, 9).join('  '), avg.slice(9).join('  '),
-          ].filter(Boolean).join('\n');
+              return { tot, built, gpu, near, nearGpu };
+            })();
+            const gi = glr?.groundInfo, num = (x: number) => (isFinite(x) ? x.toFixed(0) : '-'), instMs = (window as unknown as { __instMs?: number }).__instMs ?? 0, hCalls = s.world.field ? Math.round((s.world.field.calls - perfStat.hc) / Math.max(1, perf.n)) : 0;
+            const latAvg = cw && cw.latN ? cw.latSum / cw.latN : 0;
+            const secs: Section[] = [
+              { id: 'frame', title: 'Frame', open: true, head: [v(fs.p50, tone(fs.p50, 20, 33), 0), 'ms p50  ', v(fs.p99, tone(fs.p99, 40, 100), 0), 'ms p99  ', v(fs.avgFps, tone(fs.avgFps, 50, 25, true), 0), 'fps'], rows: [
+                ['p50 ', v(fs.p50, tone(fs.p50, 20, 33), 1), '  p95 ', v(fs.p95, tone(fs.p95, 33, 66), 1), '  p99 ', v(fs.p99, tone(fs.p99, 40, 100), 1), '  max ', v(fs.max, tone(fs.max, 50, 150))],
+                [v(fs.avgFps, tone(fs.avgFps, 50, 25, true)), ' fps   1% low ', v(fs.low1Fps, tone(fs.low1Fps, 30, 15, true))],
+                ['worst gap ', v(perf.gap, tone(perf.gap, 33, 100)), '  work ', v(perf.work, tone(perf.work, 16, 50)), '  gpu wait ', v(perf.gpu, tone(perf.gpu, 16, 40)), ' ms'],
+                ['canvas ', glr ? v(`${glr.gl.drawingBufferWidth}x${glr.gl.drawingBufferHeight}`) : v('-', 'dim'), '  scale ', v(glScale, glScale < 0.5 ? 'warn' : 'n', 2), '  auto ', v(autoK, autoK < 0.6 ? 'warn' : 'n', 2), '/', v(autoDraw, autoDraw < 0.9 ? 'warn' : 'n', 2)],
+              ] },
+              { id: 'gpu', title: 'GPU', open: true, head: [v(tris / 1000, tone(tris / 1000, 200, 600), 0), 'k tris  ', isNaN(gpuAvg) ? v('gpu n/a', 'dim') : [`${gpuAvg.toFixed(1)}ms gpu`, tone(gpuAvg, 8, 16)]], rows: [
+                ['draws ', v(draws, tone(draws, 100, 200)), '  tris ', v(tris / 1000, tone(tris / 1000, 200, 600)), 'k (ground ', v(pr ? perf.grDraws / nf : NaN), ' / ', v(pr ? perf.grTris / 1000 / nf : NaN), 'k)  passes ', v(pr ? pr.win.passes / nf : NaN)],
+                ['upload ', v(upKB, tone(upKB, 512, 1536)), 'KB/frame  max ', v(pr ? pr.maxUp / 1024 : NaN, tone(pr ? pr.maxUp / 1024 : NaN, 1024, 2048)), 'KB'],
+                !pr ? [v('no counters', 'dim')] : !pr.timerSupported ? ['gpu timer ', v('n/a (browser)', 'dim')] : isNaN(gpuAvg) ? ['gpu timer ', v('no result yet', 'dim')] : ['gpu ', v(gpuAvg, tone(gpuAvg, 8, 16), 1), 'ms avg  max ', v(gpuMax, tone(gpuMax, 16, 33)), (pr.disjoint ? ` (${pr.disjoint} disjoint)` : '')],
+                ['far culling: faces ', v(glr?.facesCulled ?? 0), ' (x2 passes)  tiles ', v(glr?.tilesDrawn ?? 0), ' drawn / ', v(glr?.tilesCulled ?? 0), ' culled'],
+                ['near chunks: ', v(glr?.nearDrawn ?? 0), ' drawn / ', v(glr?.nearCulled ?? 0), ' culled'],
+                ...(DBG_FLAGS.some(f => dbgOn(f)) ? [['debug switches ON: ', v(DBG_FLAGS.filter(f => dbgOn(f)).join(' '), 'bad'), '  (World menu > Debug; nolod and the *cull ones draw everything)'] as const] : []),
+                ...(glr ? [[v(glr.gpuInfo, 'dim')] as const] : []),
+              ] },
+              { id: 'cpu', title: 'CPU (ms per frame)', open: true, head: [phs[0] ? v(`${phs[0][0]} ${phs[0][1].toFixed(1)}`, tone(phs[0][1], 4, 10)) : v('-', 'dim'), ...(eco.length ? ['  eco peak ', v(eco[0][1].max, tone(eco[0][1].max, 10, 50)), 'ms'] : [])], rows: [
+                ...phs.slice(0, 12).reduce<Part[][]>((rows, [k, x], i) => { if (i % 3 === 0) rows.push([]); rows[rows.length - 1].push(`${k} `, v(x, x < 0.5 ? 'dim' : tone(x, 4, 10), 1), '   '); return rows; }, []),
+              ] },
+              { id: 'eco', title: 'Ecosystem worst (ms)', head: eco[0] ? [`${eco[0][0]} `, v(eco[0][1].max, tone(eco[0][1].max, 10, 50))] : [v('quiet', 'dim')], rows: eco.length ? eco.map(([k, x]) => [`${k} `, v(x.max, tone(x.max, 10, 50)), '   sum ', v(x.sum, tone(x.sum, 20, 80))] as Row) : [[v('nothing over 0.5 ms', 'dim')]] },
+              { id: 'stream', title: 'Streaming', head: [`ring `, v(ring.built, tone(ring.built / ring.tot, 0.9, 0.5, true) , 0), `/${ring.tot}  worker `, cw ? v(latAvg, tone(latAvg, 60, 200)) : v('off', 'dim'), 'ms'], rows: [
+                ['chunks: ', v(perf.build, tone(perf.build, 6, 20)), 'ms/', v(perf.builtN), ' built  ground ', v(perf.ground, tone(perf.ground, 6, 20)), '  uploads ', v(glr?.madeMs ?? 0, tone(glr?.madeMs ?? 0, 4, 12)), 'ms/', v(glr?.madeN ?? 0), '  save ', v(perf.persist, tone(perf.persist, 10, 40)), '  minimap ', v(perf.mini, tone(perf.mini, 4, 12), 1)],
+                ['ring: ', v(ring.built, tone(ring.built / ring.tot, 0.9, 0.5, true)), '/', v(ring.tot), ' built (first missing ', v(num(ring.near)), '), ', v(ring.gpu, tone(ring.gpu / ring.tot, 0.9, 0.5, true)), '/', v(ring.tot), ' on GPU (first missing ', v(num(ring.nearGpu)), ')'],
+                ...(gi ? [['undrawn ', v(num(gi.undrawn)), '  cover ', v(num(gi.cover)), '  smooth ', v(num(gi.coverSm))] as Row] : []),
+                ['far ', far ? (far.active ? v(`${far.builtN} built, last ${far.lastMs.toFixed(0)}ms, lat ${far.lastLat.toFixed(0)}ms`, far.lastLat > 600 ? 'warn' : 'n') : v('failed (' + far.failure + ')', 'bad')) : v('off', 'dim'), '   far from ', glr ? v(`${perf.holeMin < 1e8 ? perf.holeMin.toFixed(0) : '-'}/${glr.holeInfo.near.toFixed(0)}`) : v('-', 'dim')],
+                ['worker ', cw ? (cw.state === 'failed' ? v('failed (' + cw.failure + ')', 'bad') : v(`${cw.state}, ${cw.builtN} built, last ${cw.lastMs.toFixed(0)}ms`)) : v('off', 'dim'), ...(cw ? ['   queued ', v(cw.busy, tone(cw.busy, 4, 12)), '  latency ', v(latAvg, tone(latAvg, 60, 200)), '/', v(cw.latMax, tone(cw.latMax, 150, 500)), 'ms  stale ', v(cw.staleN, cw.staleN ? 'warn' : 'n')] : [])],
+              ] },
+              { id: 'mem', title: 'Memory and main thread', head: [v(hp, tone(hp, 150, 400), 0), 'MB heap  ', v(perfStat.lt, perfStat.lt ? 'warn' : 'n'), ' long tasks'], rows: [
+                ['chunks held ', v(chunks.current.size), ' (~', v(chunks.current.size / 4), 'MB)  gl tex ', v(glr?.texCount ?? 0), ' (~', v((glr?.texCount ?? 0) * 0.35), 'MB)'],
+                ['heap ', v(hp, tone(hp, 150, 400)), 'MB  gc ', v(perfStat.gcN, perfStat.gcN > 2 ? 'warn' : 'n'), '  long tasks ', v(perfStat.lt, perfStat.lt ? 'warn' : 'n'), '/', v(perfStat.ltMax, tone(perfStat.ltMax, 50, 150)), 'ms'],
+                ['react ', v(perfStat.r, tone(perfStat.r, 2, 6)), '/', v(perfStat.rMax, tone(perfStat.rMax, 8, 20)), 'ms  instrument ', v(instMs, tone(instMs, 2, 6), 1), 'ms  heightAt ', v(hCalls, tone(hCalls, 1000, 3000)), '/frame'],
+                ...(perfStat.why ? [['why ', v(perfStat.why, 'warn')] as Row] : []),
+              ] },
+            ];
+            perf.sections = secs;
+            perf.txt = toText(secs);
+          }
+          {   // one machine-readable row per 2 s window, for benchmark scripts: window.__perfLog (last 900 = 30 min)
+            const fs = summarize(perf.gaps), pr = prof, nf = Math.max(1, pr?.frames ?? 1), gw = pr?.gpuWin ?? [];
+            perf.log.push({ t: +(now / 1000).toFixed(1), frame: fs, draws: pr ? pr.win.draws / nf : null, tris: pr ? pr.win.tris / nf : null, groundTris: pr ? perf.grTris / nf : null, passes: pr ? pr.win.passes / nf : null, upKB: pr ? pr.win.upBytes / 1024 / nf : null, upMaxKB: pr ? pr.maxUp / 1024 : null,
+              gpuMs: gw.length ? gw.reduce((a, b) => a + b, 0) / gw.length : null, gpuMaxMs: gw.length ? Math.max(...gw) : null, w: glr?.gl.drawingBufferWidth ?? 0, h: glr?.gl.drawingBufferHeight ?? 0, glScale, heapMB: hp, texCount: glr?.texCount ?? 0, chunksHeld: chunks.current.size,
+              workerLatMs: cw && cw.latN ? cw.latSum / cw.latN : null, workerLatMax: cw?.latMax ?? null, staleResults: cw?.staleN ?? 0, farLatMs: far?.lastLat ?? null });
+            if (perf.log.length > 900) perf.log.shift();
+            (window as unknown as { __perfLog?: object[] }).__perfLog = perf.log;
+            perf.gaps.length = 0; perf.grDraws = perf.grTris = 0; prof?.resetWindow(); if (cw) cw.latSum = cw.latN = cw.latMax = cw.staleN = 0;
+          }
           (window as unknown as { __instMs?: number }).__instMs = 0;
+          for (const k of Object.keys(s.eco.stepMs)) delete s.eco.stepMs[k];
           perfStat.hc = s.world.field?.calls ?? 0; perfStat.why = ''; perfStat.r = perfStat.rMax = perfStat.lt = perfStat.ltMax = perfStat.gcN = 0; perf.ph = {}; perf.n = 0; perf.since = now;
           perf.gap = perf.work = perf.build = perf.persist = perf.ground = perf.gpu = perf.mini = 0; perf.holeMin = Infinity; perf.builtN = 0; if (glr) { glr.madeMs = 0; glr.madeN = 0; glr.oneMs = 0; }
         }
         (window as unknown as { __perfTxt?: string }).__perfTxt = perf.txt;
-        ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.font = `8px ${PXF}`; ctx.fillStyle = '#0009'; const lines = [...perf.txt.split('\n'), ...perf.hitches.map(h => '! ' + h)]; ctx.fillRect(4, H / 2 - 12, Math.min(W - 8, 400), 14 + lines.length * 11); ctx.fillStyle = '#fff'; lines.forEach((ln, i) => ctx.fillText(ln, 8, H / 2 + i * 11)); ctx.restore();
+        if (!perf.panel || perf.panelAt !== perf.sections || perf.hitches[0] !== perf.hitchTop) { (perf.panel ??= new PerfPanel(PXF)).update(perf.sections, perf.hitches); perf.panelAt = perf.sections; perf.hitchTop = perf.hitches[0]; }   // (only when a window has ended or a hitch was added: the panel is DOM, not redrawn every frame)
       }
       workMs += performance.now() - w0; workN++;
       drawGlobe();
@@ -2180,7 +2227,7 @@ function WorldView({ id }: { id: string }) {
     const unlock = () => eng?.unlock();
     const blip = (e: Event) => { if (e.target instanceof Element && e.target.closest('button')) eng?.play('blip'); };   // every button in the world screen clicks
     addEventListener('keydown', unlock); addEventListener('pointerdown', unlock); addEventListener('click', blip);
-    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); audio.current = null; cancelAnimationFrame(raf); cw?.terminate(); far?.terminate(); s.world.record(null); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
+    return () => { holdSync(false); removeEventListener('keydown', unlock); removeEventListener('pointerdown', unlock); removeEventListener('click', blip); eng?.dispose(); prof?.dispose(); perf.panel?.dispose(); audio.current = null; cancelAnimationFrame(raf); cw?.terminate(); far?.terminate(); s.world.record(null); ro.disconnect(); removeEventListener('resize', fit); removeEventListener('pagehide', onHide); persist(); };
   }, [ready, id]);
 
   // paint tool
@@ -2544,9 +2591,10 @@ function WorldView({ id }: { id: string }) {
                 <PixelButton size="compact" scale={1} variant={showFps ? 'green' : 'red'} aria-pressed={showFps} onClick={() => setShowFps(v => !v)}>{t('worldFps')}</PixelButton>
                 <PixelButton size="compact" scale={1} variant={showEco ? 'green' : 'red'} aria-pressed={showEco} onClick={() => setShowEco(v => !v)}>{t('worldEcoButton')}</PixelButton>
               </div>
-              <div className="muted small">Render switches (find what flickers; kept in this browser): a lit button is on. nopond applies to water made after the change; msaa needs the glow pass.</div>
+              <div className="muted small">Render switches for finding what flickers (kept in this browser). Each one turns a feature or a speed-up OFF, so for playing leave them all off: a red button is a switch that is ON and slows or changes the game. nopond applies to water made after the change; msaa needs the glow pass and is slow.</div>
               <div className="row world-tools" data-tick={dbgTick}>
-                {DBG_FLAGS.map((f: DbgFlag) => <PixelButton key={f} size="compact" scale={1} variant={dbgOn(f) ? 'green' : 'red'} aria-pressed={dbgOn(f)} onClick={() => { setDbg(f, !dbgOn(f)); setDbgTick(n => n + 1); }}>{f}</PixelButton>)}
+                <PixelButton size="compact" scale={1} variant="green" disabled={!DBG_FLAGS.some(f => dbgOn(f))} onClick={() => { for (const f of DBG_FLAGS) setDbg(f, false); setDbgTick(n => n + 1); }}>All off</PixelButton>
+                {DBG_FLAGS.map((f: DbgFlag) => <PixelButton key={f} size="compact" scale={1} variant={dbgOn(f) ? 'red' : 'green'} aria-pressed={dbgOn(f)} onClick={() => { setDbg(f, !dbgOn(f)); setDbgTick(n => n + 1); }}>{dbgOn(f) ? `● ${f}` : f}</PixelButton>)}
               </div>
               <div className="world-slider"><span>{t('worldDebugLiftV')}</span><PixelSlider min={-5} max={15} step={0.1} value={debugLiftV} onChange={v => setDebugLiftV(Math.round(v * 10) / 10)} label={t('worldDebugLiftV')} valueText={`${debugLiftV} m/s`} /><b>{debugLiftV}</b></div>
               <div className="world-slider"><span>{t('worldThrottle')}</span><PixelSlider min={0} max={initial.kind === 'lakedistrict' ? LAKE_THROTTLE_MAX : 100} step={initial.kind === 'lakedistrict' ? 1 : 5} value={throttle} onChange={setThrottle} label={t('worldThrottle')} valueText={`${throttle}%`} /><b>{throttle}</b></div>
@@ -3155,10 +3203,9 @@ class MiniCache {
   lay = new Map<number, Int8Array>();   // a terraced world's layers per chunk tile (they never change, so they outlive the terrain copies)
   /** A chunk's terrain for the maps, with its layers on a terraced world. */
   read(world: World, cx: number, cy: number) {
-    const key = tileKey(cx, cy), t = world.chunkTerrain(cx, cy); this.terr.set(key, t);
-    if (world.field && !this.lay.has(key)) {
-      this.lay.set(key, world.chunkLayers(cx, cy));
-    }
+    const key = tileKey(cx, cy);
+    if (world.field) { const m = world.chunkMap(cx, cy); this.terr.set(key, m.t); if (!this.lay.has(key)) this.lay.set(key, m.l); return m.t; }   // (a hilly world: read tile by tile, see `chunkMap`: the full chunk was a 17 ms hitch)
+    const t = world.chunkTerrain(cx, cy); this.terr.set(key, t);
     return t;
   }
 }

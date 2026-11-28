@@ -1,8 +1,9 @@
 /** Saved Bóbr worlds: a seed plus only what changed (the generator rebuilds everything else), the plane, the sky and the wind. */
 import { tileKey, keyX, keyY, type TileState, type Terrain, type DecoKind, type Variant } from './worldgen';
 import { lakeSpawnFor, type LakeMapId } from './lakedistrict';
-import { terraceSpawn, setRealTerrain, MAX_RELIEF, RELIEF_MAX } from './terrace';
+import { terraceSpawn, setRealTerrain, withGen, MAX_RELIEF, RELIEF_MAX } from './terrace';
 import { defaultWind, type Wind } from './ecosystem';
+import { sanitizeGen, isDefaultGen, type GenParams } from './genparams';
 import { CUBE_N, CUBE_N_FIRST, CUBE_SIZES, setCubeSize, cubeSize } from './cube';
 import { sanitizeBerries, type SavedBerry } from './berries';
 
@@ -65,6 +66,7 @@ export function sanitizeOrbit(raw: unknown): SavedOrbit | undefined {
 export interface SavedWorld {
   id: string; name: string; seed: number; createdAt: number; playedAt: number;
   map?: LakeMapId;                // which Lake District map the world is on (none = the whole region at 50 m); on a terraced world, the real map its layers are cut from (none = the seeded hills)
+  gen?: GenParams;                // a seeded planet's generation settings (see genparams.ts); none = the defaults, the terrain every planet made before the generator has
   size?: number;                  // a seeded terraced world on a cube-sphere: how many tiles along a face (see cube.ts); none = the endless plane (every world made before planets, the flat and the Lake District)
   kind?: 'procedural' | 'lakedistrict' | 'terraced';   // the Lake District is a real map (see lakedistrict.ts), 'terraced' the stepped hills (terrace.ts); a world without this is procedural (flat)
   changes: SavedTile[];
@@ -137,10 +139,10 @@ export interface WorldsSave { list: SavedWorld[] }
 export const emptyWorlds = (): WorldsSave => ({ list: [] });
 
 /** Where a seeded terraced world starts (see terraceSpawn): on a low shelf, in the middle of its tile. The ground is the seeded hills while it is looked for, whatever world was open before. */
-export const terracePlaneSpawn = (seed: number, size = 0) => { const was = cubeSize(); setRealTerrain(null); setCubeSize(size); const p = terraceSpawn(seed); setCubeSize(was); return { x: p.x, y: p.y, heading: Math.PI / 2, pitch: 0 }; };   // (on a globe the ground, and so the spawn, is the globe's)
-export const newSavedWorld = (id: string, name: string, seed: number, now: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes'): SavedWorld => ({
-  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : kind === 'terraced' ? { kind, ...(map !== 'lakes' ? { map } : { size: CUBE_N }) } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
-  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' || (kind === 'terraced' && map !== 'lakes') ? lakeSpawnFor(map) : kind === 'terraced' ? terracePlaneSpawn(seed >>> 0, CUBE_N) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
+export const terracePlaneSpawn = (seed: number, size = 0, gen?: GenParams | null) => { const was = cubeSize(); setRealTerrain(null); setCubeSize(size); const p = withGen(gen, () => terraceSpawn(seed)); setCubeSize(was); return { x: p.x, y: p.y, heading: Math.PI / 2, pitch: 0 }; };   // (on a globe the ground, and so the spawn, is the globe's)
+export const newSavedWorld = (id: string, name: string, seed: number, now: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes', gen?: GenParams | null): SavedWorld => ({
+  ...(kind === 'lakedistrict' ? { kind, ...(map !== 'lakes' ? { map } : {}) } : kind === 'terraced' ? { kind, ...(map !== 'lakes' ? { map } : { size: CUBE_N, ...(gen && !isDefaultGen(gen) ? { gen: sanitizeGen(gen) } : {}) }) } : {}), id, name: name.trim().slice(0, 40) || 'World', seed: seed >>> 0, createdAt: now, playedAt: now, changes: [],
+  hour: 12, wind: defaultWind(), plane: kind === 'lakedistrict' || (kind === 'terraced' && map !== 'lakes') ? lakeSpawnFor(map) : kind === 'terraced' ? terracePlaneSpawn(seed >>> 0, CUBE_N, gen) : { x: 0, y: 0, heading: Math.PI / 2, pitch: 0 }, explored: [],   // (the Lake District starts over the Old Man of Coniston, heading east down to Coniston Water)
 });
 
 export const encodeChanges = (m: Map<number, TileState>): SavedTile[] =>
@@ -193,6 +195,7 @@ export function sanitizeWorlds(raw: unknown): WorldsSave {
     const dw = defaultWind();
     out.list.push({
       ...(w.kind === 'lakedistrict' ? { kind: 'lakedistrict' as const, ...(w.map === 'coniston' ? { map: 'coniston' as const } : {}) } : w.kind === 'terraced' ? { kind: 'terraced' as const, ...(w.map === 'lakes25' || w.map === 'coniston' ? { map: w.map } : CUBE_SIZES.includes(w.size) ? { size: w.size as number } : w.size === 40320 ? { size: CUBE_N } : {}) } : {}),
+      ...(w.kind === 'terraced' && !w.map && CUBE_SIZES.includes(w.size) && w.gen !== undefined && !isDefaultGen(sanitizeGen(w.gen)) ? { gen: sanitizeGen(w.gen) } : {}),
       id: w.id, name: (typeof w.name === 'string' ? w.name.trim().slice(0, 40) : '') || 'World', seed: fin(w.seed, 0) >>> 0,
       createdAt: fin(w.createdAt, 0), playedAt: fin(w.playedAt, 0), changes, ...(w.kind === 'terraced' && sanitizeRelief(w.relief).length ? { relief: sanitizeRelief(w.relief) } : {}),
       hour: clamp(fin(w.hour, 12), 0, 23.999),

@@ -10,6 +10,7 @@
  */
 import { CHUNK, tileKey, type TileState, type WorldOp } from '../domain/worldgen';
 import type { WorldKind } from '../domain/lakedistrict';
+import type { GenParams } from '../domain/genparams';
 import { decodeDecos, type Deco } from '../domain/chunkbuild';
 import type { TerraceMesh } from '../domain/terrace';
 import type { FromWorker, ToWorker } from '../workers/chunkHost';
@@ -22,7 +23,7 @@ export interface WorkerLike {
   terminate(): void;
 }
 export interface BuiltChunk { key: number; cx: number; cy: number; px: Uint8ClampedArray; decos: Deco[]; /** the hill mesh, when it was asked for (`wantMesh`) and the world has hills */ mesh?: TerraceMesh; /** the worker's height grid for the chunk, and the page field's epoch when it was asked (see `TerraceField.adoptGrid`) */ grid?: { e: Float32Array; base?: Float32Array }; epoch: number; /** the ground changed under it while it was being built: build it again */ stale: boolean; ms: number }
-export interface ChunkInit { seed: number; kind: WorldKind; /** the world's size, if it is a globe (see globe.ts) */ size?: number; changes: [number, TileState][]; table: Uint8ClampedArray; ops: WorldOp[] }
+export interface ChunkInit { seed: number; kind: WorldKind; /** the world's size, if it is a globe (see globe.ts) */ size?: number; /** the world's generation settings, if it has any */ gen?: GenParams; changes: [number, TileState][]; table: Uint8ClampedArray; ops: WorldOp[] }
 
 export class ChunkClient {
   state: 'starting' | 'ready' | 'failed' = 'starting';
@@ -31,7 +32,7 @@ export class ChunkClient {
   private worker: WorkerLike;
   private pending: WorldOp[] = [];
   private queue = new Map<number, { cx: number; cy: number; seen: number }>();
-  private inflight = new Map<number, { key: number; cx: number; cy: number; stale: boolean; epoch: number }>();
+  private inflight = new Map<number, { key: number; cx: number; cy: number; stale: boolean; epoch: number; sent: number }>();
   private inflightKey = new Map<number, number>();
   private done: BuiltChunk[] = [];
   private nextId = 1;
@@ -43,6 +44,8 @@ export class ChunkClient {
   wantMesh = false;
   /** For the ?perf readout: chunks built, and the worker's own time for the last one (ms). */
   builtN = 0; lastMs = 0;
+  /** For the ?perf readout (reset by the reader): ms from posting a build to its result arriving (queueing in the worker plus the build), the worst of them, and results that came back already stale. */
+  latSum = 0; latN = 0; latMax = 0; staleN = 0;
 
   constructor(spawn: () => WorkerLike, init: ChunkInit, private opts: { maxInFlight?: number; startTimeoutMs?: number; now?: () => number; /** the page's ground epoch now (a terraced world's `field.epoch`) */ epoch?: () => number } = {}) {
     this.started = this.now();
@@ -103,7 +106,7 @@ export class ChunkClient {
     for (const c of list.slice(0, room)) {
       const id = this.nextId++;
       this.queue.delete(c.key);
-      this.inflight.set(id, { key: c.key, cx: c.cx, cy: c.cy, stale: false, epoch: this.opts.epoch?.() ?? 0 }); this.inflightKey.set(c.key, id);
+      this.inflight.set(id, { key: c.key, cx: c.cx, cy: c.cy, stale: false, epoch: this.opts.epoch?.() ?? 0, sent: this.now() }); this.inflightKey.set(c.key, id);
       this.worker.postMessage({ t: 'build', id, cx: c.cx, cy: c.cy, mesh: this.wantMesh });
     }
   }
@@ -116,6 +119,7 @@ export class ChunkClient {
     if (!j) return;
     this.inflight.delete(m.id); this.inflightKey.delete(j.key);
     this.builtN++; this.lastMs = m.ms;
+    { const lat = this.now() - j.sent; this.latSum += lat; this.latN++; this.latMax = Math.max(this.latMax, lat); if (j.stale) this.staleN++; }
     this.done.push({ key: j.key, cx: j.cx, cy: j.cy, px: m.px, decos: decodeDecos(m.decos), mesh: m.mesh, grid: m.grid, epoch: j.epoch, stale: j.stale, ms: m.ms });
     if (this.state === 'ready') this.dispatch();   // (the next one goes at once: waiting for the next frame would leave the worker idle, and at a few frames a second that is most of the time)
   }
@@ -143,8 +147,9 @@ export class FarClient {
   private nextId = 1;
   private waiting: number | null = null;
   private result: FarResult | null = null;
-  /** For the ?perf readout. */
-  builtN = 0; lastMs = 0;
+  private sent = 0;
+  /** For the ?perf readout. `lastLat`: ms from asking for a level to its result arriving. */
+  builtN = 0; lastMs = 0; lastLat = 0;
   constructor(spawn: () => WorkerLike) {
     try {
       this.worker = spawn();
@@ -157,16 +162,16 @@ export class FarClient {
   }
   get active() { return this.state === 'ready'; }
   /** Ask for one level; only one at a time (the map waits for `take` before asking again). */
-  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0, size = 0, up = 1, inset = 0) {
+  request(seed: number, cx: number, cy: number, step: number, half: number, stepped: boolean, open = 0, size = 0, up = 1, inset = 0, gen?: GenParams) {
     if (this.state !== 'ready' || this.waiting !== null) return;
-    this.waiting = this.nextId++;
-    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open, size, up, inset });
+    this.waiting = this.nextId++; this.sent = performance.now();
+    this.worker.postMessage({ t: 'far', id: this.waiting, seed, cx, cy, step, half, stepped, open, size, up, inset, ...(gen ? { gen } : {}) });
   }
   get busy() { return this.waiting !== null && !this.result; }
   /** The level that has been built, once. */
   take(): FarResult | null { const r = this.result; this.result = null; if (r) this.waiting = null; return r; }
   private onMessage(m: FromWorker) {
-    if (m.t === 'far' && m.id === this.waiting) { this.builtN++; this.lastMs = m.ms; this.result = m; }
+    if (m.t === 'far' && m.id === this.waiting) { this.builtN++; this.lastMs = m.ms; this.lastLat = performance.now() - this.sent; this.result = m; }
     else if (m.t === 'error') this.fail(m.message);
   }
   private fail(why: string) {

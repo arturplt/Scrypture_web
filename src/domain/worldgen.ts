@@ -14,7 +14,8 @@
  */
 
 import { lakeBiomeIndex, lakeRoadAt, lakeWaterAt, lakeMetresAt, LAKE_LAND, groundTiles, groundZ, TILES_PER_GLIDER_M, lakeData, type WorldKind, type LakeMapId } from './lakedistrict';
-import { TerraceField, type FieldOp, TERRACE_LAYER_M, terraceBareFrom, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
+import { sanitizeGen, DEFAULT_GEN, type GenParams } from './genparams';
+import { TerraceField, setGenParams, type FieldOp, TERRACE_LAYER_M, terraceBareFrom, terraceMoist, terraceBiome, terraceLakeAt, terraceLakeShoreAt, setRealTerrain, realTerrainOn } from './terrace';
 export { terraceBiome };
 import { setCubeSize, GN, canonTile, canonTileKey, CUBE_SIZES } from './cube';
 
@@ -324,12 +325,17 @@ export class World {
   /** How many tiles along a face of the world's cube-sphere (see cube.ts), or 0 for the endless plane. Only the seeded hills can be a planet. */
   readonly size: number;
 
-  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null, size = 0) {
+  /** The generation settings of the world's ground (see genparams.ts); the defaults unless it is a seeded planet made with others. */
+  readonly settings: Readonly<GenParams>;
+
+  constructor(seed: number, changes?: Iterable<[number, TileState]>, kind: WorldKind = 'procedural', map?: LakeMapId | null, size = 0, gen?: GenParams | null) {
     this.seed = seed; this.kind = kind;
     this.map = kind === 'terraced' && map && lakeData()?.map === map ? map : null;   // (the map must be loaded: see lakeLoader.ts)
     this.size = kind === 'terraced' && !this.map && CUBE_SIZES.includes(size) ? size : 0;
     setCubeSize(this.size);   // (one world at a time, as with the real terrain: the last one opened sets the ground the generators read)
     if (kind === 'terraced') setRealTerrain(this.map ? lakeData() : null);
+    this.settings = kind === 'terraced' && !this.map && this.size ? sanitizeGen(gen) : DEFAULT_GEN;
+    setGenParams(this.settings);   // (with the world's size: its settings are the ground the generators read)
     this.field = kind === 'terraced' ? new TerraceField(seed) : null;
     this.mapField = this.field ? new TerraceField(seed, 40, this.field.relief) : null;
     if (changes) for (const [k, s] of changes) this.changes.set(k, s);
@@ -381,6 +387,21 @@ export class World {
     const out = new Uint8Array(CHUNK * CHUNK), x0 = cx * CHUNK, y0 = cy * CHUNK, ch = this.changes.size > 0;
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) out[j * CHUNK + i] = (ch ? this.changes.get(this.ck(x0 + i, y0 + j))?.t : undefined) ?? g.t[(j + MARGIN) * SIDE + i + MARGIN];
     return out;
+  }
+  /**
+   * A chunk's terrain and terrace layers for the minimap. A chunk the game is not holding is read tile by tile from the noise (`mapLayer` and `mapSample`: about a tenth of the work of `chunkTerrain`, which
+   * generates the whole chunk, its height grid, lakes and trees, and cost 17 ms or more of one frame, several times that on a slow CPU); it differs from it only where the grid's smoothing takes off the tiniest
+   * bumps and islands. A chunk the game holds is read as before.
+   */
+  chunkMap(cx: number, cy: number): { t: Uint8Array; l: Int8Array } {
+    const l = new Int8Array(CHUNK * CHUNK);
+    if (!this.field) return { t: this.chunkTerrain(cx, cy), l };
+    const x0 = cx * CHUNK, y0 = cy * CHUNK, held = this.cache.has(tileKey(cx, cy)), t = held ? this.chunkTerrain(cx, cy) : new Uint8Array(CHUNK * CHUNK);
+    for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
+      const x = x0 + i, y = y0 + j, ly = this.field.layerDirect(x, y); l[j * CHUNK + i] = Math.max(-1, Math.min(127, ly));
+      if (!held) t[j * CHUNK + i] = this.mapSample(x, y, ly);
+    }
+    return { t, l };
   }
   /** One tile's terrain for a zoomed-out map, cheaply (a couple of noise reads, nothing generated or cached): beaches are left out, being narrower than a map pixel there. */
   mapSample(x: number, y: number, layer?: number): Terrain {

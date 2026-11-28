@@ -15,7 +15,8 @@
  * All sprites come from one atlas: the sheet plus a few extra cells (shadow, a white dot, a haze gradient, the cloud pictures).
  */
 import type { TerraceMesh } from '../domain/terrace';
-import { shaderTables, eyeFrame } from '../domain/cube';
+import { shaderTables, eyeFrame, faceOverHorizon, netToDir } from '../domain/cube';
+import { tiledIndices, tileCaps, tileShown, gridTileBounds, ringTileShown, chunkShown } from '../domain/facetiles';
 import type { SkyState } from '../domain/celestial';
 import { TILE_PX, sunElevation } from '../domain';
 import { bandGlsl, ttgGlsl } from '../domain/terrace';
@@ -539,6 +540,8 @@ void main() {
 /** How far a hilly world is seen: the far meshes (the whole map, in levels of detail) haze out to here, past the map's far corner. */
 const FAR_REACH = 2400;
 const FLOATS = 9;                 // x y z u v r g b a
+/** Vertices of a far level interleaved and uploaded per step of `farLodUpload` (6144 x 36 bytes = 216 KB; was 24000 = 844 KB, a 1-3 ms stall on its own). The caller's time budget decides how many steps run in a frame. */
+const FAR_SLICE = 6144;
 const MAX_QUADS = 8000;           // per draw call (4 vertices each must stay under 65536)
 
 export type Kind = 'decal' | 'solid' | 'blend';
@@ -608,6 +611,11 @@ export class WorldGL {
   cubeN = 0;
   /** A cube planet's far levels: the first `ringCount` are rings round the eye, the rest are whole faces (index ringCount + face), drawn behind the last ring wherever they are on the ball. */
   ringCount = 0;
+  /** The direction up from the planet's centre at the eye (set each frame on a cube planet), for culling the faces over the horizon. */
+  private eyeUp: readonly [number, number, number] | null = null;
+  private eyeFr: { up: readonly [number, number, number]; east: readonly [number, number, number]; south: readonly [number, number, number] } | null = null;
+  /** For the ?perf readout: planet faces skipped as over the horizon in the last far draw. */
+  facesCulled = 0; tilesCulled = 0; tilesDrawn = 0;
   private cubeT: ReturnType<typeof shaderTables> | null = null;
   /** The sine of how far the planet's rim has sunk below level for this eye: the tangent from the eye to the curved ground (z = curveC d^2) falls at 2 sqrt(curveC H). */
   dipSin() {
@@ -639,7 +647,7 @@ export class WorldGL {
   private ibo: WebGLBuffer;
   private atlasTex: WebGLTexture;
   private aniso: number;
-  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; used?: number; stale?: boolean }>();
+  private chunkTex = new Map<number, { src: ChunkPx; tex: WebGLTexture; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; used?: number; stale?: boolean; /** the highest and lowest ground of its mesh (z is down: zMin is the top), for the view test */ zMin?: number; zMax?: number }>();
   /** Chunk textures no chunk is using, kept to be written over: making and freeing textures as you fly makes the driver stall, writing into one that exists does not. */
   private texPool: WebGLTexture[] = [];
   /** How many chunk textures one frame may upload at most (also stops at ~3 ms). The upload and its mipmaps mostly cost GPU time the frame's own timers cannot see, so it is a count, set by the game: a few while the screen first fills, then one or two. */
@@ -661,7 +669,8 @@ export class WorldGL {
   skyMode = false;
   private terrIbo: WebGLBuffer | null = null;
   /** The far view (a hilly world on foot): the whole map as one coarse mesh, so the chunks only have to cover the near ring. */
-  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** its vertices carry slopes and signed heights (see the vertex shader) */ smooth: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number } }[] | null = null;
+  private farMesh: { vbo: WebGLBuffer; ibo: WebGLBuffer; n: number; bytes: number; shared: boolean; /** its vertices carry slopes and signed heights (see the vertex shader) */ smooth: boolean; /** a square grid of `cols` x `cols` vertices, the first row at y0, `step` apart (the terraced levels): only the rows near the eye are drawn */ grid?: { cols: number; y0: number; step: number }; /** a planet face: its triangles by tile, and each tile's bounding cap on the ball (see domain/facetiles.ts) */ tiles?: { ibo: WebGLBuffer; nt: number; starts: Int32Array; caps: Float32Array }; /** an endless world's level: its triangles by tile and each tile's bounds, so the tiles outside the ring that shows (or the view) are not drawn */ rtiles?: { ibo: WebGLBuffer; nt: number; starts: Int32Array; bounds: Float32Array } }[] | null = null;
+  private farTiledIbos = new Map<object, WebGLBuffer>();
   private farIbos = new Map<Uint32Array, WebGLBuffer>();   // the terraced far levels share their index arrays (see terrace.ts farIndices), so each size has one GPU buffer for good
   private farStage = new Float32Array(0);                   // where a far level's vertices are interleaved before the upload (kept for the next one)
   private farOn = false;
@@ -1174,6 +1183,7 @@ export class WorldGL {
     if (this.planet > 0 && this.cubeN > 0) {   // (the cube planet: its faces and extensions, and the eye's frame on the ball: up, east and south at its place)
       const T = (this.cubeT ??= shaderTables()), fr = eyeFrame(this.eye[0], this.eye[1]);
       gl.uniform1f(this.loc.uCubeN, this.cubeN); gl.uniform3fv(this.loc.uFC, T.c); gl.uniform3fv(this.loc.uFA, T.a); gl.uniform3fv(this.loc.uFB, T.b); gl.uniform2fv(this.loc.uFCell, T.cell); gl.uniform4fv(this.loc.uXA, T.xa); gl.uniform2fv(this.loc.uXT, T.xt);
+      this.eyeUp = fr ? fr.up : null; this.eyeFr = fr;
       if (fr) { gl.uniform3f(this.loc.uGS, fr.up[0], fr.up[1], fr.up[2]); gl.uniform3f(this.loc.uGE, fr.east[0], fr.east[1], fr.east[2]); gl.uniform3f(this.loc.uGSo, fr.south[0], fr.south[1], fr.south[2]); }
     }
     { const sp = 1 - 0.45 * this.space; gl.uniform3f(this.loc.uFog, this.sky[0] * sp, this.sky[1] * sp, this.sky[2] * sp); }   // (the same haze as the sky's below the horizon)
@@ -1230,10 +1240,14 @@ export class WorldGL {
     gl.uniform1i(this.loc.uDbg, dbgBits());   // (the bisect switches of the Debug section, read every frame so a click shows at once)
     gl.uniform1f(this.loc.uTerr, this.terrain ? 1 : 0); gl.uniform1f(this.loc.uTerrace, this.terrain ? this.terraceStep : 0);
     if (this.terrain) {
+      const cull = this.nearCull && !(dbgOn('nonearcull') || dbgOn('nolod'));
+      this.nearDrawn = 0; this.nearCulled = 0;
       for (const c of list) {
         const ent = this.chunkTex.get(c.key);
         if (!ent) continue;   // (its turn has not come yet)
-        ent.used = this.groundFrames; gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles);
+        ent.used = this.groundFrames;   // (a chunk out of the view is still in use: its copy on the GPU is kept, so it draws again the moment it is in view)
+        if (cull && !this.nearShown(c, ent, chunkTiles)) { this.nearCulled++; continue; }
+        this.nearDrawn++; gl.bindTexture(gl.TEXTURE_2D, ent.tex); this.drawTerrainChunk(c, ent, chunkTiles);
       }
     } else {   // flat chunks: every quad goes up in one buffer (one upload, not one per chunk), then one small draw each, each with its own texture
       const need = Math.min(MAX_QUADS, list.length) * 4 * FLOATS;
@@ -1257,7 +1271,8 @@ export class WorldGL {
     }
     if (this.terrain) {
       gl.uniform1f(this.loc.uSurf, 1); gl.depthMask(false);   // the sheets of inland water, see-through, over the beds and the foot of the walls
-      for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || !ent.wvao) continue; gl.bindTexture(gl.TEXTURE_2D, ent.tex); gl.bindVertexArray(ent.wvao); gl.drawElements(gl.TRIANGLES, ent.wcount!, gl.UNSIGNED_INT, 0); }
+      const cullW = this.nearCull && !(dbgOn('nonearcull') || dbgOn('nolod'));
+      for (const c of list) { const ent = this.chunkTex.get(c.key); if (!ent || !ent.wvao) continue; if (cullW && !this.nearShown(c, ent, chunkTiles)) continue; gl.bindTexture(gl.TEXTURE_2D, ent.tex); gl.bindVertexArray(ent.wvao); gl.drawElements(gl.TRIANGLES, ent.wcount!, gl.UNSIGNED_INT, 0); }
       gl.uniform1f(this.loc.uSurf, 0); gl.depthMask(true);
       gl.bindVertexArray(null); this.endTerrain();
     }
@@ -1279,22 +1294,25 @@ export class WorldGL {
   }
 
   /** A chunk of a hilly world: a 16 x 16 grid of quads at the ground's height, the chunk canvas over it, each vertex carrying its normal in the colour. Built once, kept with the texture. A terraced world brings its own mesh (`terraceMesh`) instead: level pieces and vertical walls. */
-  private prepTerrain(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
+  private prepTerrain(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; zMin?: number; zMax?: number }, tiles: number) {
     const gl = this.gl, T = this.terrain!, sub = this.terrainSub, n = tiles * sub, side = n + 1, st = 1 / sub;   // (n: quads a side; st: tiles between vertices)
     gl.bindVertexArray(null);   // (a chunk drawn just before still has its vertex array bound, and binding an index buffer now would swap that chunk's indices for this one's)
     if (this.terraceMesh) {
       if (!ent.mesh) {
         const m = c.meshBox?.mesh ?? this.terraceMesh(c.cx, c.cy), nv = m.pos.length / 3, v = new Float32Array(nv * FLOATS), x0 = c.cx * tiles, y0 = c.cy * tiles;
         if (c.meshBox) c.meshBox.mesh = undefined;   // (taken: the arrays are copied into the buffer below, and nothing else needs them)
+        let zLo = Infinity, zHi = -Infinity;
         for (let i = 0; i < nv; i++) {
-          const o = i * FLOATS, x = m.pos[i * 3], y = m.pos[i * 3 + 1];
+          const o = i * FLOATS, x = m.pos[i * 3], y = m.pos[i * 3 + 1], z = m.pos[i * 3 + 2]; if (z < zLo) zLo = z; if (z > zHi) zHi = z;
           v[o] = x; v[o + 1] = y; v[o + 2] = m.pos[i * 3 + 2]; v[o + 3] = (x - x0) / tiles; v[o + 4] = (y - y0) / tiles;
           v[o + 5] = m.nrm[i * 3] * 0.5 + 0.5; v[o + 6] = m.nrm[i * 3 + 1] * 0.5 + 0.5; v[o + 7] = m.nrm[i * 3 + 2] * 0.5 + 0.5; v[o + 8] = m.sub[i] ? 0.55 - 0.02 * Math.min(m.sub[i], 5) : 1;   // (alpha 0.53 .. 0.45 marks ground under water, and how many layers down the surface is: the shader gives it a bed's colour by depth)
         }
+        if (nv) { ent.zMin = zLo; ent.zMax = zHi; }
         ent.mesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.mesh); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
         ent.ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); ent.count = m.idx.length;
         if (m.widx.length) {   // the sheet of inland water: its own little mesh, drawn see-through after the ground
           const wn = m.wpos.length / 3, wv = new Float32Array(wn * FLOATS);
+          for (let i = 0; i < wn; i++) { const z = m.wpos[i * 3 + 2]; if (z < ent.zMin!) ent.zMin = z; if (z > ent.zMax!) ent.zMax = z; }   // (the sheet may stand outside the ground's own range)
           for (let i = 0; i < wn; i++) { const o = i * FLOATS, x = m.wpos[i * 3], y = m.wpos[i * 3 + 1]; wv[o] = x; wv[o + 1] = y; wv[o + 2] = m.wpos[i * 3 + 2]; wv[o + 3] = (x - x0) / tiles; wv[o + 4] = (y - y0) / tiles; const k = m.wkind[i]; if (k >= 2) { const an = (k - 2) / 250 * Math.PI * 2 - Math.PI; wv[o + 5] = Math.cos(an) * 0.5 + 0.5; wv[o + 6] = Math.sin(an) * 0.5 + 0.5; wv[o + 7] = 0.5; wv[o + 8] = 0.25; } else { wv[o + 5] = 0.5; wv[o + 6] = 0.5; wv[o + 7] = 0; wv[o + 8] = k ? 0.5 : 1; } }   // (a waterfall's curtain (kind 2 and up, which way it faces in the number) carries that facing as its normal, flat sheets point up)   // (alpha 0.5 on a sheet marks a beaver's pond: the shader tints it)
           ent.wmesh = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, ent.wmesh); gl.bufferData(gl.ARRAY_BUFFER, wv, gl.STATIC_DRAW);
           ent.wibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ent.wibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.widx, gl.STATIC_DRAW); ent.wcount = m.widx.length;
@@ -1338,11 +1356,24 @@ export class WorldGL {
     for (const k of keys) { const e = this.chunkTex.get(k); if (e && e.vao) e.stale = true; }
   }
   /** Give back a chunk's mesh buffers (it is built again straight after, or the chunk is gone). */
-  private freeMesh(e: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; stale?: boolean }) {
+  private freeMesh(e: { zMin?: number; zMax?: number; mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject; stale?: boolean }) {
     const gl = this.gl;
     if (e.mesh) gl.deleteBuffer(e.mesh); if (e.ibo) gl.deleteBuffer(e.ibo); if (e.vao) gl.deleteVertexArray(e.vao);
     if (e.wmesh) gl.deleteBuffer(e.wmesh); if (e.wibo) gl.deleteBuffer(e.wibo); if (e.wvao) gl.deleteVertexArray(e.wvao);
-    e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined; e.stale = false;
+    e.mesh = e.ibo = e.vao = e.wmesh = e.wibo = e.wvao = undefined; e.count = e.wcount = undefined; e.stale = false; e.zMin = e.zMax = undefined;
+  }
+  /** Real chunks drawn and skipped (out of the view or over the horizon) in the last ground pass, for the readout. */
+  nearDrawn = 0; nearCulled = 0;
+  /** Turn the real-chunk view test off (for interleaved A/B runs from a benchmark script; `?dbg=nonearcull` does the same for a whole session). */
+  nearCull = true;
+  /**
+   * Can any of a real chunk be seen? Its bounding sphere (the tile square, and the height range of its own mesh) against the view; the round of a planet and the paraboloid of an endless world bend the ground away
+   * from the chart the chunk is made in (the vertex shader's `mix(p, q, ...)` and `curveC`), by at most about d^2 / R (R the planet's radius, or 1 / curveC) tiles at d tiles from the eye: the sphere is widened by that.
+   * Conservative: true when in doubt, and for a chunk whose mesh has no height range yet. `?dbg=nonearcull` draws them all.
+   */
+  private nearShown(c: { cx: number; cy: number }, ent: { zMin?: number; zMax?: number }, tiles: number): boolean {
+    if (ent.zMin === undefined || ent.zMax === undefined) return true;
+    return chunkShown(this.vp, (c.cx + 0.5) * tiles, (c.cy + 0.5) * tiles, ent.zMin, ent.zMax, tiles, this.eye[0], this.eye[1], this.planet, this.curveC);
   }
   private drawTerrainChunk(c: { cx: number; cy: number; meshBox?: MeshBox }, ent: { mesh?: WebGLBuffer; ibo?: WebGLBuffer; count?: number; wmesh?: WebGLBuffer; wibo?: WebGLBuffer; wcount?: number; wvao?: WebGLVertexArrayObject; vao?: WebGLVertexArrayObject }, tiles: number) {
     const gl = this.gl, n = tiles * this.terrainSub;
@@ -1372,7 +1403,7 @@ export class WorldGL {
    * level already has. The old level keeps drawing until the swap.
    */
   *farLodUpload(i: number, m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }): Generator<void, void, void> {
-    const gl = this.gl, n = m.pos.length / 3, len = n * FLOATS, SLICE = 24000;
+    const gl = this.gl, n = m.pos.length / 3, len = n * FLOATS, SLICE = FAR_SLICE;
     if (this.farStage.length !== len) this.farStage = new Float32Array(len);
     const v = this.farStage;
     // a new buffer, filled a slice a frame and swapped in at the end: one upload of the whole level is several MB, a long stall on a phone, and writing into the buffer being drawn would show half a level
@@ -1389,7 +1420,21 @@ export class WorldGL {
     if (!ibo) { ibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW); this.farIbos.set(m.idx, ibo); }
     if (old) gl.deleteBuffer(old.vbo);
     const cols = Math.round(Math.sqrt(n));
-    this.farMesh[i] = { vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, smooth: !!m.aux, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
+    let tiles: NonNullable<typeof this.farMesh>[number]['tiles'];
+    if (this.cubeN > 0 && this.ringCount > 0 && i >= this.ringCount && cols * cols === n && cols > 8) {   // (a planet face: regrouped in 5 x 5 tiles, so the ones over the horizon or out of view are not drawn)
+      const ti = tiledIndices(cols, Math.ceil((cols - 1) / 5));
+      let tibo = this.farTiledIbos.get(ti);
+      if (!tibo) { tibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ti.idx, gl.STATIC_DRAW); this.farTiledIbos.set(ti, tibo); }
+      tiles = { ibo: tibo, nt: ti.nt, starts: ti.starts, caps: tileCaps(m.pos, cols, ti.nt, ti.T, netToDir) };
+    }
+    let rtiles: NonNullable<typeof this.farMesh>[number]['rtiles'];
+    if (this.cubeN === 0 && cols * cols === n && cols > 16) {   // (an endless world's level: a square of cells, only a ring of it ever shows)
+      const ti = tiledIndices(cols, Math.ceil((cols - 1) / 8));
+      let tibo = this.farTiledIbos.get(ti);
+      if (!tibo) { tibo = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ti.idx, gl.STATIC_DRAW); this.farTiledIbos.set(ti, tibo); }
+      rtiles = { ibo: tibo, nt: ti.nt, starts: ti.starts, bounds: gridTileBounds(m.pos, cols, ti.nt, ti.T) };
+    }
+    this.farMesh[i] = { tiles, rtiles, vbo, ibo, n: m.idx.length, bytes: v.byteLength, shared: true, smooth: !!m.aux, grid: cols * cols === n && cols > 2 ? { cols, y0: m.pos[1], step: m.pos[cols * 3 + 1] - m.pos[1] } : undefined };
     this.endTerrain();
   }
   private uploadFar(m: { pos: Float32Array; col: Float32Array; aux?: Float32Array; idx: Uint32Array }) {
@@ -1417,10 +1462,12 @@ export class WorldGL {
     const n = this.farMesh!.length, rc = this.cubeN > 0 && this.ringCount > 0 ? Math.min(this.ringCount, n) : n;   // (rc: the rings; any levels past them are the cube planet's faces)
     let lo = rc > 3 ? Math.min(this.farMin, rc - 1) : 0; while (lo > 0 && !this.farMesh![lo]) lo--;   // (the one wanted is not built yet: the next finer one stands in)
     gl.enable(gl.POLYGON_OFFSET_FILL);
+    if (!depthOnly) { this.facesCulled = 0; this.tilesCulled = 0; this.tilesDrawn = 0; }
     let prevEnd = -1;
     this.farMesh!.forEach((f, i) => {
       const face = i >= rc;
       if ((i < lo && !face) || !f) return;
+      if (face && this.faceHidden(i - rc)) { this.facesCulled++; return; }
       const s0 = prevEnd < 0 ? 0 : prevEnd - 20 * kk, e0 = face || (i === n - 1 && rc === n) ? 1e9 : hole + E[Math.min(i, E.length - 1)];
       const bandIn = prevEnd < 0 ? 1 : 20 * kk;   // (the first far level fades in over the real chunks' band; each next one over the 20 tiles it overlaps the one before)
       if (!face) prevEnd = e0;   // (faces all begin where the last ring ends)
@@ -1435,11 +1482,47 @@ export class WorldGL {
       }
       gl.uniform1f(this.loc.uFarSm, f.smooth ? 1 : 0);
       gl.uniform1f(this.loc.uFarM, Math.min(64, Math.max(1, 2 ** Math.round(Math.log2((f.grid?.step ?? 128) / 2.5)))));   // (the contour step of this level, in layers: about two or three tiles of band at its own spacing)
-      gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
+      if (f.rtiles && !(dbgOn('notilecull') || dbgOn('nolod'))) this.drawRingTiles(f.rtiles, s0, e0);
+      else if (f.tiles && !(dbgOn('notilecull') || dbgOn('nolod')) && this.eyeFr) this.drawTiles(f.tiles); else gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, first);
     });
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.uniform1f(this.loc.uFar, 0); gl.uniform1f(this.loc.uFarSm, 0);
     this.endTerrain();
+  }
+
+  /** Draw the tiles of an endless world's far level that fall in the ring between `s0` and `e0` tiles from the eye and in the view (adjacent ones in one call). */
+  private drawRingTiles(t: NonNullable<NonNullable<typeof this.farMesh>[number]['rtiles']>, s0: number, e0: number) {
+    const gl = this.gl, nt2 = t.nt * t.nt, ex = this.eye[0], ey = this.eye[1], pad = 7 * this.terraceStep;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, t.ibo);
+    let runStart = -1;
+    for (let k = 0; k <= nt2; k++) {
+      const show = k < nt2 && ringTileShown(t.bounds, k * 6, ex, ey, s0, e0, this.vp, this.curveC, pad);
+      if (k < nt2) { if (show) this.tilesDrawn++; else this.tilesCulled++; }
+      if (show && runStart < 0) runStart = k;
+      else if (!show && runStart >= 0) { gl.drawElements(gl.TRIANGLES, t.starts[k] - t.starts[runStart], gl.UNSIGNED_INT, t.starts[runStart] * 4); runStart = -1; }
+    }
+  }
+
+  /** Draw the tiles of a planet face that can be seen: not over the horizon, and not wholly outside the view (adjacent ones in one call). */
+  private drawTiles(t: NonNullable<NonNullable<typeof this.farMesh>[number]['tiles']>) {
+    const gl = this.gl, fr = this.eyeFr!, R = this.planet, h = Math.abs(this.eye[2]), hill = 0.06 * R, nt2 = t.nt * t.nt, vp = this.vp, ex = this.eye[0], ey = this.eye[1];
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, t.ibo);
+    let runStart = -1;
+    for (let k = 0; k <= nt2; k++) {
+      let show = false;
+      if (k < nt2) {
+        show = tileShown([t.caps[k * 4], t.caps[k * 4 + 1], t.caps[k * 4 + 2]], t.caps[k * 4 + 3], fr, R, h, hill, ex, ey, vp);
+        if (show) this.tilesDrawn++; else this.tilesCulled++;
+      }
+      if (show && runStart < 0) runStart = k;
+      else if (!show && runStart >= 0) { gl.drawElements(gl.TRIANGLES, t.starts[k] - t.starts[runStart], gl.UNSIGNED_INT, t.starts[runStart] * 4); runStart = -1; }
+    }
+  }
+
+  /** Is planet face `fi` wholly over the horizon (see `faceOverHorizon`; `?dbg=nofacecull` draws them all)? */
+  private faceHidden(fi: number): boolean {
+    const up = this.eyeUp, R = this.planet; if (!up || (dbgOn('nofacecull') || dbgOn('nolod'))) return false;
+    return faceOverHorizon(fi, up, R, Math.abs(this.eye[2]), 0.06 * R);   // (the tallest ground is ~50 tiles on the 2139-tile planet; |z| is the eye's height whichever way z points)
   }
 
   /** Is this chunk on the GPU, ready to draw (its texture and, on hills, its mesh)? (the loading screen waits for the ring round the plane) */

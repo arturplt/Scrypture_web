@@ -10,6 +10,8 @@
 
 import { makeRealTerrain, realElevation, realLand, realLake, realLakeSheet, realLakeTile, realLakeShore, type RealTerrain } from './terrainreal';
 import type { LakeData } from './lakedistrict';
+import { DEFAULT_GEN, paramsHash, type GenParams } from './genparams';
+import { sculptAt, sculptDense } from './sculpt';
 import { GN, canonInto, newCanon, capAt, canonTile, canonTileKey, canonChunk, netToDir, insideFace, CAP_LEVEL, CUBE_N_FIRST, type Canon } from './cube';
 
 /** Tiles per chunk side (worldgen's CHUNK; repeated here so this file needs nothing from worldgen). */
@@ -50,9 +52,36 @@ export function setRealTerrain(d: LakeData | null) {
 /** Is the ground a real map? */
 export const realTerrainOn = (): boolean => REAL !== null;
 /** From which layer the tops are bare: 700 m on a real map (the fells), else TERRACE_BARE. */
-const bareFrom = (): number => (REAL ? Math.ceil(700 / TERRACE_LAYER_M) : TERRACE_BARE);
+const bareFrom = (): number => (REAL ? Math.ceil(700 / TERRACE_LAYER_M) : TERRACE_BARE - G_COLD);
 /** The first layer of the bare tops (sand-coloured ground on purpose). */
 export const terraceBareFrom = bareFrom;
+
+// ---- the world's generation settings (see genparams.ts) ------------------------------------------------------------------------------------
+
+/**
+ * The settings of the world whose ground is being read, as the numbers the formulas use. One set at a time, like `GN` and `REAL`: a `World` sets them when it opens, and anything that reads another set
+ * (the far-mesh worker job, the generator's preview) goes through `withGen`, which puts the old set back, and never yields while a foreign set is active. Every value's default is an exact 1 (multiplied) or
+ * an exact 0 (added or taken off) put at the same place in its expression, so the default ground is bit for bit what it was before there were settings. Real maps ignore them.
+ */
+let G_SEA = 0, G_CF = 1, G_MW = 1, G_MA = 0, G_MOFF = false, G_PK = 1, G_HILLS = 1, G_MOIST = 0, G_COLD = 0, G_KEY = 0;
+let G_NOW: Readonly<GenParams> = DEFAULT_GEN;
+/** The macro sculpt's dense values (null: none, and the ground is untouched, bit for bit), made once for a settings object. */
+let G_SC: Int16Array | null = null;
+const SC_OF = new WeakMap<object, Int16Array | null>();
+function scOf(g: Readonly<GenParams>): Int16Array | null { if (!g.sculpt || !g.sculpt.length) return null; let d = SC_OF.get(g); if (d === undefined) { d = sculptDense(g.sculpt); SC_OF.set(g, d); } return d; }
+/** Use these settings from now on (null or none: the defaults). Take them from `sanitizeGen`. */
+export function setGenParams(p: Readonly<GenParams> | null | undefined) {
+  const g = p ?? DEFAULT_GEN;
+  G_NOW = g; G_KEY = paramsHash(g);
+  G_SEA = g.sea; G_CF = g.continents; G_MW = g.mountains; G_MA = (g.mountains - 1) * 0.25; G_MOFF = g.mountains <= 0; G_PK = g.peaks; G_HILLS = g.hills; G_MOIST = g.moisture; G_COLD = g.cold; G_SC = scOf(g);
+}
+/** The settings in use now. */
+export const genParams = (): Readonly<GenParams> => G_NOW;
+/** Run `fn` with these settings in use, and put the old ones back (also when it throws). `fn` must not yield. */
+export function withGen<T>(p: Readonly<GenParams> | null | undefined, fn: () => T): T {
+  const was = G_NOW; setGenParams(p);
+  try { return fn(); } finally { setGenParams(was); }
+}
 
 // ---- noise (own copy of worldgen's hash and value noise, so the two files do not import each other) ---------------------------------
 
@@ -122,12 +151,14 @@ export function elevationBroad(x: number, y: number, seed: number): number {
     peakOf(s);   // (worked out first: it uses the point scratch)
     lowAt(x, y, s, lo, 0); pt(x, y);
     const cx = CX, cy = CY, wx = PX + lo[0], wy = PY + lo[1], wz = PZ + lo[8], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
-    const e = (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAtCube(cx, cy, s, lo, 0, wx, wy, wz)) * LK + peakAt(cx, cy, s), cap = capAt(cx, cy);
+    let e = (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * G_HILLS * land + lo[4] * 2.2 * G_HILLS * land) * 1.5 + rangeAtCube(cx, cy, s, lo, 0, wx, wy, wz)) * LK + peakAt(cx, cy, s);
+    const cap = capAt(cx, cy);
+    if (G_SC) e += sculptAt(G_SC, cx, cy, GN);   // (the sculpt, once, on the base ground)
     return cap > 0 ? e + (CAP_LEVEL - e) * cap : e;
   }
   lowAt(x, y, s, lo, 0);
   const wx = x + lo[0], wy = y + lo[1], cont = lo[2], land = smooth(-0.1, 0.3, cont), hills = Math.max(0, lo[3] * 0.65 + 0.12 * lo[4] - 0.05);
-  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + lo[4] * 2.2 * land) * 1.5 + rangeAt(x, y, s, lo, 0, wx, wy) + peakAt(x, y, s);
+  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * G_HILLS * land + lo[4] * 2.2 * G_HILLS * land) * 1.5 + rangeAt(x, y, s, lo, 0, wx, wy) + peakAt(x, y, s);
 }
 /**
  * A cube-sphere's continents: land and sea on the scale of the planet (a few great masses a few thousand to ten thousand tiles across, a third or so of the planet land), with the usual coast and
@@ -135,11 +166,11 @@ export function elevationBroad(x: number, y: number, seed: number): number {
  */
 function cubeCont(wx: number, wy: number, wz: number, s: number, cont: number): number {
   const C = 4 * GN;   // (tiles round the planet: lattice cells 3, 6 and 13 round it)
-  const big = 0.6 * nz3(wx, wy, wz, 3.2 / C, s + 23) + 0.75 * nz3(wx, wy, wz, 6.3 / C, s + 24) + 0.3 * nz3(wx, wy, wz, 13.1 / C, s + 25);
+  const big = 0.6 * nz3(wx, wy, wz, (3.2 / C) * G_CF, s + 23) + 0.75 * nz3(wx, wy, wz, (6.3 / C) * G_CF, s + 24) + 0.3 * nz3(wx, wy, wz, (13.1 / C) * G_CF, s + 25);
   // (the distance from the spawn is measured over the ball, from the point's place on it (the scratch PX, set by `pt`): the net's own distance jumps across a cut edge. The radii scale with the planet.)
   const R = (2 * GN) / Math.PI, arc = R * Math.acos(Math.max(-1, Math.min(1, PX / R))), k = GN / CUBE_N_FIRST;
   const home = 0.55 * (1 - smooth(1500 * k, 6000 * k, arc));
-  return 0.4 * cont + 1.4 * big + home - 0.04;
+  return 0.4 * cont + 1.4 * big + home - 0.04 - G_SEA;
 }
 /** The slow parts of the elevation (they change over tens of tiles: a chunk's grid works them out every 2 tiles and blends between): the warp (2, and on a cube-sphere a third in slot 8), the continent, the big hills, the big rolls. */
 const LOW_N = 9, LOW_TMP = new Float64Array(LOW_N);
@@ -148,14 +179,14 @@ function lowAt(x: number, y: number, s: number, out: Float64Array | Float32Array
     pt(x, y); const px = PX, py = PY, pz = PZ;
     const dx = 26 * nz3(px, py, pz, 0.006, s + 11), dy = 26 * nz3(px, py, pz, 0.006, s + 12), dz = 26 * nz3(px, py, pz, 0.006, s + 13), wx = px + dx, wy = py + dy, wz = pz + dz;
     out[o] = dx; out[o + 1] = dy; out[o + 8] = dz;
-    out[o + 2] = cubeCont(wx, wy, wz, s, (nz3(wx, wy, wz, 0.0032, s + 21) + 0.5 * nz3(wx, wy, wz, 0.0081, s + 22)) / 1.5);
+    out[o + 2] = cubeCont(wx, wy, wz, s, (nz3(wx, wy, wz, 0.0032 * G_CF, s + 21) + 0.5 * nz3(wx, wy, wz, 0.0081 * G_CF, s + 22)) / 1.5);
     out[o + 3] = nz3(wx, wy, wz, 0.011, s + 31); out[o + 4] = nz3(wx, wy, wz, 0.022, s + 51);
     out[o + 5] = nz3(wx, wy, wz, 0.0011, s + 61); out[o + 6] = nz3(wx, wy, wz, 0.00045, s + 62); out[o + 7] = (nz3(wx, wy, wz, 0.0006, s + 63) + 1) / 2;
     return;
   }
   const dx = 26 * nz(x, y, 0.006, s + 11), dy = 26 * nz(x, y, 0.006, s + 12, 31.7, -17.3), wx = x + dx, wy = y + dy;
   out[o] = dx; out[o + 1] = dy;
-  out[o + 2] = (nz(wx, wy, 0.0032, s + 21) + 0.5 * nz(wx, wy, 0.0081, s + 22)) / 1.5;   // the continent, about -0.7..0.7
+  out[o + 2] = (nz(wx, wy, 0.0032 * G_CF, s + 21) + 0.5 * nz(wx, wy, 0.0081 * G_CF, s + 22)) / 1.5 - G_SEA;   // the continent, about -0.7..0.7 (`G_SEA` raises the sea: less land)
   out[o + 3] = nz(wx, wy, 0.011, s + 31);
   out[o + 4] = nz(wx, wy, 0.022, s + 51);
   out[o + 5] = nz(wx, wy, 0.0011, s + 61);   // the mountain ranges (see rangeAt): where the axes run (a range stands along the line where this is 0), ...
@@ -234,17 +265,17 @@ function basinDips(x0: number, y0: number, room: number, s: number): { x: number
 }
 const BASIN_GRID = new Float64Array(11 * 11), BASIN_TRIES = 3;
 /** The lake of a cell of one scale: whether there is one (odds raised or lowered by the region's wetness), its place and radius from hashes, and its level and blend. Remembered per seed and scale. */
-const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null]; let lastGN = 0;   // (each scale's last cell: neighbouring points nearly always fall in the same one)
+const lastCx = [NaN, NaN, NaN], lastCy = [NaN, NaN, NaN], lastS = [NaN, NaN, NaN], lastLake: (Lake | null)[] = [null, null, null]; let lastGN = 0, lastKey = 0;   // (each scale's last cell: neighbouring points nearly always fall in the same one)
 function lakeOfCell(si: number, cx: number, cy: number, s: number): Lake | null {
-  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si] && GN === lastGN) return lastLake[si];
+  if (cx === lastCx[si] && cy === lastCy[si] && s === lastS[si] && GN === lastGN && G_KEY === lastKey) return lastLake[si];
   const l = lakeOfCellSlow(si, cx, cy, s);
-  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastGN = GN; lastLake[si] = l;
+  lastCx[si] = cx; lastCy[si] = cy; lastS[si] = s; lastGN = GN; lastKey = G_KEY; lastLake[si] = l;
   return l;
 }
 /** Is a lake's cell wholly inside a face, 100 tiles clear of its edges (a cube-sphere)? */
 const cellInterior = (cell: number, cx: number, cy: number): boolean => insideFace((cx + 0.5) * cell, (cy + 0.5) * cell, cell / 2 + 100);
 function lakeOfCellSlow(si: number, cx: number, cy: number, s: number): Lake | null {
-  const ck = (s + si * 1000003 + GN * 7919) | 0;
+  const ck = (s + si * 1000003 + GN * 7919 + G_KEY) | 0;
   let cache = lakeCaches.get(ck); if (!cache) { if (lakeCaches.size > 24) lakeCaches.clear(); cache = new Map(); lakeCaches.set(ck, cache); }
   const key = (cx + 32768) * 65536 + (cy + 32768); let l = cache.get(key);
   if (l !== undefined) return l;
@@ -345,7 +376,8 @@ export const terraceLakeShoreAt = (x: number, y: number, seed: number): boolean 
 
 /** The elevation without the lakes: the slow parts and the quick ones (smaller hills, crests, small rolls, the wiggle along the edges), and the world's one giant. */
 function baseAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number): number {
-  return baseRaw(x, y, s, lo, o) + peakAt(x, y, s);
+  const b = baseRaw(x, y, s, lo, o) + peakAt(x, y, s);
+  return G_SC && GN ? b + sculptAt(G_SC, x, y, GN) : b;   // (the macro sculpt: added once, to the ground the lakes read and the terraces are cut from)
 }
 /** Layers the hills add at their tallest, before the 1.5 on the whole (26 gave tops near 56 layers; 55 gives about 100). */
 const HILL_LAYERS = 55;
@@ -355,17 +387,17 @@ function baseRaw(x: number, y: number, s: number, lo: Float64Array | Float32Arra
   if (GN) {   // (the cube-sphere: the same hills, rolls and wiggle, as noise at the point's place on the ball, warped by the three slow warp fields)
     pt(x, y); const px = PX, py = PY, pz = PZ, cx = CX, cy = CY, wx = px + lo[o], wy = py + lo[o + 1], wz = pz + lo[o + 8], cont = lo[o + 2], h1 = lo[o + 3], land = smooth(-0.1, 0.3, cont);
     const h2 = nz3(wx, wy, wz, 0.027, s + 32), rg = 1 - Math.abs(nz3(wx, wy, wz, 0.045, s + 33)), hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));
-    const roll = lo[o + 4] * 2.2 + nz3(wx, wy, wz, 0.06, s + 52) * 0.8, wig = 0.22 * nz3(px, py, pz, 0.12, s + 41);
-    return (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAtCube(cx, cy, s, lo, o, wx, wy, wz)) * LK;
+    const roll = (lo[o + 4] * 2.2 + nz3(wx, wy, wz, 0.06, s + 52) * 0.8) * G_HILLS, wig = 0.22 * nz3(px, py, pz, 0.12, s + 41);
+    return (((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * G_HILLS * land + (roll + wig) * land) * 1.5 + rangeAtCube(cx, cy, s, lo, o, wx, wy, wz)) * LK;
   }
   const wx = x + lo[o], wy = y + lo[o + 1], cont = lo[o + 2], h1 = lo[o + 3];
   const land = smooth(-0.1, 0.3, cont);
   const h2 = nz(wx, wy, 0.027, s + 32);
   const rg = 1 - Math.abs(nz(wx, wy, 0.045, s + 33));
   const hills = Math.max(0, (h1 * 0.65 + h2 * 0.3 + rg * rg * 0.35 - 0.05));   // 0..~1
-  const roll = lo[o + 4] * 2.2 + nz(wx, wy, 0.06, s + 52) * 0.8;   // rolling ground everywhere on land, so a shelf is tens of tiles, not hundreds
+  const roll = (lo[o + 4] * 2.2 + nz(wx, wy, 0.06, s + 52) * 0.8) * G_HILLS;   // rolling ground everywhere on land, so a shelf is tens of tiles, not hundreds
   const wig = 0.22 * nz(x, y, 0.12, s + 41);
-  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * land + (roll + wig) * land) * 1.5 + rangeAt(x, y, s, lo, o, wx, wy);
+  return ((cont + 0.08) * 11 + Math.pow(hills, 1.5) * HILL_LAYERS * G_HILLS * land + (roll + wig) * land) * 1.5 + rangeAt(x, y, s, lo, o, wx, wy);
 }
 
 // ---- mountain ranges -----------------------------------------------------------------------------------------------------------------
@@ -385,26 +417,28 @@ const rangeKind = (u: number): [number, number, number] => {
 /** The layers the ranges add at a point (0 away from any range). */
 /** `rangeAt` on the ball: (cx, cy) the canonical net point (for the distance from the start), (wx, wy, wz) the warped place on the ball. */
 function rangeAtCube(cx: number, cy: number, s: number, lo: Float64Array | Float32Array, o: number, wx: number, wy: number, wz: number): number {
-  const u = lo[o + 7], hw = 0.17 + 0.13 * u, belt = 1 - Math.abs(lo[o + 5]) / hw;
+  if (G_MOFF) return 0;
+  const u = lo[o + 7], hw = (0.17 + 0.13 * u) * G_MW, belt = 1 - Math.abs(lo[o + 5]) / hw;
   if (belt <= 0) return 0;
-  const along = smooth(-0.55, -0.05, lo[o + 6]);
+  const along = smooth(-0.55 - G_MA, -0.05 - G_MA, lo[o + 6]);
   if (along <= 0) return 0;
   const away = smooth(150, 600, Math.sqrt(cx * cx + cy * cy)), land = smooth(-0.7, -0.15, lo[o + 2]);
   const core = smooth(0, 1, belt) * along * away * land;
   if (core <= 0) return 0;
-  const [amp, crag, crest] = rangeKind(u);
+  const [amp0, crag, crest] = rangeKind(u), amp = amp0 * G_PK;
   const ridge = 1 - Math.abs(nz3(wx, wy, wz, 0.008, s + 64)), c = 1 - Math.abs(nz3(wx, wy, wz, 0.035, s + 65));
   return amp * core * (1 - crest + crest * ridge * ridge * 1.4) + amp * 0.2 * crag * core * (c * c - 0.35);
 }
 function rangeAt(x: number, y: number, s: number, lo: Float64Array | Float32Array, o: number, wx: number, wy: number): number {
-  const u = lo[o + 7], hw = 0.17 + 0.13 * u, belt = 1 - Math.abs(lo[o + 5]) / hw;
+  if (G_MOFF) return 0;
+  const u = lo[o + 7], hw = (0.17 + 0.13 * u) * G_MW, belt = 1 - Math.abs(lo[o + 5]) / hw;
   if (belt <= 0) return 0;
-  const along = smooth(-0.55, -0.05, lo[o + 6]);
+  const along = smooth(-0.55 - G_MA, -0.05 - G_MA, lo[o + 6]);
   if (along <= 0) return 0;
   const away = smooth(150, 600, Math.sqrt(x * x + y * y)), land = smooth(-0.7, -0.15, lo[o + 2]);
   const core = smooth(0, 1, belt) * along * away * land;
   if (core <= 0) return 0;
-  const [amp, crag, crest] = rangeKind(u);
+  const [amp0, crag, crest] = rangeKind(u), amp = amp0 * G_PK;
   const ridge = 1 - Math.abs(nz(wx, wy, 0.008, s + 64)), c = 1 - Math.abs(nz(wx, wy, 0.035, s + 65));
   return amp * core * (1 - crest + crest * ridge * ridge * 1.4) + amp * 0.2 * crag * core * (c * c - 0.35);
 }
@@ -418,17 +452,18 @@ const PEAK_AT = [1100, 1500];
 /** On a cube planet the giant's distances scale with the planet (they were set for faces of CUBE_N_FIRST tiles), and its height with the layers (LK). */
 const peakK = (): number => (GN > 0 ? GN / CUBE_N_FIRST : 1);
 interface Peak { x: number; y: number; add: number }
-let peakSeed = NaN, peakGN = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
+let peakSeed = NaN, peakGN = 0, peakKey = 0, peakNow: Peak = { x: 0, y: 0, add: 0 };
 /** Where the giant of a seed stands: of 32 places on two rings round the middle, the highest ground (the most inland), and how many layers are added there for the summit to reach PEAK_M. */
 export function peakOf(s: number): Peak {
-  if (s === peakSeed && peakGN === GN) return peakNow;
+  if (s === peakSeed && peakGN === GN && peakKey === G_KEY) return peakNow;
   const tmp = new Float64Array(LOW_N); let best = -Infinity, bx = 0, by = 0;
   for (const d of PEAK_AT) for (let k = 0; k < 16; k++) {
     const a = (k + hash01(k, d, s + 91)) / 16 * Math.PI * 2, x = Math.round(Math.cos(a) * d * peakK()), y = Math.round(Math.sin(a) * d * peakK());
     lowAt(x, y, s, tmp, 0); const e = baseRaw(x, y, s, tmp, 0);
     if (e > best) { best = e; bx = x; by = y; }
   }
-  peakSeed = s; peakGN = GN; peakNow = { x: bx, y: by, add: (PEAK_M / TERRACE_LAYER_M) * (GN > 0 ? LK : 1) - best };
+  const add = ((PEAK_M * G_PK) / TERRACE_LAYER_M) * (GN > 0 ? LK : 1) - best;
+  peakSeed = s; peakGN = GN; peakKey = G_KEY; peakNow = { x: bx, y: by, add: G_PK === 1 ? add : Math.max(0, add) };   // (a lower giant is never a pit: the summit stays at least as high as the ground it stands on)
   return peakNow;
 }
 /** The layers the giant adds at a point (0 beyond its skirt). */
@@ -462,7 +497,7 @@ const layerMoist = (layer: number): number => (dither(layer, 17.3) - 0.5) * 0.08
 export function terraceBiome(layer: number, moistRaw: number): number {
   if (layer < 0) return 5;
   if (layer >= bareFrom()) return 3;                 // bare tops
-  const moist = moistRaw + layerMoist(layer);
+  const moist = moistRaw + layerMoist(layer) + (REAL ? 0 : G_MOIST);
   if (moist < 0.2) return 3;                         // dry country: sand
   if (layer <= 4) return moist > 0.62 ? 2 : 0;       // the low shelves: wet ground or meadows
   if (layer <= 18) return moist > 0.36 ? 1 : 0;      // the hillsides: woods
@@ -590,6 +625,8 @@ export class TerraceField {
   readonly seed: number;
   private grids = new Map<number, Grid>();
   private lastKey = NaN; private last: Grid | null = null;
+  /** The settings (see `setGenParams`) the cached grids were made under. */
+  private gen = G_KEY;
   private readonly max: number;
   /** The player's sculpting, laid over the generated ground in every grid (see `setRelief`). */
   readonly relief: Relief;
@@ -611,6 +648,7 @@ export class TerraceField {
    * block standing on the shelf; the opening keeps every broad terrace exactly as it was and shaves those tops off (and the tiniest islands and spits of land with them).
    */
   grid(cx: number, cy: number): Grid {
+    if (this.gen !== G_KEY) { this.grids.clear(); this.lastKey = NaN; this.gen = G_KEY; }   // (the settings changed under it: another world's ground is not this one's)
     const key = (cx + 32768) * 65536 + (cy + 32768);
     if (key === this.lastKey) return this.last!;
     let g = this.grids.get(key);
@@ -872,7 +910,9 @@ export const onLedge = (layer: (x: number, y: number) => number, x: number, y: n
 };
 
 /** Where a new terraced world starts: the nearest tile (spiralling out from the middle) on a low shelf, away from any ledge. */
-export function terraceSpawn(seed: number): { x: number; y: number } {
+export const terraceSpawn = (seed: number): { x: number; y: number } => findTerraceSpawn(seed) ?? { x: 0, y: 0 };
+/** `terraceSpawn`, or null when there is no such ground within reach (a world mostly sea: the generator then refuses to make it). */
+export function findTerraceSpawn(seed: number): { x: number; y: number } | null {
   const f = new TerraceField(seed), lay = (x: number, y: number) => f.layerDirect(x, y);
   for (let r = 0; r < 4000; r += 4) {
     const n = Math.max(1, Math.floor(r * 0.8));
@@ -881,7 +921,7 @@ export function terraceSpawn(seed: number): { x: number; y: number } {
       if (l >= 2 && l <= 10 && !terraceLakeAt(x + 0.5, y + 0.5, seed) && terraceMoist(x, y, seed) > 0.3 && !onLedge(lay, x, y) && !onLedge(lay, x + 1, y) && !onLedge(lay, x, y + 1) && !onLedge(lay, x - 1, y) && !onLedge(lay, x, y - 1)) return { x, y };
     }
   }
-  return { x: 0, y: 0 };
+  return null;
 }
 
 // ---- the chunk mesh -------------------------------------------------------------------------------------------------------------------

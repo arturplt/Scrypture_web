@@ -221,3 +221,15 @@ export function shaderTables(): { c: Float32Array; a: Float32Array; b: Float32Ar
   for (let f = 0; f < 6; f++) for (let side = 0; side < 4; side++) { const E = EXT[f]?.[side]; if (!E) continue; const i = f * 4 + side; xa.set([E.a, E.b, E.c, E.d], i * 4); xt.set([E.tx, E.ty], i * 2); }
   return { c: new Float32Array(FACES.flatMap(f => [...f.c])), a: new Float32Array(FACES.flatMap(f => [...f.a])), b: new Float32Array(FACES.flatMap(f => [...f.b])), cell: new Float32Array(FACES.flatMap(f => [f.ix, f.iy])), xa, xt };
 }
+
+/** The widest a face reaches from its centre on the ball (a cube corner: acos(1/sqrt 3) = 54.74 degrees) plus two degrees to spare, in radians. */
+export const FACE_CAP = ((54.7356 + 2) * Math.PI) / 180;
+/**
+ * Is no part of face `f` (its ground, or hills up to `hill` tiles tall on it) above the horizon of an eye `h` tiles over the ball of radius `R`, at the point `up` (a unit vector)?
+ * Conservative: the face lies within FACE_CAP of its centre; the eye sees out to acos(R / (R + h)) over the sea and a hill shows over that by another acos(R / (R + hill)).
+ */
+export function faceOverHorizon(f: number, up: V3, R: number, h: number, hill: number): boolean {
+  if (f < 0 || f >= 6 || !(R > 0)) return false;
+  const ang = Math.acos(Math.max(-1, Math.min(1, dot(FACES[f].c, up))));
+  return ang - FACE_CAP > Math.acos(R / (R + Math.max(0, h))) + Math.acos(R / (R + Math.max(0, hill)));
+}

@@ -1,0 +1,115 @@
+{
+ "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL ES 3.2)",
+ "checks": {
+  "firstMesh": true,
+  "set Sea level": true,
+  "set Continents": true,
+  "set Mountains": true,
+  "set Peak height": true,
+  "set Hills": true,
+  "set Moisture": true,
+  "set Cold: bare tops from lower down": true,
+  "viewOpen": true,
+  "overBudgetKeepsMesh": true,
+  "createEnabled": true,
+  "savedWithSettings": true,
+  "opensTheWorld": true
+ },
+ "status0": "162k triangles, detail 64\nAn approximation: one point every 53 tiles. The game's own ground is finer.",
+ "controls": {
+  "Sea level": {
+   "ms": 725,
+   "got": true
+  },
+  "Continents": {
+   "ms": 414,
+   "got": true
+  },
+  "Mountains": {
+   "ms": 451,
+   "got": true
+  },
+  "Peak height": {
+   "ms": 676,
+   "got": true
+  },
+  "Hills": {
+   "ms": 516,
+   "got": true
+  },
+  "Moisture": {
+   "ms": 404,
+   "got": true
+  },
+  "Cold: bare tops from lower down": {
+   "ms": 472,
+   "got": true
+  }
+ },
+ "detail128": {
+  "at": 8094.800000000745,
+  "quick": false,
+  "N": 64,
+  "tris": 187614
+ },
+ "drag": {
+  "meshesDuringAndAfter": [
+   {
+    "N": 32,
+    "quick": true,
+    "afterReleaseMs": -738
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "afterReleaseMs": -477
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "afterReleaseMs": -245
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "afterReleaseMs": -161
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "afterReleaseMs": -77
+   },
+   {
+    "N": 64,
+    "quick": false,
+    "afterReleaseMs": 453
+   }
+  ],
+  "totalMs": 1490
+ },
+ "overBudgetWarned": true,
+ "statusEnd": "Detail 64 with 1-layer terraces is 699k triangles, over the 200k budget. The last mesh stays: raise the terrace thickness or lower the detail.\n196k triangles, detail 64\nAn approximation: one point every 53 tiles. The game's own ground is finer.",
+ "hash": "#/games/paperplane/play/1e7006db-ba19-41d6-8c8c-ea9b48781fe2",
+ "world": {
+  "kind": "terraced",
+  "size": 3360,
+  "seed": 1820014711,
+  "gen": {
+   "v": 1,
+   "sea": 0.3,
+   "continents": 2,
+   "mountains": 1.5,
+   "peaks": 1.4,
+   "hills": 1.3,
+   "moisture": 0.25,
+   "cold": 12
+  },
+  "plane": {
+   "x": -95,
+   "y": 16,
+   "heading": 1.5707963267948966,
+   "pitch": 0
+  }
+ },
+ "canvasInGame": true
+}

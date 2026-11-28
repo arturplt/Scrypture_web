@@ -1,0 +1,23 @@
+/* The world generator screen (WorldGen.tsx): the planet fills the screen, the settings fold in a framed panel over it. */
+.wg { position: fixed; inset: 0; z-index: 30; background: #02030a; overflow: hidden; }
+.wg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.wg-panel { position: absolute; left: calc(8 * var(--u)); top: calc(8 * var(--u)); width: min(calc(360 * var(--u)), calc(100vw - 16 * var(--u))); max-height: calc(100vh - 16 * var(--u)); display: flex; flex-direction: column; gap: calc(6 * var(--u)); overflow: hidden; }
+.wg-scroll { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; min-height: 0; flex: 1 1 auto; display: grid; gap: calc(6 * var(--u)); align-content: start; padding-right: calc(4 * var(--u)); }
+.wg-head { display: flex; align-items: center; gap: calc(6 * var(--u)); justify-content: space-between; }
+.wg-title { font-size: var(--fs-s, 0.7rem); margin: 0; }
+.wg-sec > summary { cursor: pointer; list-style: none; user-select: none; font-size: var(--fs-xs); padding: calc(2 * var(--u)) 0; }
+.wg-sec > summary::-webkit-details-marker { display: none; }
+.wg-sec[open] > summary { margin-bottom: calc(4 * var(--u)); }
+.wg-row { display: grid; gap: calc(2 * var(--u)); margin-bottom: calc(6 * var(--u)); }
+.wg-lab { display: flex; justify-content: space-between; gap: calc(6 * var(--u)); font-size: var(--fs-xs); }
+.wg-val { opacity: .8; }
+.wg-btns { display: flex; flex-wrap: wrap; gap: calc(6 * var(--u)); }
+.wg-seed { display: flex; gap: calc(6 * var(--u)); align-items: center; }
+.wg-seed .field { flex: 1; min-width: 0; }
+.wg-status { position: absolute; right: calc(8 * var(--u)); bottom: calc(8 * var(--u)); max-width: min(calc(420 * var(--u)), calc(100vw - 16 * var(--u))); font-size: var(--fs-xs); text-align: right; pointer-events: none; text-shadow: 0 calc(1 * var(--u)) 0 #000; display: grid; gap: calc(3 * var(--u)); }
+.wg-warn { color: #fc6; }
+.wg-bad { color: #f77; }
+@media (max-width: 700px) {
+  .wg-panel { top: auto; bottom: calc(8 * var(--u)); width: calc(100vw - 16 * var(--u)); max-height: 46vh; }
+  .wg-status { top: calc(8 * var(--u)); bottom: auto; }
+}

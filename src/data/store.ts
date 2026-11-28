@@ -3,6 +3,7 @@ import {
   MAX_CATEGORIES, setSlotTime, placeInList, withoutGroup, categoryNameFree, cleanCategoryName, isCategoryFrame, DEFAULT_CATEGORY_FRAME, completedToday, moveInList, TASK_CHEER_MS, MISCHIEF_MS, cleanTag, retag, habitReward, QUICK_START_MS, applyReward, revokeReward, eventReward, cleanEvent, MAX_WORKOUTS, MAX_EXERCISES, PUSHUPS, repBonusPoints, elapsedMs, newExercise, cleanWorkoutName, workoutBodyPoints, REST_CHOICES, type WeightUnit, type PlannedExercise, type Workout, placeEvent, resizeEvent, repeatEvents, seriesFrom, addDays, dayDiff, moveHabit, type HabitPlan, type Span, type RemindLead, MAX_EVENTS, pruneShortlist, shortlistWith, type NewEvent, cleanMapName, MAX_MIND_MAPS, MAX_NOTES, newNote, cleanNoteTitle, cleanNoteBody, type Note, clampNoteSize, isHexColor, normalizeRuns, runsText, type Run, type NoteAlign, cleanAligns, newMindMap, duplicateMap, type MindMap, MAX_LEVELS, MAX_WORLDS, newSavedWorld, type SavedWorld, type Block, statRewards, calculateRewards, recordGame, type RockResult, type Rewards, type Category, type Frequency, type Habit, type Priority, type Task,
 } from '../domain';
 import type { LakeMapId } from '../domain';
+import type { GenParams } from '../domain/genparams';
 import { noteXp } from './xpWhy';
 import { defaultState, type AppEvent, type AppState, type ChatMessage } from './state';
 import { newId } from './id';
@@ -508,9 +509,9 @@ export function createStore(kv: KV | null = browserKV(), clock: () => number = D
       return { task, listed: actions.shortlistAdd(task.id) };
     },
     /** Bóbr world map: make a world (name + seed). Returns its id, or null when the list is full. */
-    createWorld(name: string, seed: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes'): string | null {
+    createWorld(name: string, seed: number, kind: 'procedural' | 'lakedistrict' | 'terraced' = 'procedural', map: LakeMapId = 'lakes', gen?: GenParams | null): string | null {
       if (state.worlds.list.length >= MAX_WORLDS) return null;
-      const w = newSavedWorld(genId(), name, seed, clock(), kind, map);
+      const w = newSavedWorld(genId(), name, seed, clock(), kind, map, gen);
       set({ ...state, worlds: { list: [...state.worlds.list, w] } });
       return w.id;
     },

@@ -24,6 +24,7 @@ import { Notes } from './screens/Notes';
 import { EmoticonManager } from './screens/EmoticonManager';
 import { Worlds } from './screens/Worlds';
 import { WorldMap } from './screens/WorldMap';
+import { WorldGen } from './screens/WorldGen';
 import { RockGame } from './screens/RockGame';
 import { RockLeaderboard } from './screens/RockLeaderboard';
 import { ThemeManager } from './screens/ThemeManager';
@@ -80,6 +81,7 @@ function Screen({ route }: { route: string }) {
   if (route === '/apps/notes') return <Notes />;
   if (route.startsWith('/apps/notes/')) return <Notes id={route.slice('/apps/notes/'.length)} />;
   if (route === '/games/paperplane') return <Worlds />;
+  if (route === '/games/paperplane/generate') return <WorldGen />;
   if (route.startsWith('/games/paperplane/play/')) return <WorldMap id={route.slice('/games/paperplane/play/'.length)} />;
   if (route.startsWith('/apps/pixelite/frame/')) return <FrameEditor name={route.slice('/apps/pixelite/frame/'.length)} />;
   if (route === '/settings') return <Settings />;
@@ -103,7 +105,7 @@ function NavButton({ d, active, label, size, badge, showLabel }: { d: (typeof NA
 
 export function App() {
   const route = useRoute();
-  const playing = route.startsWith('/games/play/') || route.startsWith('/games/paperplane/play/') || route.startsWith('/apps/mindmap/') || route === '/apps/exercise/pushups';   // the game wants the whole screen: no bottom bar
+  const playing = route.startsWith('/games/play/') || route.startsWith('/games/paperplane/play/') || route === '/games/paperplane/generate' || route.startsWith('/apps/mindmap/') || route === '/apps/exercise/pushups';   // the game wants the whole screen: no bottom bar
   const { t, lang } = useI18n();
   const textScale = useAppState(s => s.settings.textScale);
   const navRef = useRef<HTMLElement>(null);

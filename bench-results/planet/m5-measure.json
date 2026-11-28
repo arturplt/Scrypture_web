@@ -1,0 +1,50 @@
+{
+ "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL ES 3.2)",
+ "checks": {
+  "sculptButton": true,
+  "coarseDuringStroke": true,
+  "fullAfterRelease": true,
+  "undoEnabled": true,
+  "undoDisabledAfter": true,
+  "createEnabled": true,
+  "savedSculpt": true
+ },
+ "stroke": {
+  "meshes": [
+   {
+    "N": 32,
+    "quick": true,
+    "tMs": 1204,
+    "afterReleaseMs": -547
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "tMs": 1433,
+    "afterReleaseMs": -317
+   },
+   {
+    "N": 32,
+    "quick": true,
+    "tMs": 1553,
+    "afterReleaseMs": -198
+   },
+   {
+    "N": 64,
+    "quick": false,
+    "tMs": 1897,
+    "afterReleaseMs": 146
+   }
+  ],
+  "strokeMs": 1751
+ },
+ "sculptPoints": 0,
+ "status": "69k triangles, detail 64\nThe red dot is where you start.\nAn approximation: one point every 53 tiles. The game's own ground is finer.",
+ "world": {
+  "size": 3360,
+  "seed": 42,
+  "sculptPairs": 560,
+  "bytes": 4406,
+  "hash": "#/games/paperplane/play/e8d66af8-486a-4b6f-ae07-9517b1b9b52d"
+ }
+}

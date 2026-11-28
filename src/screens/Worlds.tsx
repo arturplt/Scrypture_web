@@ -45,7 +45,10 @@ export function Worlds() {
         {lake && <PixelCheckbox big checked={stepped} onChange={setStepped} label={t('worldLakeTerraced')} />}
         {lake && stepped && <div className="muted small">{t('worldLakeTerracedHint')}</div>}
         {lake && <div className="muted small">{t(coniston ? 'worldLakeCreditLidar' : 'worldLakeCredit')}</div>}
-        <PixelButton scale={1} onClick={create}>{t('worldCreate')}</PixelButton>
+        <div className="row">
+          <PixelButton scale={1} onClick={create}>{t('worldCreate')}</PixelButton>
+          {kind === 'terraced' && !stepped && <PixelButton scale={1} variant="red" onClick={() => navigate('/games/paperplane/generate')}>{t('genOpen')}</PixelButton>}
+        </div>
         {note && <div role="status" className="muted small">{note}</div>}
       </PixelFrame>
       <PixelFrame theme="gold_thick" scale={1} className="card">

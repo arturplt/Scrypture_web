@@ -16,6 +16,16 @@ const SEA: RGB = [30, 74, 142], SAND: RGB = [216, 198, 142], GRASS: RGB = [124, 
 const ROCK: RGB = [148, 138, 128], SNOW: RGB = [238, 242, 248], ICE: RGB = [226, 236, 246], UNBUILT: RGB = [24, 28, 40];
 const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
+/** The colour of dry land of a layer and biome (index into BIOME_LIST) where the bare tops begin at layer `bareFrom`: sand, meadows, woods, wet ground, bare rock and snow on the heights, a little lighter with height. */
+export function groundTint(layer: number, b: number, bareFrom: number): [number, number, number] {
+  let col: [number, number, number];
+  if (layer >= bareFrom + 55) col = mix(ROCK, SNOW, Math.min(1, (layer - bareFrom - 55) / 40));
+  else if (b === 3) col = layer >= bareFrom ? mix(SAND, ROCK, Math.min(1, (layer - bareFrom) / 30)) : [...SAND];
+  else col = [...(b === 1 ? WOOD : b === 2 ? WET : GRASS)];
+  const shade = 0.9 + Math.min(0.25, layer * 0.006);
+  return [col[0] * shade, col[1] * shade, col[2] * shade];
+}
+
 /** The colour of the ground at an unrolled tile of a globe (the polar caps white, then sea, lakes, sand, meadows, woods, bare rock and snow on the heights). */
 export function globeColor(world: World, x: number, y: number): [number, number, number] {
   const cap = capAt(x + 0.5, y + 0.5);
@@ -23,13 +33,7 @@ export function globeColor(world: World, x: number, y: number): [number, number,
   const seed = world.seed, layer = layerOf(elevationBroad(x + 0.5, y + 0.5, seed));   // (the broad ground: at a pixel of dozens of tiles the small hills and lakes would only be a speckle)
   let col: [number, number, number];
   if (layer < 0) col = mix(SEA, [20, 52, 112], Math.min(1, -layer / 4));
-  else {
-    const b = terraceBiome(layer, terraceMoist(x, y, seed));
-    if (layer >= terraceBareFrom() + 55) col = mix(ROCK, SNOW, Math.min(1, (layer - terraceBareFrom() - 55) / 40));
-    else if (b === 3) col = layer >= terraceBareFrom() ? mix(SAND, ROCK, Math.min(1, (layer - terraceBareFrom()) / 30)) : [...SAND];
-    else col = [...(b === 1 ? WOOD : b === 2 ? WET : GRASS)];
-    const shade = 0.9 + Math.min(0.25, layer * 0.006); col = [col[0] * shade, col[1] * shade, col[2] * shade];
-  }
+  else col = groundTint(layer, terraceBiome(layer, terraceMoist(x, y, seed)), terraceBareFrom());
   return cap > 0 ? mix(col, ICE, cap) : col;
 }
 

@@ -266,3 +266,19 @@ describe('streams out of the lakes on the terraced hills', () => {
     expect(([...becks.keys()].filter(k => Math.hypot(keyX(k) - o.x, keyY(k) - o.y) <= 2.5)).length).toBeGreaterThan(0);
   });
 });
+
+describe('chunkMap (the minimap\'s chunk read)', () => {
+  it('agrees with the full chunk read on nearly every tile, and is much cheaper', async () => {
+    const { World } = await import('./worldgen');
+    const { CUBE_N } = await import('./cube');
+    const w = new World(42, undefined, 'terraced', null, CUBE_N);
+    let same = 0, sameL = 0, n = 0, tFull = 0, tLight = 0;
+    for (const [cx, cy] of [[20, 30], [40, 31], [60, 70], [100, 90], [150, 120], [30, 160]]) {
+      let t0 = performance.now(); const m = w.chunkMap(cx, cy); tLight += performance.now() - t0;
+      t0 = performance.now(); const t = w.chunkTerrain(cx, cy), l = w.chunkLayers(cx, cy); tFull += performance.now() - t0;
+      for (let i = 0; i < 256; i++) { n++; if (m.t[i] === t[i]) same++; if (m.l[i] === l[i]) sameL++; }
+    }
+    expect(same / n).toBeGreaterThan(0.93); expect(sameL / n).toBeGreaterThan(0.9);
+    console.log(`CHUNKMAP terrain agree ${(100 * same / n).toFixed(1)}%, layers ${(100 * sameL / n).toFixed(1)}%, light ${tLight.toFixed(0)} ms vs full ${tFull.toFixed(0)} ms for 6 chunks`);
+  });
+});
